@@ -1,4 +1,4 @@
-import { Inbox, LayoutDashboard, Newspaper, Swords } from 'lucide-react';
+import { Inbox, LayoutDashboard, LineChart, Newspaper, Swords } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import type { ReactNode } from 'react';
 
@@ -15,6 +15,11 @@ const adminNavItems: AdminNavItem[] = [
     label: 'Dashboard',
     icon: <LayoutDashboard className="w-4 h-4" />,
     end: true,
+  },
+  {
+    to: '/admin/pilotage',
+    label: 'Pilotage',
+    icon: <LineChart className="w-4 h-4" />,
   },
   {
     to: '/admin/news',
