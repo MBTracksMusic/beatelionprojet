@@ -49,6 +49,10 @@ export const fr = {
   auth: {
     loginTitle: 'Connexion',
     registerTitle: 'Creer un compte',
+    backToHome: "Retour a l'accueil",
+    accountType: "Je m'inscris en tant que",
+    accountTypeUser: 'Utilisateur',
+    accountTypeProducer: 'Producteur',
     email: 'Email',
     password: 'Mot de passe',
     confirmPassword: 'Confirmer le mot de passe',

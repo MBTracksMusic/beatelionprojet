@@ -2,7 +2,6 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 interface CheckoutBody {
-  price_id?: string;
   success_url?: string;
   cancel_url?: string;
 }
@@ -82,7 +81,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: CheckoutBody = await req.json();
-    const priceId = body.price_id || Deno.env.get("STRIPE_PRODUCER_PRICE_ID");
+    const priceId = Deno.env.get("STRIPE_PRODUCER_PRICE_ID");
     const successUrl = body.success_url || `${req.headers.get("origin")}/pricing?status=success`;
     const cancelUrl = body.cancel_url || `${req.headers.get("origin")}/pricing?status=cancel`;
 

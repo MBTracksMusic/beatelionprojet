@@ -85,6 +85,7 @@ function AppContent() {
         <Route path="battles" element={<BattlesPage />} />
         <Route path="battles/:slug" element={<BattleDetailPage />} />
         <Route path="pricing" element={<PricingPage />} />
+        <Route path="tarifs" element={<PricingPage />} />
         <Route path="guide-producteur" element={<ProducerGuide />} />
         <Route path="faq" element={<Faq />} />
         <Route path="contact" element={<ContactPage />} />

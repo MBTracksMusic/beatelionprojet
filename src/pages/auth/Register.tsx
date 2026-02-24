@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, User, Music } from 'lucide-react';
+import { Mail, Lock, User, Music, ArrowLeft } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { useTranslation } from '../../lib/i18n';
@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import { AuthApiError } from '@supabase/supabase-js';
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,32}$/;
+type AccountType = 'user' | 'producer';
 
 export function RegisterPage() {
   const { t } = useTranslation();
@@ -19,6 +20,7 @@ export function RegisterPage() {
     password: '',
     confirmPassword: '',
   });
+  const [accountType, setAccountType] = useState<AccountType>('user');
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [cooldown, setCooldown] = useState(0);
@@ -89,11 +91,16 @@ export function RegisterPage() {
         username: formData.username.trim(),
       });
 
+      const producerRedirectPath = '/tarifs';
       if (result.user && !result.user.confirmed_at) {
-        navigate(`/email-confirmation?email=${encodeURIComponent(formData.email)}`);
+        if (accountType === 'producer') {
+          navigate(producerRedirectPath);
+        } else {
+          navigate(`/email-confirmation?email=${encodeURIComponent(formData.email)}`);
+        }
       } else {
         toast.success(t('auth.registerSuccess'));
-        navigate('/');
+        navigate(accountType === 'producer' ? producerRedirectPath : '/');
       }
     } catch (err: unknown) {
       const error = err as { message?: string; code?: string; status?: number };
@@ -124,7 +131,16 @@ export function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-12 bg-zinc-950">
+    <div className="min-h-screen flex items-center justify-center px-4 py-12 bg-zinc-950 relative">
+      <div className="absolute top-6 left-4 sm:left-6">
+        <Link
+          to="/"
+          className="inline-flex items-center gap-2 text-sm text-zinc-300 hover:text-white transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          {t('auth.backToHome')}
+        </Link>
+      </div>
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex items-center gap-2 mb-6">
@@ -145,6 +161,36 @@ export function RegisterPage() {
 
         <div className="bg-zinc-900 rounded-2xl p-8 border border-zinc-800">
           <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-zinc-200">{t('auth.accountType')}</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAccountType('user')}
+                  className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                    accountType === 'user'
+                      ? 'border-rose-500 bg-rose-500/15 text-white'
+                      : 'border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-500'
+                  }`}
+                  aria-pressed={accountType === 'user'}
+                >
+                  {t('auth.accountTypeUser')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAccountType('producer')}
+                  className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                    accountType === 'producer'
+                      ? 'border-rose-500 bg-rose-500/15 text-white'
+                      : 'border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-500'
+                  }`}
+                  aria-pressed={accountType === 'producer'}
+                >
+                  {t('auth.accountTypeProducer')}
+                </button>
+              </div>
+            </div>
+
             <Input
               type="email"
               name="email"

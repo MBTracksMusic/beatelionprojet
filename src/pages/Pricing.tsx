@@ -1,142 +1,89 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Check, Zap, ArrowRight } from 'lucide-react';
+import {
+  ArrowUpRight,
+  BarChart3,
+  BadgeCheck,
+  Check,
+  Coins,
+  Flame,
+  Globe2,
+  Music2,
+  Rocket,
+  ShieldCheck,
+  Sparkles,
+  Target,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
-import { useTranslation } from '../lib/i18n';
 import { useAuth } from '../lib/auth/hooks';
 import { supabase } from '../lib/supabase/client';
+import { Card } from '../components/ui/Card';
+import { Modal } from '../components/ui/Modal';
+import { Input } from '../components/ui/Input';
+import toast from 'react-hot-toast';
 import type { Database } from '../lib/supabase/types';
 
-const featureLabels: Record<string, { fr: string; en: string; de: string }> = {
-  uploads: {
-    fr: '{value} uploads/mois',
-    en: '{value} uploads/month',
-    de: '{value} Uploads/Monat',
-  },
-  analytics_basic: {
-    fr: 'Statistiques de base',
-    en: 'Basic analytics',
-    de: 'Grundlegende Statistiken',
-  },
-  analytics: {
-    fr: 'Statistiques avancees',
-    en: 'Advanced analytics',
-    de: 'Erweiterte Statistiken',
-  },
-  battles_basic: {
-    fr: 'Participation aux battles (1/mois)',
-    en: 'Battle participation (1/month)',
-    de: 'Battle-Teilnahme (1/Monat)',
-  },
-  battles: {
-    fr: 'Participation illimitee aux battles',
-    en: 'Unlimited battle participation',
-    de: 'Unbegrenzte Battle-Teilnahme',
-  },
-  exclusive: {
-    fr: 'Vente de beats exclusifs',
-    en: 'Sell exclusive beats',
-    de: 'Exklusive Beats verkaufen',
-  },
-  promotion: {
-    fr: 'Mise en avant sur la page daccueil',
-    en: 'Homepage featured placement',
-    de: 'Platzierung auf der Startseite',
-  },
-  promotion_premium: {
-    fr: 'Mise en avant premium + newsletter',
-    en: 'Premium placement + newsletter',
-    de: 'Premium-Platzierung + Newsletter',
-  },
-  support_email: {
-    fr: 'Support par email',
-    en: 'Email support',
-    de: 'E-Mail-Support',
-  },
-  priority: {
-    fr: 'Support prioritaire',
-    en: 'Priority support',
-    de: 'Prioritats-Support',
-  },
-  priority_vip: {
-    fr: 'Support VIP 24/7',
-    en: 'VIP 24/7 support',
-    de: 'VIP 24/7-Support',
-  },
-  account_manager: {
-    fr: 'Account manager dedie',
-    en: 'Dedicated account manager',
-    de: 'Dedizierter Account Manager',
-  },
-  api_access: {
-    fr: 'Acces API',
-    en: 'API access',
-    de: 'API-Zugang',
-  },
-  anti_fraud: {
-    fr: 'Contrôles anti-fraude côté serveur',
-    en: 'Server-side anti-fraud checks',
-    de: 'Serverseitige Betrugsprüfung',
-  },
-  stripe_webhooks: {
-    fr: 'Abonnement géré 100% via Stripe + webhooks',
-    en: 'Subscription managed 100% via Stripe + webhooks',
-    de: 'Abo komplett über Stripe + Webhooks verwaltet',
-  },
-  server_first: {
-    fr: 'Règles métier exécutées côté serveur uniquement',
-    en: 'Business rules enforced server-side only',
-    de: 'Geschäftslogik ausschließlich serverseitig',
-  },
+type ProducerTier = 'starter' | 'pro' | 'elite';
+const eliteWaitlistSource = 'elite_waitlist' as unknown as keyof Database['public']['Tables'];
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+interface PlanItem {
+  icon: LucideIcon;
+  text: string;
+}
+
+const starterItems: PlanItem[] = [
+  { icon: Music2, text: 'Jusqu’à 5 beats publiés' },
+  { icon: Globe2, text: 'Profil public visible sur la marketplace' },
+  { icon: Users, text: '1 battle communautaire par mois' },
+  { icon: BarChart3, text: 'Statistiques basiques' },
+  { icon: ShieldCheck, text: 'Paiements sécurisés' },
+  { icon: ArrowUpRight, text: 'Passage vers PRO à tout moment' },
+];
+
+const proItems: PlanItem[] = [
+  { icon: Music2, text: 'Upload illimité de beats' },
+  { icon: Coins, text: 'Commission réduite à 5%' },
+  { icon: Flame, text: 'Battles illimitées' },
+  { icon: Rocket, text: 'Boost de visibilité sur la plateforme' },
+  { icon: BadgeCheck, text: 'Badge PRO visible sur le profil' },
+  { icon: BarChart3, text: 'Statistiques avancées' },
+  { icon: Sparkles, text: 'Support prioritaire' },
+];
+
+interface ProfileWithTier {
+  producer_tier?: ProducerTier | null;
+}
+
+const toProducerTier = (value: unknown): ProducerTier => {
+  if (value === 'pro' || value === 'elite' || value === 'starter') {
+    return value;
+  }
+  return 'starter';
 };
 
 export function PricingPage() {
-  const { t, language } = useTranslation();
   const { user, profile } = useAuth();
   const navigate = useNavigate();
-  const [isLoading, setIsLoading] = useState(true);
+  const [isPlanLoading, setIsPlanLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<{
     stripe_price_id: string;
     amount_cents: number;
     currency: string;
   } | null>(null);
-  const [stripePrice, setStripePrice] = useState<{
-    unit_amount: number;
-    currency: string;
-    interval: string | null;
-  } | null>(null);
-  const [isStripePriceLoading, setIsStripePriceLoading] = useState(true);
-  const [stripePriceError, setStripePriceError] = useState<string | null>(null);
-  const [subscription, setSubscription] = useState<{ subscription_status: string } | null>(null);
-
-  const formatPrice = (cents: number, currencyCode = 'EUR') => {
-    return new Intl.NumberFormat('fr-FR', {
-      style: 'currency',
-      currency: currencyCode.toUpperCase(),
-      minimumFractionDigits: 0,
-    }).format(cents / 100);
-  };
-
-  const getFeatureLabel = (feature: string | { key: string; value: string }) => {
-    if (typeof feature === 'object') {
-      const label = featureLabels[feature.key]?.[language as keyof typeof featureLabels['uploads']] || feature.key;
-      return label.replace('{value}', feature.value);
-    }
-    return featureLabels[feature]?.[language as keyof typeof featureLabels['uploads']] || feature;
-  };
-
-  const formatInterval = (interval: string | null | undefined) => {
-    if (!interval || interval === 'month') {
-      return t('subscription.perMonth');
-    }
-    return `/${interval}`;
-  };
+  const [isEliteModalOpen, setIsEliteModalOpen] = useState(false);
+  const [eliteEmail, setEliteEmail] = useState('');
+  const [isEliteSubmitting, setIsEliteSubmitting] = useState(false);
+  const currentTier = user
+    ? toProducerTier((profile as unknown as ProfileWithTier | null)?.producer_tier)
+    : null;
 
   useEffect(() => {
     const fetchPlan = async () => {
-      setIsLoading(true);
+      setIsPlanLoading(true);
       setError(null);
       const { data, error: fetchError } = await supabase
         .from('producer_plan_config')
@@ -144,8 +91,8 @@ export function PricingPage() {
         .maybeSingle();
 
       if (fetchError || !data) {
-        setError('Impossible de charger le plan producteur. Réessayez plus tard.');
-        setIsLoading(false);
+        setError('Impossible de charger l’offre PRO. Réessayez plus tard.');
+        setIsPlanLoading(false);
         return;
       }
 
@@ -154,100 +101,13 @@ export function PricingPage() {
         amount_cents: data.amount_cents,
         currency: data.currency || 'EUR',
       });
-      setIsLoading(false);
+      setIsPlanLoading(false);
     };
 
-    fetchPlan();
+    void fetchPlan();
   }, []);
 
-  useEffect(() => {
-    let isCancelled = false;
-
-    const fetchStripePrice = async () => {
-      setIsStripePriceLoading(true);
-      setStripePriceError(null);
-
-      const { data, error: fnError } = await supabase.functions.invoke('get-producer-price', {
-        body: {},
-      });
-
-      if (fnError) {
-        console.error('get-producer-price error', fnError, data);
-        if (!isCancelled) {
-          setStripePrice(null);
-          setStripePriceError('Tarif Stripe indisponible. Affichage du tarif configuré.');
-          setIsStripePriceLoading(false);
-        }
-        return;
-      }
-
-      const stripeData = data as {
-        unit_amount?: number;
-        currency?: string;
-        interval?: string | null;
-      } | null;
-
-      if (!stripeData || typeof stripeData.unit_amount !== 'number' || !stripeData.currency) {
-        if (!isCancelled) {
-          setStripePrice(null);
-          setStripePriceError('Réponse Stripe invalide. Affichage du tarif configuré.');
-          setIsStripePriceLoading(false);
-        }
-        return;
-      }
-
-      if (!isCancelled) {
-        setStripePrice({
-          unit_amount: stripeData.unit_amount,
-          currency: stripeData.currency,
-          interval: stripeData.interval ?? null,
-        });
-        setIsStripePriceLoading(false);
-      }
-    };
-
-    void fetchStripePrice();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let isCancelled = false;
-
-    const fetchSubscription = async () => {
-      if (!user?.id) {
-        if (!isCancelled) setSubscription(null);
-        return;
-      }
-
-      const producerSubscriptionsSource = 'producer_subscriptions' as unknown as keyof Database['public']['Tables'];
-      const { data, error: subscriptionError } = await supabase
-        .from(producerSubscriptionsSource)
-        .select('subscription_status')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (subscriptionError) {
-        console.error('Error loading producer subscription:', subscriptionError);
-        if (!isCancelled) setSubscription(null);
-        return;
-      }
-
-      if (!isCancelled) {
-        setSubscription((data as { subscription_status: string } | null) ?? null);
-      }
-    };
-
-    void fetchSubscription();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [user?.id]);
-
-  const startCheckout = async () => {
+  const startProCheckout = async () => {
     if (!plan) return;
     if (!user) {
       navigate('/login', { state: { from: '/pricing' } });
@@ -262,26 +122,33 @@ export function PricingPage() {
         throw new Error('Session expirée. Merci de vous reconnecter.');
       }
 
-      const headers: Record<string, string> = {
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
-        'x-supabase-auth': `Bearer ${accessToken}`,
-      };
-
       const { data, error: fnError } = await supabase.functions.invoke('producer-checkout', {
         body: {
           price_id: plan.stripe_price_id,
           success_url: `${window.location.origin}/pricing?status=success`,
           cancel_url: `${window.location.origin}/pricing?status=cancel`,
         },
-        headers,
         jwt: accessToken, // force Authorization: Bearer <user token> pour la gateway
       });
 
       if (fnError) {
         console.error('producer-checkout error', fnError, data);
         const apiError = (data as { error?: string })?.error;
-        const contextError = (fnError as unknown as { context?: { response?: { error?: string } } })
-          ?.context?.response?.error;
+        let contextError: string | null = null;
+        const context = (fnError as { context?: unknown })?.context;
+        if (context instanceof Response) {
+          try {
+            const payload = await context.clone().json() as { error?: string; message?: string };
+            contextError = payload.error || payload.message || null;
+          } catch {
+            try {
+              const rawText = await context.clone().text();
+              contextError = rawText || null;
+            } catch {
+              contextError = null;
+            }
+          }
+        }
         throw new Error(
           apiError ||
           contextError ||
@@ -301,134 +168,283 @@ export function PricingPage() {
     }
   };
 
-  const isCurrentPlan = subscription?.subscription_status === 'active' && profile?.is_producer_active;
-  const forceSubscribe = import.meta.env.DEV || new URLSearchParams(window.location.search).get('force_subscribe') === '1';
-  const lockCurrentPlanCta = isCurrentPlan && !forceSubscribe;
+  const isStarterCurrent = currentTier === 'starter';
+  const isProCurrent = currentTier === 'pro';
+  const isEliteCurrent = currentTier === 'elite';
+  const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
-  const singlePlanFeatures: Array<string | { key: string; value: string }> = [
-    { key: 'uploads', value: 'Illimité' },
-    'analytics',
-    'battles',
-    'exclusive',
-    'promotion',
-    'priority',
-    'anti_fraud',
-    'stripe_webhooks',
-    'server_first',
-  ];
+  const addToEliteWaitlist = async (rawEmail: string) => {
+    const email = normalizeEmail(rawEmail);
+    if (!EMAIL_REGEX.test(email)) {
+      toast.error('Adresse email invalide.');
+      return false;
+    }
 
-  const displayedAmountCents = stripePrice?.unit_amount ?? plan?.amount_cents ?? null;
-  const displayedCurrency = stripePrice?.currency ?? plan?.currency ?? 'EUR';
-  const displayedInterval = stripePrice?.interval ?? 'month';
-  const isPriceLoading = isLoading || isStripePriceLoading;
+    const payload = user
+      ? { email, user_id: user.id }
+      : { email, user_id: null };
+
+    const { error: insertError } = await supabase
+      .from(eliteWaitlistSource)
+      .insert(payload as never);
+
+    if (insertError) {
+      if ((insertError as { code?: string }).code === '23505') {
+        toast.success('Vous êtes déjà inscrit. Nous vous informerons à l’ouverture ELITE.');
+        return true;
+      }
+      console.error('elite waitlist insert error', insertError);
+      toast.error('Impossible de vous inscrire pour le moment.');
+      return false;
+    }
+
+    toast.success('Vous serez informé');
+    return true;
+  };
+
+  const closeEliteModal = () => {
+    if (isEliteSubmitting) return;
+    setIsEliteModalOpen(false);
+  };
+
+  const handleEliteNotifyClick = async () => {
+    if (isEliteCurrent || isEliteSubmitting) return;
+
+    if (!user) {
+      setEliteEmail('');
+      setIsEliteModalOpen(true);
+      return;
+    }
+
+    const accountEmail = normalizeEmail(profile?.email || user.email || '');
+    if (!accountEmail) {
+      toast.error('Email introuvable sur votre compte.');
+      return;
+    }
+
+    setIsEliteSubmitting(true);
+    try {
+      await addToEliteWaitlist(accountEmail);
+    } finally {
+      setIsEliteSubmitting(false);
+    }
+  };
+
+  const handleEliteModalSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (isEliteSubmitting) return;
+    setIsEliteSubmitting(true);
+    try {
+      const inserted = await addToEliteWaitlist(eliteEmail);
+      if (inserted) {
+        setIsEliteModalOpen(false);
+        setEliteEmail('');
+      }
+    } finally {
+      setIsEliteSubmitting(false);
+    }
+  };
+
+  const renderFeature = (text: string) => (
+    <li className="flex items-start gap-3">
+      <Check className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+      <span className="text-zinc-300">{text}</span>
+    </li>
+  );
+
+  const renderPlanItem = (item: PlanItem) => {
+    const Icon = item.icon;
+    return (
+      <li key={item.text} className="flex items-start gap-3">
+        <Icon className="w-4 h-4 text-zinc-200 flex-shrink-0 mt-1" />
+        <span className="text-zinc-200/95 text-sm">{item.text}</span>
+      </li>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-zinc-950 pt-8 pb-32">
       <div className="max-w-7xl mx-auto px-4">
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-white mb-4">
-            {t('subscription.title')}
-          </h1>
+          <h1 className="text-4xl font-bold text-white mb-4">Abonnements Producteur</h1>
           <p className="text-xl text-zinc-400 max-w-2xl mx-auto">
-            {t('subscription.subtitle')}
+            Choisissez la formule qui correspond à votre niveau.
           </p>
         </div>
 
-        <div className="max-w-3xl mx-auto">
-          <div className="relative bg-zinc-900 rounded-2xl border border-rose-500 overflow-hidden">
-            <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-rose-500 to-orange-500 text-white text-center text-sm py-1 font-medium">
-              Accès producteur (unique)
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Card className="relative h-full flex flex-col border border-emerald-700/60 bg-zinc-900 p-6">
+            <div className="flex items-start justify-between gap-3 mb-6">
+              <div>
+                <h3 className="text-2xl font-bold text-white mb-1">Producteur STARTER</h3>
+                <p className="text-zinc-200 font-semibold">Lance-toi. Teste. Commence à vendre.</p>
+                <p className="text-zinc-400 text-sm mt-1 flex items-start gap-2">
+                  <Target className="w-4 h-4 mt-0.5 text-zinc-300" />
+                  Idéal pour découvrir la plateforme et faire tes premières ventes.
+                </p>
+              </div>
+              {isStarterCurrent && <Badge variant="success">Plan actuel</Badge>}
             </div>
 
-            <div className="p-8 pt-12">
-              <div className="flex items-start justify-between gap-4 mb-6">
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-rose-500 to-orange-500 flex items-center justify-center">
-                    <Zap className="w-7 h-7 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-2xl font-bold text-white mb-1">Producer Subscription</h3>
-                    <p className="text-zinc-400 text-sm">
-                      Abonnement mensuel unique, géré intégralement côté serveur (Stripe + webhooks).
-                    </p>
-                  </div>
-                </div>
-                <Badge variant="success">Mensuel</Badge>
+            <div className="mb-5">
+              <span className="text-4xl font-bold text-white">Gratuit</span>
+            </div>
+
+            <div className="mb-3 flex items-center gap-2">
+              <Check className="w-5 h-5 text-emerald-400" />
+              <p className="text-xl font-bold text-white">Ce qui est inclus</p>
+            </div>
+            <ul className="space-y-2 mb-6">
+              {starterItems.map(renderPlanItem)}
+            </ul>
+
+            <div className="mb-6 p-3 rounded-lg border border-zinc-800 bg-zinc-950/60">
+              <p className="text-white font-semibold flex items-center gap-2">
+                <Coins className="w-4 h-4 text-amber-300" />
+                Commission
+              </p>
+              <p className="text-zinc-200 text-sm mt-1">12% sur chaque vente</p>
+              <p className="text-zinc-400 text-xs mt-1">Tu ne paies que si tu vends.</p>
+            </div>
+
+            <div className="mt-auto pt-6">
+              {user ? (
+                <Button
+                  className="w-full"
+                  variant="secondary"
+                  size="lg"
+                  disabled={isStarterCurrent}
+                  onClick={() => navigate('/dashboard')}
+                >
+                  {isStarterCurrent ? 'Plan actuel' : 'Commencer'}
+                </Button>
+              ) : (
+                <Link to="/register">
+                  <Button
+                    className="w-full"
+                    variant="secondary"
+                    size="lg"
+                  >
+                    Commencer
+                  </Button>
+                </Link>
+              )}
+            </div>
+          </Card>
+
+          <Card className="relative h-full flex flex-col border border-rose-500 bg-zinc-900 p-6">
+            <div className="flex items-start justify-between gap-3 mb-6">
+              <div>
+                <h3 className="text-2xl font-bold text-white mb-1">Producteur PRO</h3>
+                <p className="text-zinc-200 font-semibold">Accélère ta croissance. Gagne en visibilité.</p>
+                <p className="text-zinc-400 text-sm mt-1 flex items-start gap-2">
+                  <Target className="w-4 h-4 mt-0.5 text-zinc-300" />
+                  Idéal pour les producteurs qui veulent scaler.
+                </p>
               </div>
+              {isProCurrent && <Badge variant="premium">Plan actuel</Badge>}
+            </div>
 
-              <div className="mb-6">
-                {isPriceLoading ? (
-                  <span className="text-zinc-400">Chargement du tarif...</span>
-                ) : displayedAmountCents !== null ? (
-                  <>
-                    <span className="text-4xl font-bold text-white">
-                      {formatPrice(displayedAmountCents, displayedCurrency)}
-                    </span>
-                    <span className="text-zinc-400"> {formatInterval(displayedInterval)}</span>
-                  </>
-                ) : (
-                  <span className="text-red-400 text-sm">{error || stripePriceError}</span>
-                )}
-                {stripePriceError && plan && (
-                  <p className="text-amber-400 text-xs mt-2">{stripePriceError}</p>
-                )}
-              </div>
+            <div className="mb-6">
+              <span className="text-4xl font-bold text-white">19,99€</span>
+              <span className="text-zinc-400"> / mois</span>
+            </div>
 
-              <ul className="space-y-3 mb-8">
-                {singlePlanFeatures.map((feature, index) => (
-                  <li key={index} className="flex items-start gap-3">
-                    <Check className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
-                    <span className="text-zinc-300">
-                      {getFeatureLabel(feature)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+            <div className="mb-3 flex items-center gap-2">
+              <Check className="w-5 h-5 text-emerald-400" />
+              <p className="text-xl font-bold text-white">Inclus</p>
+            </div>
+            <ul className="space-y-2 mb-8">
+              {proItems.map(renderPlanItem)}
+            </ul>
 
+            <div className="mt-auto pt-6">
               {error && (
                 <div className="mb-4 text-sm text-red-400 bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">
                   {error}
                 </div>
               )}
 
-              {user ? (
-                <Button
-                  className="w-full"
-                  variant="primary"
-                  size="lg"
-                  disabled={lockCurrentPlanCta || isLoading || !plan}
-                  onClick={startCheckout}
-                >
-                  {lockCurrentPlanCta
-                    ? t('subscription.currentPlan')
-                    : t('subscription.subscribe')}
-                </Button>
-              ) : (
-                <Link to="/register">
-                  <Button
-                    className="w-full"
-                    variant="primary"
-                    size="lg"
-                    rightIcon={<ArrowRight className="w-4 h-4" />}
-                    disabled={isLoading || !plan}
-                  >
-                    {t('nav.register')}
-                  </Button>
-                </Link>
-              )}
+              <Button
+                className="w-full"
+                variant="primary"
+                size="lg"
+                disabled={isProCurrent || isPlanLoading || !plan}
+                onClick={startProCheckout}
+              >
+                {isProCurrent ? 'Plan actuel' : 'Choisir PRO'}
+              </Button>
             </div>
-          </div>
+          </Card>
+
+          <Card className="relative h-full flex flex-col border border-red-700/60 bg-zinc-900 p-6">
+            <div className="flex items-start justify-between gap-3 mb-6">
+              <div>
+                <h3 className="text-2xl font-bold text-white mb-1">Producteur ELITE</h3>
+                <p className="text-zinc-200 font-semibold">Le niveau supérieur.</p>
+                <p className="text-zinc-100 text-4xl leading-none mt-2">Bientôt disponible.</p>
+                <p className="text-zinc-400 text-sm mt-2 flex items-start gap-2">
+                  <Target className="w-4 h-4 mt-0.5 text-zinc-300" />
+                  Conçu pour les producteurs les plus ambitieux.
+                </p>
+              </div>
+              {isEliteCurrent && <Badge variant="danger">Plan actuel</Badge>}
+            </div>
+
+            <div className="mt-auto pt-6">
+              <Button
+                className="w-full"
+                variant="outline"
+                size="lg"
+                disabled={isEliteCurrent || isEliteSubmitting}
+                onClick={handleEliteNotifyClick}
+              >
+                {isEliteCurrent ? 'Plan actuel' : 'M’informer quand disponible'}
+              </Button>
+            </div>
+          </Card>
         </div>
 
         <div className="mt-16 text-center">
-          <p className="text-zinc-400 mb-4">
-            Des questions sur nos offres ?
-          </p>
+          <p className="text-zinc-400 mb-4">Des questions sur nos offres ?</p>
           <Link to="/contact">
             <Button variant="ghost">Contactez-nous</Button>
           </Link>
         </div>
       </div>
+
+      <Modal
+        isOpen={isEliteModalOpen}
+        onClose={closeEliteModal}
+        title="Liste d’attente ELITE"
+        description="Entrez votre email pour être informé dès l’ouverture."
+        size="sm"
+      >
+        <form onSubmit={handleEliteModalSubmit} className="space-y-4">
+          <Input
+            type="email"
+            label="Email"
+            value={eliteEmail}
+            onChange={(event) => setEliteEmail(event.target.value)}
+            placeholder="email@exemple.com"
+            autoComplete="email"
+            required
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={closeEliteModal}
+              disabled={isEliteSubmitting}
+            >
+              Annuler
+            </Button>
+            <Button type="submit" isLoading={isEliteSubmitting}>
+              Me prévenir
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

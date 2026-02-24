@@ -51,6 +51,10 @@ export const en: TranslationKeys = {
   auth: {
     loginTitle: 'Login',
     registerTitle: 'Create an account',
+    backToHome: 'Back to home',
+    accountType: 'I want to sign up as',
+    accountTypeUser: 'User',
+    accountTypeProducer: 'Producer',
     email: 'Email',
     password: 'Password',
     confirmPassword: 'Confirm password',
