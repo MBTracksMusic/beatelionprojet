@@ -52,23 +52,12 @@ export function Header() {
             </Link>
 
             <nav className="hidden lg:flex items-center gap-1">
+              {/* TODO(levelup): sections exclusives/kits temporairement desactivees. */}
               <Link
                 to="/beats"
                 className="px-3 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
               >
                 {t('nav.beats')}
-              </Link>
-              <Link
-                to="/exclusives"
-                className="px-3 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
-              >
-                {t('nav.exclusives')}
-              </Link>
-              <Link
-                to="/kits"
-                className="px-3 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
-              >
-                {t('nav.kits')}
               </Link>
               <Link
                 to="/battles"
@@ -292,26 +281,13 @@ export function Header() {
       {isMenuOpen && (
         <div className="lg:hidden border-t border-zinc-800 bg-zinc-950">
           <nav className="px-4 py-4 space-y-1">
+            {/* TODO(levelup): sections exclusives/kits temporairement desactivees. */}
             <Link
               to="/beats"
               onClick={() => setIsMenuOpen(false)}
               className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg"
             >
               {t('nav.beats')}
-            </Link>
-            <Link
-              to="/exclusives"
-              onClick={() => setIsMenuOpen(false)}
-              className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg"
-            >
-              {t('nav.exclusives')}
-            </Link>
-            <Link
-              to="/kits"
-              onClick={() => setIsMenuOpen(false)}
-              className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg"
-            >
-              {t('nav.kits')}
             </Link>
             <Link
               to="/battles"

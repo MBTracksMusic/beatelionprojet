@@ -33,6 +33,8 @@ export function HomePage() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const { productIds: wishlistProductIds, fetchWishlist, toggleWishlist, clearWishlist } = useWishlistStore();
+  // TODO(levelup): reactiver cette section quand les categories Exclusifs/Kits reviennent.
+  const isExclusiveSectionEnabled = false;
   const [exclusives, setExclusives] = useState<ProductWithRelations[]>([]);
   const [homeStats, setHomeStats] = useState<{
     beatsPublished: number | null;
@@ -183,7 +185,7 @@ export function HomePage() {
       <HomeBattlesPreview />
       <HomeFeaturedBeats />
 
-      {exclusives.length > 0 && (
+      {isExclusiveSectionEnabled && exclusives.length > 0 && (
         <section className="py-20 bg-gradient-to-b from-zinc-950 to-zinc-900">
           <div className="max-w-7xl mx-auto px-4">
             <div className="flex items-center justify-between mb-10">

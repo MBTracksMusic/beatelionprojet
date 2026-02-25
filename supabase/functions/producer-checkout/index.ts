@@ -2,9 +2,35 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 interface CheckoutBody {
+  tier?: string;
   success_url?: string;
   cancel_url?: string;
 }
+
+type CheckoutTier = "pro" | "elite";
+const CHECKOUT_TIERS = new Set<CheckoutTier>(["pro", "elite"]);
+const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
+
+const isFutureTimestamp = (value: string | null | undefined) => {
+  if (!value) return false;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && parsed > Date.now();
+};
+
+const normalizeTier = (value: unknown): CheckoutTier | null => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (CHECKOUT_TIERS.has(normalized as CheckoutTier)) {
+    return normalized as CheckoutTier;
+  }
+  return null;
+};
+
+const isTruthy = (value: string | null | undefined) => {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+};
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -80,18 +106,116 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Guardrail: avoid creating a new checkout session if the user already has an active producer subscription.
+    const { data: existingProducerSubscription, error: existingProducerSubscriptionError } = await supabaseAdmin
+      .from("producer_subscriptions")
+      .select("subscription_status, current_period_end, is_producer_active")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (existingProducerSubscriptionError) {
+      console.error("DB_ERROR", {
+        function: "producer-checkout",
+        stage: "check_existing_subscription",
+        message: existingProducerSubscriptionError.message,
+      });
+      return new Response(JSON.stringify({ error: "Unable to verify current subscription status" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const alreadySubscribed = Boolean(
+      existingProducerSubscription && (
+        existingProducerSubscription.is_producer_active === true ||
+        (
+          typeof existingProducerSubscription.subscription_status === "string" &&
+          ACTIVE_SUBSCRIPTION_STATUSES.has(existingProducerSubscription.subscription_status) &&
+          isFutureTimestamp(existingProducerSubscription.current_period_end)
+        )
+      ),
+    );
+
+    if (alreadySubscribed) {
+      return new Response(JSON.stringify({ error: "already_subscribed" }), {
+        status: 409,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const body: CheckoutBody = await req.json();
-    const priceId = Deno.env.get("STRIPE_PRODUCER_PRICE_ID");
+    const parsedTier = body.tier === undefined ? "pro" : normalizeTier(body.tier);
+    const requestedTier = parsedTier;
     const successUrl = body.success_url || `${req.headers.get("origin")}/pricing?status=success`;
     const cancelUrl = body.cancel_url || `${req.headers.get("origin")}/pricing?status=cancel`;
+
+    if (!requestedTier) {
+      return new Response(JSON.stringify({ error: "invalid_tier" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { data: tierPlan, error: tierPlanError } = await supabaseAdmin
+      .from("producer_plans")
+      .select("stripe_price_id, is_active")
+      .eq("tier", requestedTier)
+      .maybeSingle();
+
+    if (tierPlanError) {
+      console.error("DB_ERROR", {
+        function: "producer-checkout",
+        stage: "resolve_tier_plan",
+        requestedTier,
+        message: tierPlanError.message,
+      });
+      return new Response(JSON.stringify({ error: "Unable to resolve producer tier plan" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!tierPlan) {
+      return new Response(JSON.stringify({ error: "plan_unavailable" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (tierPlan.is_active !== true) {
+      return new Response(JSON.stringify({ error: "plan_unavailable" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const dbPriceId = typeof tierPlan.stripe_price_id === "string" && tierPlan.stripe_price_id.trim().length > 0
+      ? tierPlan.stripe_price_id.trim()
+      : null;
+    let priceId = dbPriceId;
+
+    if (!priceId && isTruthy(Deno.env.get("PRODUCER_CHECKOUT_ALLOW_ENV_FALLBACK"))) {
+      const fallbackPriceId = requestedTier === "elite"
+        ? Deno.env.get("STRIPE_PRODUCER_ELITE_PRICE_ID")
+        : Deno.env.get("STRIPE_PRODUCER_PRICE_ID");
+      if (typeof fallbackPriceId === "string" && fallbackPriceId.trim().length > 0) {
+        priceId = fallbackPriceId.trim();
+        console.warn("EMERGENCY_ENV_FALLBACK", {
+          function: "producer-checkout",
+          requestedTier,
+          reason: "missing_db_price_id",
+        });
+      }
+    }
 
     if (!priceId) {
       console.error("CONFIG_ERROR", {
         function: "producer-checkout",
         reason: "missing_price_id",
+        requestedTier,
       });
-      return new Response(JSON.stringify({ error: "Missing Stripe price id" }), {
-        status: 400,
+      return new Response(JSON.stringify({ error: "Stripe price ID not configured for tier" }), {
+        status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -165,7 +289,9 @@ Deno.serve(async (req: Request) => {
       "line_items[0][price]": priceId,
       "line_items[0][quantity]": "1",
       "metadata[user_id]": user.id,
+      "metadata[requested_tier]": requestedTier,
       "subscription_data[metadata][user_id]": user.id,
+      "subscription_data[metadata][requested_tier]": requestedTier,
     });
 
     const sessionResp = await fetch("https://api.stripe.com/v1/checkout/sessions", {

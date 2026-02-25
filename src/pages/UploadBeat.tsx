@@ -520,6 +520,20 @@ export function UploadBeatPage() {
           </div>
         </header>
 
+        {profile && !isProducerActive && (
+          <div className="rounded-2xl border border-amber-700/50 bg-amber-900/10 p-5">
+            <h2 className="text-lg font-semibold text-white">Devenez Producteur</h2>
+            <p className="mt-1 text-sm text-zinc-300">
+              L’upload est réservé aux producteurs abonnés.
+            </p>
+            <div className="mt-4">
+              <Button variant="secondary" onClick={() => navigate('/pricing')}>
+                Voir les offres
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input

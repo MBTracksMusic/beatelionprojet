@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from './components/layout/Layout';
@@ -28,11 +28,13 @@ import { AdminDashboardPage } from './pages/admin/AdminDashboard';
 import { AdminNewsPage } from './pages/admin/AdminNews';
 import { AdminBattlesWrapper } from './pages/admin/AdminBattlesWrapper';
 import { AdminPilotagePage } from './pages/admin/AdminPilotage';
+import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
 import { ProducerGuide } from './pages/support/ProducerGuide';
 import { Faq } from './pages/support/Faq';
 import { ContactPage } from './pages/support/Contact';
 import { Terms } from './pages/legal/Terms';
 import { Privacy } from './pages/legal/Privacy';
+import { Licenses } from './pages/legal/Licenses';
 import { MyMessagesPage } from './pages/dashboard/MyMessages';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { initializeAuth } from './lib/auth/store';
@@ -78,10 +80,11 @@ function AppContent() {
         <Route index element={<HomePage />} />
         <Route path="beats" element={<BeatsPage mode="beats" />} />
         <Route path="beats/:slug" element={<ProductDetailsPage />} />
-        <Route path="exclusives" element={<BeatsPage mode="exclusives" />} />
-        <Route path="exclusives/:slug" element={<ProductDetailsPage />} />
-        <Route path="kits" element={<BeatsPage mode="kits" />} />
-        <Route path="kits/:slug" element={<ProductDetailsPage />} />
+        {/* TODO(levelup): sections exclusives/kits temporairement desactivees (focus Beats + Battles). */}
+        <Route path="exclusives" element={<Navigate to="/beats" replace />} />
+        <Route path="exclusives/:slug" element={<Navigate to="/beats" replace />} />
+        <Route path="kits" element={<Navigate to="/beats" replace />} />
+        <Route path="kits/:slug" element={<Navigate to="/beats" replace />} />
         <Route path="battles" element={<BattlesPage />} />
         <Route path="battles/:slug" element={<BattleDetailPage />} />
         <Route path="pricing" element={<PricingPage />} />
@@ -89,6 +92,7 @@ function AppContent() {
         <Route path="guide-producteur" element={<ProducerGuide />} />
         <Route path="faq" element={<Faq />} />
         <Route path="contact" element={<ContactPage />} />
+        <Route path="/licenses" element={<Licenses />} />
         <Route path="terms" element={<Terms />} />
         <Route path="privacy" element={<Privacy />} />
         <Route
@@ -144,7 +148,7 @@ function AppContent() {
         <Route
           path="producer/upload"
           element={
-            <ProtectedRoute requireProducer>
+            <ProtectedRoute>
               <UploadBeatPage />
             </ProtectedRoute>
           }
@@ -170,6 +174,7 @@ function AppContent() {
           <Route path="news" element={<AdminNewsPage />} />
           <Route path="battles" element={<AdminBattlesWrapper />} />
           <Route path="messages" element={<AdminMessagesPage />} />
+          <Route path="settings" element={<AdminSettingsPage />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Route>

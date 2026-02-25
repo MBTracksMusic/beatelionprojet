@@ -4,7 +4,7 @@ import { Music, BarChart3, ShoppingBag, UploadCloud, Trash2 } from 'lucide-react
 import { useTranslation } from '../lib/i18n';
 import { useAuth } from '../lib/auth/hooks';
 import { supabase } from '../lib/supabase/client';
-import type { Database, Product } from '../lib/supabase/types';
+import type { Database, Product, ProducerTier } from '../lib/supabase/types';
 import { formatPrice } from '../lib/utils/format';
 import { extractStoragePathFromCandidate } from '../lib/utils/storage';
 
@@ -13,14 +13,32 @@ interface ProducerStatsRow {
   total_plays: number | null;
 }
 
+interface AdvancedProducerStatsRow {
+  published_beats: number;
+  completed_sales: number;
+  revenue_cents: number;
+  monthly_battles_created: number;
+  sales_per_published_beat: number;
+}
+
+const toProducerTier = (value: unknown): ProducerTier => {
+  if (value === 'starter' || value === 'pro' || value === 'elite') return value;
+  return 'starter';
+};
+
 export function ProducerDashboardPage() {
   const { t } = useTranslation();
   const { profile } = useAuth();
+  const currentTier = toProducerTier(profile?.producer_tier);
+  const hasAdvancedAccess = currentTier === 'pro' || currentTier === 'elite';
   const [products, setProducts] = useState<Product[]>([]);
   const [productCount, setProductCount] = useState(0);
   const [salesCount, setSalesCount] = useState(0);
   const [revenueCents, setRevenueCents] = useState(0);
   const [viewsCount, setViewsCount] = useState(0);
+  const [advancedStats, setAdvancedStats] = useState<AdvancedProducerStatsRow | null>(null);
+  const [isAdvancedLoading, setIsAdvancedLoading] = useState(false);
+  const [advancedError, setAdvancedError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -142,6 +160,33 @@ export function ProducerDashboardPage() {
         if (!isCancelled) {
           setRevenueCents(Math.max(0, computedRevenueCents ?? 0));
         }
+
+        if (hasAdvancedAccess) {
+          if (!isCancelled) {
+            setIsAdvancedLoading(true);
+            setAdvancedError(null);
+          }
+
+          const { data: advancedData, error: advancedStatsError } = await supabase.rpc('get_advanced_producer_stats');
+
+          if (advancedStatsError) {
+            console.error('Error loading advanced producer stats', advancedStatsError);
+            if (!isCancelled) {
+              setAdvancedStats(null);
+              setAdvancedError('Statistiques avancées indisponibles pour le moment.');
+            }
+          } else if (!isCancelled) {
+            const row = (advancedData as AdvancedProducerStatsRow[] | null)?.[0] ?? null;
+            setAdvancedStats(row);
+          }
+
+          if (!isCancelled) {
+            setIsAdvancedLoading(false);
+          }
+        } else if (!isCancelled) {
+          setAdvancedStats(null);
+          setAdvancedError(null);
+        }
       } catch (loadError) {
         console.error('Unexpected error loading producer dashboard', loadError);
       } finally {
@@ -156,7 +201,7 @@ export function ProducerDashboardPage() {
     return () => {
       isCancelled = true;
     };
-  }, [profile?.id]);
+  }, [hasAdvancedAccess, profile?.id]);
   const AUDIO_BUCKET = import.meta.env.VITE_SUPABASE_AUDIO_BUCKET || 'beats-audio';
   const COVER_BUCKET = import.meta.env.VITE_SUPABASE_COVER_BUCKET || 'beats-covers';
 
@@ -272,6 +317,31 @@ export function ProducerDashboardPage() {
           <StatCard icon={BarChart3} label="Lectures" value={viewsCount} />
           <StatCard icon={Music} label={t('producer.earnings')} value={formatPrice(revenueCents)} />
         </section>
+
+        {hasAdvancedAccess && (
+          <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">Statistiques avancées</h2>
+              <span className="text-xs text-zinc-400 uppercase tracking-wide">PRO / ELITE</span>
+            </div>
+            {isAdvancedLoading && <p className="text-zinc-400 text-sm">{t('common.loading')}</p>}
+            {!isAdvancedLoading && advancedError && (
+              <p className="text-red-400 text-sm">{advancedError}</p>
+            )}
+            {!isAdvancedLoading && !advancedError && advancedStats && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard icon={Music} label="Beats publiés" value={advancedStats.published_beats} />
+                <StatCard icon={ShoppingBag} label="Ventes complétées" value={advancedStats.completed_sales} />
+                <StatCard icon={BarChart3} label="Battles / mois" value={advancedStats.monthly_battles_created} />
+                <StatCard
+                  icon={BarChart3}
+                  label="Ventes / beat publié"
+                  value={advancedStats.sales_per_published_beat.toFixed(2)}
+                />
+              </div>
+            )}
+          </section>
+        )}
 
         <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6 shadow-xl">
           <div className="flex items-center justify-between mb-4">

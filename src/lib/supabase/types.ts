@@ -1,6 +1,7 @@
 export type UserRole = 'visitor' | 'user' | 'confirmed_user' | 'producer' | 'admin';
 export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'unpaid' | 'incomplete' | 'incomplete_expired' | 'paused';
 export type ProductType = 'beat' | 'exclusive' | 'kit';
+export type ProducerTier = 'starter' | 'pro' | 'elite';
 export type PurchaseStatus = 'pending' | 'completed' | 'failed' | 'refunded';
 export type EntitlementType = 'purchase' | 'subscription' | 'promo' | 'admin_grant';
 export type BattleStatus =
@@ -39,6 +40,7 @@ export interface UserProfile {
   // Transitional IAM flag. May be undefined until the migration is applied everywhere.
   is_confirmed?: boolean;
   is_producer_active: boolean;
+  producer_tier?: ProducerTier | null;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   subscription_status: SubscriptionStatus | null;
@@ -305,6 +307,12 @@ export interface WishlistItemWithProduct extends WishlistItem {
   product?: ProductWithRelations;
 }
 
+export interface AppSetting {
+  key: string;
+  value: Record<string, unknown>;
+  updated_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -387,6 +395,11 @@ export interface Database {
         Row: WishlistItem;
         Insert: Partial<WishlistItem> & { user_id: string; product_id: string };
         Update: Partial<WishlistItem>;
+      };
+      app_settings: {
+        Row: AppSetting;
+        Insert: Partial<AppSetting> & { key: string; value: Record<string, unknown> };
+        Update: Partial<AppSetting>;
       };
     };
   };

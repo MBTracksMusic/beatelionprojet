@@ -40,6 +40,104 @@ const asNonEmptyString = (value: unknown): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+type ProducerTier = "starter" | "pro" | "elite";
+
+const asProducerTier = (value: unknown): ProducerTier | null => {
+  if (value === "starter" || value === "pro" || value === "elite") return value;
+  return null;
+};
+
+const extractSubscriptionPriceIds = (subscription: Stripe.Subscription | null | undefined) => {
+  const ids = (subscription?.items?.data || [])
+    .map((item) => {
+      const price = item?.price;
+      if (typeof price === "string") return asNonEmptyString(price);
+      return asNonEmptyString(price?.id);
+    })
+    .filter((id): id is string => Boolean(id));
+
+  return [...new Set(ids)];
+};
+
+const producerTierRank = (tier: ProducerTier) => {
+  if (tier === "elite") return 3;
+  if (tier === "pro") return 2;
+  return 1;
+};
+
+const resolveProducerTierFromDbPlans = async (
+  supabase: ReturnType<typeof createClient>,
+  priceIds: string[],
+) => {
+  if (priceIds.length === 0) return null;
+
+  const { data, error } = await supabase
+    .from("producer_plans")
+    .select("tier, stripe_price_id")
+    .in("stripe_price_id", priceIds)
+    .eq("is_active", true);
+
+  if (error) {
+    console.error("TIER_SYNC_PLAN_LOOKUP_ERROR", {
+      priceIds,
+      message: error.message,
+    });
+    return null;
+  }
+
+  const candidates = ((data as Array<{ tier?: unknown; stripe_price_id?: unknown }> | null) || [])
+    .map((row) => ({
+      tier: asProducerTier(row.tier),
+      priceId: asNonEmptyString(row.stripe_price_id),
+    }))
+    .filter((row): row is { tier: ProducerTier; priceId: string } => Boolean(row.tier && row.priceId))
+    .sort((a, b) => producerTierRank(b.tier) - producerTierRank(a.tier));
+
+  return candidates[0] ?? null;
+};
+
+const resolveProducerTierFromSubscription = async (
+  supabase: ReturnType<typeof createClient>,
+  params: {
+  isActive: boolean;
+  priceIds: string[];
+  currentTier: ProducerTier | null;
+  subscriptionId: string;
+  userId: string;
+}) => {
+  const { isActive, priceIds, currentTier, subscriptionId, userId } = params;
+  if (!isActive) {
+    return { tier: "starter" as ProducerTier, matchedPriceId: null, source: "inactive" };
+  }
+
+  const dbMatch = await resolveProducerTierFromDbPlans(supabase, priceIds);
+  if (dbMatch) {
+    return { tier: dbMatch.tier, matchedPriceId: dbMatch.priceId, source: "producer_plans" };
+  }
+
+  const proPriceId = asNonEmptyString(Deno.env.get("STRIPE_PRODUCER_PRICE_ID"));
+  const elitePriceId = asNonEmptyString(Deno.env.get("STRIPE_PRODUCER_ELITE_PRICE_ID"));
+  const priceSet = new Set(priceIds);
+
+  if (elitePriceId && priceSet.has(elitePriceId)) {
+    return { tier: "elite" as ProducerTier, matchedPriceId: elitePriceId, source: "env_fallback" };
+  }
+  if (proPriceId && priceSet.has(proPriceId)) {
+    return { tier: "pro" as ProducerTier, matchedPriceId: proPriceId, source: "env_fallback" };
+  }
+
+  const fallbackTier = currentTier ?? "starter";
+  console.warn("TIER_SYNC_UNKNOWN_PRICE", {
+    subscriptionId,
+    userId,
+    priceIds,
+    configuredProPriceId: proPriceId,
+    configuredElitePriceId: elitePriceId,
+    fallbackTier,
+  });
+  return { tier: fallbackTier, matchedPriceId: null, source: "current_tier_fallback" };
+};
+
 const DEFAULT_EMAIL_RATE_LIMIT_SECONDS = 15 * 60;
 
 const getEmailRateLimitSeconds = () => {
@@ -926,6 +1024,7 @@ async function handleSubscriptionUpdate(
     currentPeriodEnd: subscription.current_period_end,
     cancelAtPeriodEnd: subscription.cancel_at_period_end,
     userId: asNonEmptyString(subscription.metadata?.user_id),
+    priceIds: extractSubscriptionPriceIds(subscription),
   });
 }
 
@@ -951,6 +1050,7 @@ async function handleSubscriptionDeleted(
     currentPeriodEnd: 0,
     cancelAtPeriodEnd: true,
     userId: asNonEmptyString(subscription.metadata?.user_id),
+    priceIds: extractSubscriptionPriceIds(subscription),
   });
 }
 
@@ -1053,6 +1153,7 @@ async function upsertProducerSubscriptionFromStripe(
     currentPeriodEnd: sub.current_period_end,
     cancelAtPeriodEnd: sub.cancel_at_period_end,
     userId: asNonEmptyString(sub.metadata?.user_id),
+    priceIds: extractSubscriptionPriceIds(sub),
   });
 }
 
@@ -1065,20 +1166,21 @@ async function upsertProducerSubscription(
     currentPeriodEnd?: number | string;
     cancelAtPeriodEnd?: boolean;
     userId?: string;
+    priceIds?: string[];
   },
 ) {
-  const { customerId, subscriptionId, status, currentPeriodEnd, cancelAtPeriodEnd, userId } = params;
+  const { customerId, subscriptionId, status, currentPeriodEnd, cancelAtPeriodEnd, userId, priceIds = [] } = params;
 
   let { data: profile } = await supabase
     .from("user_profiles")
-    .select("id, stripe_customer_id, stripe_subscription_id")
+    .select("id, stripe_customer_id, stripe_subscription_id, producer_tier")
     .eq("stripe_customer_id", customerId)
     .maybeSingle();
 
   if (!profile && userId) {
     const { data: profileById } = await supabase
       .from("user_profiles")
-      .select("id, stripe_customer_id, stripe_subscription_id")
+      .select("id, stripe_customer_id, stripe_subscription_id, producer_tier")
       .eq("id", userId)
       .maybeSingle();
 
@@ -1106,14 +1208,24 @@ async function upsertProducerSubscription(
       .maybeSingle();
 
     if (existingSub) {
-      profile = { id: existingSub.user_id } as { id: string; stripe_customer_id?: string | null };
+      profile = {
+        id: existingSub.user_id,
+        stripe_customer_id: null,
+        stripe_subscription_id: null,
+        producer_tier: null,
+      } as {
+        id: string;
+        stripe_customer_id: string | null;
+        stripe_subscription_id: string | null;
+        producer_tier: ProducerTier | null;
+      };
     }
   }
 
   if (!profile) {
     const { data: profileBySubscription } = await supabase
       .from("user_profiles")
-      .select("id, stripe_customer_id")
+      .select("id, stripe_customer_id, stripe_subscription_id, producer_tier")
       .eq("stripe_subscription_id", subscriptionId)
       .maybeSingle();
 
@@ -1144,8 +1256,21 @@ async function upsertProducerSubscription(
   }
 
   const isActive = ["active", "trialing"].includes(status) && Date.parse(currentEndIso) > Date.now();
+  const currentTier = asProducerTier((profile as { producer_tier?: unknown })?.producer_tier ?? null);
+  const tierResolution = await resolveProducerTierFromSubscription(supabase, {
+    isActive,
+    priceIds,
+    currentTier,
+    subscriptionId,
+    userId: profile.id,
+  });
+  const nextTier = tierResolution.tier;
 
-  const profileUpdates: Record<string, unknown> = { stripe_subscription_id: subscriptionId };
+  const profileUpdates: Record<string, unknown> = {
+    stripe_subscription_id: subscriptionId,
+    producer_tier: nextTier,
+    is_producer_active: isActive,
+  };
   if (!profile.stripe_customer_id) {
     profileUpdates.stripe_customer_id = customerId;
   }
@@ -1158,6 +1283,18 @@ async function upsertProducerSubscription(
   if (profileUpdateErr) {
     console.error("[upsertProducerSubscription] Failed to sync user profile identifiers", profileUpdateErr);
   }
+
+  console.log("TIER_SYNC", {
+    userId: profile.id,
+    subscriptionId,
+    status,
+    isActive,
+    source: tierResolution.source,
+    matchedPriceId: tierResolution.matchedPriceId,
+    previousTier: currentTier,
+    nextTier,
+    priceIds,
+  });
 
   const { error } = await supabase
     .from("producer_subscriptions")

@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  ArrowUpRight,
   BarChart3,
   BadgeCheck,
   Check,
@@ -9,9 +8,6 @@ import {
   Flame,
   Globe2,
   Music2,
-  Rocket,
-  ShieldCheck,
-  Sparkles,
   Target,
   Users,
   type LucideIcon,
@@ -27,31 +23,138 @@ import toast from 'react-hot-toast';
 import type { Database } from '../lib/supabase/types';
 
 type ProducerTier = 'starter' | 'pro' | 'elite';
-const eliteWaitlistSource = 'elite_waitlist' as unknown as keyof Database['public']['Tables'];
+type CheckoutTier = 'pro' | 'elite';
+const eliteWaitlistSource = 'elite_interest' as unknown as keyof Database['public']['Tables'];
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 interface PlanItem {
   icon: LucideIcon;
   text: string;
 }
 
-const starterItems: PlanItem[] = [
-  { icon: Music2, text: 'Jusqu’à 5 beats publiés' },
-  { icon: Globe2, text: 'Profil public visible sur la marketplace' },
-  { icon: Users, text: '1 battle communautaire par mois' },
-  { icon: BarChart3, text: 'Statistiques basiques' },
-  { icon: ShieldCheck, text: 'Paiements sécurisés' },
-  { icon: ArrowUpRight, text: 'Passage vers PRO à tout moment' },
-];
+interface ProducerPlan {
+  tier: ProducerTier;
+  max_beats_published: number | null;
+  max_battles_created_per_month: number | null;
+  commission_rate: number | null;
+  stripe_price_id: string | null;
+  is_active: boolean;
+  amount_cents: number | null;
+  currency: string | null;
+  interval: string | null;
+  stripe_price_active: boolean | null;
+}
 
-const proItems: PlanItem[] = [
-  { icon: Music2, text: 'Upload illimité de beats' },
-  { icon: Coins, text: 'Commission réduite à 5%' },
-  { icon: Flame, text: 'Battles illimitées' },
-  { icon: Rocket, text: 'Boost de visibilité sur la plateforme' },
-  { icon: BadgeCheck, text: 'Badge PRO visible sur le profil' },
-  { icon: BarChart3, text: 'Statistiques avancées' },
-  { icon: Sparkles, text: 'Support prioritaire' },
-];
+const DEFAULT_PLANS: Record<ProducerTier, ProducerPlan> = {
+  starter: {
+    tier: 'starter',
+    max_beats_published: 3,
+    max_battles_created_per_month: 1,
+    commission_rate: 0.12,
+    stripe_price_id: null,
+    is_active: true,
+    amount_cents: 0,
+    currency: 'EUR',
+    interval: null,
+    stripe_price_active: null,
+  },
+  pro: {
+    tier: 'pro',
+    max_beats_published: 10,
+    max_battles_created_per_month: 3,
+    commission_rate: 0.05,
+    stripe_price_id: null,
+    is_active: true,
+    amount_cents: 1999,
+    currency: 'EUR',
+    interval: 'month',
+    stripe_price_active: null,
+  },
+  elite: {
+    tier: 'elite',
+    max_beats_published: null,
+    max_battles_created_per_month: null,
+    commission_rate: 0.03,
+    stripe_price_id: null,
+    is_active: true,
+    amount_cents: 2999,
+    currency: 'EUR',
+    interval: 'month',
+    stripe_price_active: null,
+  },
+};
+
+const toNullableNumber = (value: unknown) => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const toNullableString = (value: unknown) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const buildPlansFromPayload = (payload: unknown) => {
+  const nextPlans: Record<ProducerTier, ProducerPlan> = {
+    starter: { ...DEFAULT_PLANS.starter },
+    pro: { ...DEFAULT_PLANS.pro },
+    elite: { ...DEFAULT_PLANS.elite },
+  };
+
+  if (!Array.isArray(payload)) return nextPlans;
+
+  payload.forEach((row) => {
+    const item = row as Record<string, unknown>;
+    const tier = item?.tier;
+    if (tier !== 'starter' && tier !== 'pro' && tier !== 'elite') return;
+
+    nextPlans[tier] = {
+      tier,
+      max_beats_published: toNullableNumber(item.max_beats_published),
+      max_battles_created_per_month: toNullableNumber(item.max_battles_created_per_month),
+      commission_rate: toNullableNumber(item.commission_rate),
+      stripe_price_id: toNullableString(item.stripe_price_id),
+      is_active: item.is_active !== false,
+      amount_cents: toNullableNumber(item.amount_cents) ?? DEFAULT_PLANS[tier].amount_cents,
+      currency: toNullableString(item.currency) ?? DEFAULT_PLANS[tier].currency,
+      interval: toNullableString(item.interval) ?? DEFAULT_PLANS[tier].interval,
+      stripe_price_active: typeof item.stripe_price_active === 'boolean' ? item.stripe_price_active : null,
+    };
+  });
+
+  return nextPlans;
+};
+
+const COMMISSION_LABELS: Record<ProducerTier, string> = {
+  starter: 'Commission selon formule',
+  pro: 'Commission réduite',
+  elite: 'Commission ultra réduite',
+};
+
+const formatPlanPrice = (plan: ProducerPlan) => {
+  if (plan.tier === 'starter') {
+    return { amount: 'Gratuit', interval: null as string | null };
+  }
+
+  if (
+    typeof plan.amount_cents === 'number' &&
+    Number.isFinite(plan.amount_cents) &&
+    plan.amount_cents >= 0
+  ) {
+    const amount = `${(plan.amount_cents / 100).toLocaleString('fr-FR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}€`;
+    const interval = plan.interval ? ` / ${plan.interval === 'month' ? 'mois' : plan.interval}` : null;
+    return { amount, interval };
+  }
+
+  return { amount: 'Prix indisponible', interval: null as string | null };
+};
 
 interface ProfileWithTier {
   producer_tier?: ProducerTier | null;
@@ -69,48 +172,54 @@ export function PricingPage() {
   const navigate = useNavigate();
   const [isPlanLoading, setIsPlanLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [plan, setPlan] = useState<{
-    stripe_price_id: string;
-    amount_cents: number;
-    currency: string;
-  } | null>(null);
+  const [plans, setPlans] = useState<Record<ProducerTier, ProducerPlan>>({
+    starter: { ...DEFAULT_PLANS.starter },
+    pro: { ...DEFAULT_PLANS.pro },
+    elite: { ...DEFAULT_PLANS.elite },
+  });
   const [isEliteModalOpen, setIsEliteModalOpen] = useState(false);
   const [eliteEmail, setEliteEmail] = useState('');
   const [isEliteSubmitting, setIsEliteSubmitting] = useState(false);
   const currentTier = user
     ? toProducerTier((profile as unknown as ProfileWithTier | null)?.producer_tier)
     : null;
+  const proPlan = plans.pro;
 
   useEffect(() => {
     const fetchPlan = async () => {
       setIsPlanLoading(true);
       setError(null);
-      const { data, error: fetchError } = await supabase
-        .from('producer_plan_config')
-        .select('stripe_price_id, amount_cents, currency')
-        .maybeSingle();
+      let nextPlans: Record<ProducerTier, ProducerPlan> = {
+        starter: { ...DEFAULT_PLANS.starter },
+        pro: { ...DEFAULT_PLANS.pro },
+        elite: { ...DEFAULT_PLANS.elite },
+      };
 
-      if (fetchError || !data) {
-        setError('Impossible de charger l’offre PRO. Réessayez plus tard.');
-        setIsPlanLoading(false);
-        return;
+      const { data, error: fetchError } = await supabase.functions.invoke('get-producer-plans', {
+        body: {},
+      });
+
+      if (!fetchError) {
+        nextPlans = buildPlansFromPayload((data as { plans?: unknown })?.plans);
+      } else {
+        setError('Impossible de charger les offres en temps réel.');
       }
 
-      setPlan({
-        stripe_price_id: data.stripe_price_id,
-        amount_cents: data.amount_cents,
-        currency: data.currency || 'EUR',
-      });
+      setPlans(nextPlans);
       setIsPlanLoading(false);
     };
 
     void fetchPlan();
   }, []);
 
-  const startProCheckout = async () => {
-    if (!plan) return;
+  const startCheckout = async (tier: CheckoutTier) => {
     if (!user) {
       navigate('/login', { state: { from: '/pricing' } });
+      return;
+    }
+    const targetPlan = plans[tier];
+    if (!targetPlan?.is_active) {
+      setError('Cette offre est temporairement indisponible.');
       return;
     }
     setError(null);
@@ -124,7 +233,7 @@ export function PricingPage() {
 
       const { data, error: fnError } = await supabase.functions.invoke('producer-checkout', {
         body: {
-          price_id: plan.stripe_price_id,
+          tier,
           success_url: `${window.location.origin}/pricing?status=success`,
           cancel_url: `${window.location.origin}/pricing?status=cancel`,
         },
@@ -149,11 +258,23 @@ export function PricingPage() {
             }
           }
         }
-        throw new Error(
+        const rawError =
           apiError ||
           contextError ||
-          `${fnError.status ?? ''} ${fnError.message || 'Checkout indisponible pour le moment.'}`.trim()
-        );
+          `${fnError.status ?? ''} ${fnError.message || 'Checkout indisponible pour le moment.'}`.trim();
+        if (rawError.includes('already_subscribed')) {
+          throw new Error('Vous avez déjà un abonnement producteur actif.');
+        }
+        if (rawError.includes('plan_unavailable')) {
+          throw new Error('Cette offre est indisponible pour le moment.');
+        }
+        if (rawError.includes('missing_price_id')) {
+          throw new Error('Prix Stripe non configuré pour cette offre.');
+        }
+        if (rawError.includes('invalid_tier')) {
+          throw new Error('Offre invalide.');
+        }
+        throw new Error(rawError);
       }
 
       const url = (data as { url?: string })?.url;
@@ -168,9 +289,37 @@ export function PricingPage() {
     }
   };
 
-  const isStarterCurrent = currentTier === 'starter';
   const isProCurrent = currentTier === 'pro';
   const isEliteCurrent = currentTier === 'elite';
+  const proBeatsLimit = typeof proPlan.max_beats_published === 'number' ? proPlan.max_beats_published : 10;
+  const proBattlesLimit = typeof proPlan.max_battles_created_per_month === 'number'
+    ? proPlan.max_battles_created_per_month
+    : 3;
+  const starterPlanItems: PlanItem[] = [
+    { icon: Music2, text: 'Achat de beats' },
+    { icon: Users, text: 'Vote et commentaires' },
+    { icon: Flame, text: 'Participation aux battles (vote)' },
+    { icon: Globe2, text: 'Profil personnel' },
+  ];
+  const proPlanItems: PlanItem[] = [
+    { icon: Music2, text: `Jusqu’à ${proBeatsLimit} beats publiés` },
+    { icon: Users, text: `${proBattlesLimit} battles créées par mois` },
+    { icon: Flame, text: 'Participation illimitée aux battles' },
+    { icon: Globe2, text: 'Classement public' },
+    { icon: BadgeCheck, text: 'Badge Producteur vérifié' },
+    { icon: BarChart3, text: 'Statistiques avancées' },
+    { icon: Coins, text: COMMISSION_LABELS.pro },
+  ];
+  const proPrice = formatPlanPrice(proPlan);
+  const isProCheckoutAvailable =
+    proPlan.is_active &&
+    Boolean(proPlan.stripe_price_id) &&
+    typeof proPlan.amount_cents === 'number' &&
+    Number.isFinite(proPlan.amount_cents);
+  const hasDisplayableProPrice =
+    typeof proPlan.amount_cents === 'number' &&
+    Number.isFinite(proPlan.amount_cents) &&
+    proPlan.amount_cents >= 0;
   const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
   const addToEliteWaitlist = async (rawEmail: string) => {
@@ -180,17 +329,13 @@ export function PricingPage() {
       return false;
     }
 
-    const payload = user
-      ? { email, user_id: user.id }
-      : { email, user_id: null };
-
     const { error: insertError } = await supabase
       .from(eliteWaitlistSource)
-      .insert(payload as never);
+      .insert({ email } as never);
 
     if (insertError) {
       if ((insertError as { code?: string }).code === '23505') {
-        toast.success('Vous êtes déjà inscrit. Nous vous informerons à l’ouverture ELITE.');
+        toast.success('Vous êtes déjà inscrit au lancement Elite.');
         return true;
       }
       console.error('elite waitlist insert error', insertError);
@@ -198,7 +343,7 @@ export function PricingPage() {
       return false;
     }
 
-    toast.success('Vous serez informé');
+    toast.success('Merci, vous serez informé du lancement.');
     return true;
   };
 
@@ -209,25 +354,9 @@ export function PricingPage() {
 
   const handleEliteNotifyClick = async () => {
     if (isEliteCurrent || isEliteSubmitting) return;
-
-    if (!user) {
-      setEliteEmail('');
-      setIsEliteModalOpen(true);
-      return;
-    }
-
-    const accountEmail = normalizeEmail(profile?.email || user.email || '');
-    if (!accountEmail) {
-      toast.error('Email introuvable sur votre compte.');
-      return;
-    }
-
-    setIsEliteSubmitting(true);
-    try {
-      await addToEliteWaitlist(accountEmail);
-    } finally {
-      setIsEliteSubmitting(false);
-    }
+    const accountEmail = normalizeEmail(profile?.email || user?.email || '');
+    setEliteEmail(accountEmail);
+    setIsEliteModalOpen(true);
   };
 
   const handleEliteModalSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -244,13 +373,6 @@ export function PricingPage() {
       setIsEliteSubmitting(false);
     }
   };
-
-  const renderFeature = (text: string) => (
-    <li className="flex items-start gap-3">
-      <Check className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
-      <span className="text-zinc-300">{text}</span>
-    </li>
-  );
 
   const renderPlanItem = (item: PlanItem) => {
     const Icon = item.icon;
@@ -276,14 +398,13 @@ export function PricingPage() {
           <Card className="relative h-full flex flex-col border border-emerald-700/60 bg-zinc-900 p-6">
             <div className="flex items-start justify-between gap-3 mb-6">
               <div>
-                <h3 className="text-2xl font-bold text-white mb-1">Producteur STARTER</h3>
-                <p className="text-zinc-200 font-semibold">Lance-toi. Teste. Commence à vendre.</p>
+                <h3 className="text-2xl font-bold text-white mb-1">Compte USER</h3>
+                <p className="text-zinc-200 font-semibold">Explore, vote et soutiens les producteurs.</p>
                 <p className="text-zinc-400 text-sm mt-1 flex items-start gap-2">
                   <Target className="w-4 h-4 mt-0.5 text-zinc-300" />
-                  Idéal pour découvrir la plateforme et faire tes premières ventes.
+                  Idéal pour découvrir la plateforme en tant qu’audience.
                 </p>
               </div>
-              {isStarterCurrent && <Badge variant="success">Plan actuel</Badge>}
             </div>
 
             <div className="mb-5">
@@ -295,17 +416,8 @@ export function PricingPage() {
               <p className="text-xl font-bold text-white">Ce qui est inclus</p>
             </div>
             <ul className="space-y-2 mb-6">
-              {starterItems.map(renderPlanItem)}
+              {starterPlanItems.map(renderPlanItem)}
             </ul>
-
-            <div className="mb-6 p-3 rounded-lg border border-zinc-800 bg-zinc-950/60">
-              <p className="text-white font-semibold flex items-center gap-2">
-                <Coins className="w-4 h-4 text-amber-300" />
-                Commission
-              </p>
-              <p className="text-zinc-200 text-sm mt-1">12% sur chaque vente</p>
-              <p className="text-zinc-400 text-xs mt-1">Tu ne paies que si tu vends.</p>
-            </div>
 
             <div className="mt-auto pt-6">
               {user ? (
@@ -313,10 +425,9 @@ export function PricingPage() {
                   className="w-full"
                   variant="secondary"
                   size="lg"
-                  disabled={isStarterCurrent}
                   onClick={() => navigate('/dashboard')}
                 >
-                  {isStarterCurrent ? 'Plan actuel' : 'Commencer'}
+                  Commencer gratuitement
                 </Button>
               ) : (
                 <Link to="/register">
@@ -325,7 +436,7 @@ export function PricingPage() {
                     variant="secondary"
                     size="lg"
                   >
-                    Commencer
+                    Commencer gratuitement
                   </Button>
                 </Link>
               )}
@@ -335,19 +446,19 @@ export function PricingPage() {
           <Card className="relative h-full flex flex-col border border-rose-500 bg-zinc-900 p-6">
             <div className="flex items-start justify-between gap-3 mb-6">
               <div>
-                <h3 className="text-2xl font-bold text-white mb-1">Producteur PRO</h3>
-                <p className="text-zinc-200 font-semibold">Accélère ta croissance. Gagne en visibilité.</p>
+                <h3 className="text-2xl font-bold text-white mb-1">Producteur</h3>
+                <p className="text-zinc-200 font-semibold">Accède aux battles et développe ta visibilité.</p>
                 <p className="text-zinc-400 text-sm mt-1 flex items-start gap-2">
                   <Target className="w-4 h-4 mt-0.5 text-zinc-300" />
-                  Idéal pour les producteurs qui veulent scaler.
+                  Pensé pour les producteurs actifs qui veulent progresser.
                 </p>
               </div>
               {isProCurrent && <Badge variant="premium">Plan actuel</Badge>}
             </div>
 
             <div className="mb-6">
-              <span className="text-4xl font-bold text-white">19,99€</span>
-              <span className="text-zinc-400"> / mois</span>
+              <span className="text-4xl font-bold text-white">{proPrice.amount}</span>
+              {proPrice.interval && <span className="text-zinc-400">{proPrice.interval}</span>}
             </div>
 
             <div className="mb-3 flex items-center gap-2">
@@ -355,11 +466,11 @@ export function PricingPage() {
               <p className="text-xl font-bold text-white">Inclus</p>
             </div>
             <ul className="space-y-2 mb-8">
-              {proItems.map(renderPlanItem)}
+              {proPlanItems.map(renderPlanItem)}
             </ul>
 
             <div className="mt-auto pt-6">
-              {error && (
+              {error && !hasDisplayableProPrice && (
                 <div className="mb-4 text-sm text-red-400 bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">
                   {error}
                 </div>
@@ -369,10 +480,10 @@ export function PricingPage() {
                 className="w-full"
                 variant="primary"
                 size="lg"
-                disabled={isProCurrent || isPlanLoading || !plan}
-                onClick={startProCheckout}
+                disabled={isProCurrent || isPlanLoading || !isProCheckoutAvailable}
+                onClick={() => void startCheckout('pro')}
               >
-                {isProCurrent ? 'Plan actuel' : 'Choisir PRO'}
+                {isProCurrent ? 'Plan actuel' : 'Devenir Producteur'}
               </Button>
             </div>
           </Card>
@@ -381,11 +492,12 @@ export function PricingPage() {
             <div className="flex items-start justify-between gap-3 mb-6">
               <div>
                 <h3 className="text-2xl font-bold text-white mb-1">Producteur ELITE</h3>
-                <p className="text-zinc-200 font-semibold">Le niveau supérieur.</p>
-                <p className="text-zinc-100 text-4xl leading-none mt-2">Bientôt disponible.</p>
+                <p className="text-zinc-200 font-semibold">
+                  En cours de développement. Un niveau supérieur pour les producteurs prêts à passer à l’étape suivante.
+                </p>
                 <p className="text-zinc-400 text-sm mt-2 flex items-start gap-2">
                   <Target className="w-4 h-4 mt-0.5 text-zinc-300" />
-                  Conçu pour les producteurs les plus ambitieux.
+                  Bientôt disponible.
                 </p>
               </div>
               {isEliteCurrent && <Badge variant="danger">Plan actuel</Badge>}
@@ -399,7 +511,7 @@ export function PricingPage() {
                 disabled={isEliteCurrent || isEliteSubmitting}
                 onClick={handleEliteNotifyClick}
               >
-                {isEliteCurrent ? 'Plan actuel' : 'M’informer quand disponible'}
+                {isEliteCurrent ? 'Plan actuel' : 'M’informer du lancement'}
               </Button>
             </div>
           </Card>
