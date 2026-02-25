@@ -1,68 +1,183 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Users } from 'lucide-react';
+import { ExternalLink, Instagram, Twitter, Users, Youtube } from 'lucide-react';
 import { supabase } from '../lib/supabase/client';
-import type { UserProfile } from '../lib/supabase/types';
+import type { ProducerTier } from '../lib/supabase/types';
+import { formatPrice } from '../lib/utils/format';
+
+interface PublicProducerProfile {
+  id: string;
+  username: string | null;
+  avatar_url: string | null;
+  bio: string | null;
+  social_links: Record<string, string> | null;
+  producer_tier: ProducerTier | null;
+  created_at: string;
+  is_producer_active: boolean;
+}
+
+interface PublicProducerBeat {
+  id: string;
+  title: string;
+  slug: string;
+  cover_image_url: string | null;
+  price: number;
+  bpm: number | null;
+  key_signature: string | null;
+  created_at: string;
+}
+
+interface PublicProducerBattle {
+  id: string;
+  title: string;
+  slug: string;
+  status: string;
+  winner_id: string | null;
+  producer1_id: string;
+  producer2_id: string | null;
+  created_at: string;
+}
+
+const normalizeSocialUrl = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+};
+
+const toSocialLinks = (raw: unknown): Array<{ key: 'twitter' | 'instagram' | 'youtube'; href: string }> => {
+  if (!raw || typeof raw !== 'object') return [];
+
+  const source = raw as Record<string, unknown>;
+  const keys: Array<'twitter' | 'instagram' | 'youtube'> = ['twitter', 'instagram', 'youtube'];
+
+  return keys
+    .map((key) => {
+      const value = source[key];
+      if (typeof value !== 'string') return null;
+      const href = normalizeSocialUrl(value);
+      if (!href) return null;
+      return { key, href };
+    })
+    .filter((item): item is { key: 'twitter' | 'instagram' | 'youtube'; href: string } => item !== null);
+};
 
 export function ProducerPublicProfilePage() {
   const { username } = useParams<{ username: string }>();
-  const [producer, setProducer] = useState<UserProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [producer, setProducer] = useState<PublicProducerProfile | null>(null);
+  const [beats, setBeats] = useState<PublicProducerBeat[]>([]);
+  const [battles, setBattles] = useState<PublicProducerBattle[]>([]);
+  const [isProfileLoading, setIsProfileLoading] = useState(true);
+  const [isBeatsLoading, setIsBeatsLoading] = useState(false);
+  const [isBattlesLoading, setIsBattlesLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [beatsError, setBeatsError] = useState<string | null>(null);
+  const [battlesError, setBattlesError] = useState<string | null>(null);
+
+  const socialLinks = useMemo(() => toSocialLinks(producer?.social_links), [producer?.social_links]);
 
   useEffect(() => {
     let isCancelled = false;
 
-    const fetchProducer = async () => {
+    const fetchPublicProducer = async () => {
       if (!username) {
-        setError('Nom utilisateur manquant.');
-        setIsLoading(false);
+        setProfileError('Nom utilisateur manquant.');
+        setIsProfileLoading(false);
         return;
       }
 
-      setIsLoading(true);
-      setError(null);
+      setIsProfileLoading(true);
+      setProfileError(null);
+      setBeatsError(null);
+      setBattlesError(null);
+      setBeats([]);
+      setBattles([]);
 
       try {
-        const { data, error: fetchError } = await supabase
+        const { data, error: profileFetchError } = await supabase
           .from('user_profiles')
-          .select('*')
+          .select('id, username, avatar_url, bio, social_links, producer_tier, created_at, is_producer_active')
           .eq('username', username)
           .eq('is_producer_active', true)
           .single();
 
-        if (fetchError || !data) {
+        if (profileFetchError || !data) {
           if (!isCancelled) {
             setProducer(null);
-            setError('Producteur introuvable');
+            setProfileError('Producteur introuvable');
+            setIsProfileLoading(false);
           }
           return;
         }
 
         if (!isCancelled) {
-          setProducer(data as UserProfile);
+          setProducer(data as PublicProducerProfile);
+        }
+
+        if (!isCancelled) {
+          setIsBeatsLoading(true);
+          setIsBattlesLoading(true);
+        }
+
+        const [beatsResponse, battlesResponse] = await Promise.all([
+          supabase
+            .from('products')
+            .select('id, title, slug, cover_image_url, price, bpm, key_signature, created_at')
+            .eq('producer_id', data.id)
+            .eq('product_type', 'beat')
+            .eq('is_published', true)
+            .is('deleted_at', null)
+            .order('created_at', { ascending: false })
+            .limit(12),
+          supabase
+            .from('battles')
+            .select('id, title, slug, status, winner_id, producer1_id, producer2_id, created_at')
+            .or(`producer1_id.eq.${data.id},producer2_id.eq.${data.id}`)
+            .in('status', ['active', 'voting', 'completed'])
+            .order('created_at', { ascending: false })
+            .limit(10),
+        ]);
+
+        if (beatsResponse.error) {
+          if (!isCancelled) {
+            setBeats([]);
+            setBeatsError('Impossible de charger les beats pour le moment.');
+          }
+        } else if (!isCancelled) {
+          setBeats((beatsResponse.data ?? []) as PublicProducerBeat[]);
+        }
+
+        if (battlesResponse.error) {
+          if (!isCancelled) {
+            setBattles([]);
+            setBattlesError('Impossible de charger les battles pour le moment.');
+          }
+        } else if (!isCancelled) {
+          setBattles((battlesResponse.data ?? []) as PublicProducerBattle[]);
         }
       } catch (e) {
-        console.error('Error fetching producer public profile:', e);
+        console.error('Error fetching producer public page:', e);
         if (!isCancelled) {
           setProducer(null);
-          setError('Producteur introuvable');
+          setProfileError('Producteur introuvable');
         }
       } finally {
         if (!isCancelled) {
-          setIsLoading(false);
+          setIsProfileLoading(false);
+          setIsBeatsLoading(false);
+          setIsBattlesLoading(false);
         }
       }
     };
 
-    void fetchProducer();
+    void fetchPublicProducer();
 
     return () => {
       isCancelled = true;
     };
   }, [username]);
 
-  if (isLoading) {
+  if (isProfileLoading) {
     return (
       <div className="min-h-screen bg-zinc-950 pt-8 pb-32">
         <div className="max-w-4xl mx-auto px-4">
@@ -76,12 +191,12 @@ export function ProducerPublicProfilePage() {
     );
   }
 
-  if (error || !producer) {
+  if (profileError || !producer) {
     return (
       <div className="min-h-screen bg-zinc-950 pt-8 pb-32">
         <div className="max-w-4xl mx-auto px-4 text-center py-20">
           <h1 className="text-3xl font-bold text-white mb-3">Producteur introuvable</h1>
-          <p className="text-zinc-400 mb-6">{error || 'Ce profil est indisponible.'}</p>
+          <p className="text-zinc-400 mb-6">{profileError || 'Ce profil est indisponible.'}</p>
           <Link to="/producers" className="text-rose-400 hover:text-rose-300">
             Retour aux producteurs
           </Link>
@@ -91,33 +206,180 @@ export function ProducerPublicProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 pt-8 pb-32">
+    <div className="min-h-screen bg-zinc-950 pt-6 pb-20">
       <div className="max-w-4xl mx-auto px-4">
-        <Link to="/producers" className="inline-block text-zinc-400 hover:text-white mb-6">
+        <Link to="/producers" className="inline-block text-zinc-400 hover:text-white mb-4">
           Retour aux producteurs
         </Link>
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8">
-          <div className="flex items-center gap-4 mb-4">
+
+        <section className="bg-gradient-to-br from-zinc-900 to-zinc-900/70 border border-zinc-800 rounded-xl p-6 md:p-8 mb-4 min-h-[240px] flex flex-col justify-center">
+          <div className="flex items-center gap-5 mb-4">
             {producer.avatar_url ? (
               <img
                 src={producer.avatar_url}
                 alt={producer.username || 'Producteur'}
-                className="w-20 h-20 rounded-full object-cover"
+                className="w-[120px] h-[120px] rounded-full object-cover border border-zinc-700"
               />
             ) : (
-              <div className="w-20 h-20 rounded-full bg-zinc-800 flex items-center justify-center">
-                <Users className="w-8 h-8 text-zinc-500" />
+              <div className="w-[120px] h-[120px] rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center">
+                <Users className="w-10 h-10 text-zinc-500" />
               </div>
             )}
             <div>
               <h1 className="text-3xl font-bold text-white">{producer.username || 'Producteur'}</h1>
-              <p className="text-zinc-400">Producteur actif</p>
+              <p className="text-zinc-400">
+                Producteur actif {producer.producer_tier ? `• ${producer.producer_tier.toUpperCase()}` : ''}
+              </p>
             </div>
           </div>
           <p className="text-zinc-300 whitespace-pre-wrap">
             {producer.bio || 'Aucune biographie disponible.'}
           </p>
-        </div>
+          <div className="grid grid-cols-3 gap-2 mt-5 max-w-md">
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-zinc-500">Beats</p>
+              <p className="text-base font-semibold text-white">{beats.length}</p>
+            </div>
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-zinc-500">Battles</p>
+              <p className="text-base font-semibold text-white">{battles.length}</p>
+            </div>
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-zinc-500">Victoires</p>
+              <p className="text-base font-semibold text-white">
+                {battles.filter((battle) => battle.winner_id === producer.id).length}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {socialLinks.length > 0 && (
+          <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-4">
+            <h2 className="text-lg font-semibold text-white mb-4">Réseaux sociaux</h2>
+            <div className="flex flex-wrap gap-3">
+              {socialLinks.map(({ key, href }) => {
+                const Icon = key === 'twitter' ? Twitter : key === 'instagram' ? Instagram : Youtube;
+                const label = key === 'twitter' ? 'Twitter' : key === 'instagram' ? 'Instagram' : 'YouTube';
+                return (
+                  <a
+                    key={key}
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-zinc-700 text-zinc-200 hover:text-white hover:border-zinc-500 transition"
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{label}</span>
+                    <ExternalLink className="w-3.5 h-3.5 text-zinc-500" />
+                  </a>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+          <h2 className="text-lg font-semibold text-white mb-4">Beats publiés</h2>
+
+          {isBeatsLoading && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[...Array(6)].map((_, index) => (
+                <div key={index} className="rounded-xl border border-zinc-800 bg-zinc-950/50 overflow-hidden animate-pulse">
+                  <div className="aspect-[4/3] bg-zinc-800" />
+                  <div className="p-3 space-y-2">
+                    <div className="h-4 bg-zinc-800 rounded w-3/4" />
+                    <div className="h-3 bg-zinc-800 rounded w-1/2" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!isBeatsLoading && beatsError && (
+            <p className="text-sm text-red-400">{beatsError}</p>
+          )}
+
+          {!isBeatsLoading && !beatsError && beats.length === 0 && (
+            <p className="text-sm text-zinc-400">Aucun beat publié pour le moment.</p>
+          )}
+
+          {!isBeatsLoading && !beatsError && beats.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {beats.map((beat) => (
+                <Link
+                  key={beat.id}
+                  to={`/beats/${beat.slug}`}
+                  className="rounded-xl border border-zinc-800 bg-zinc-950/50 overflow-hidden transition transform-gpu hover:scale-[1.02] hover:shadow-xl hover:shadow-black/40 hover:border-zinc-600"
+                >
+                  {beat.cover_image_url ? (
+                    <img
+                      src={beat.cover_image_url}
+                      alt={beat.title}
+                      className="aspect-[4/3] w-full object-cover"
+                    />
+                  ) : (
+                    <div className="aspect-[4/3] w-full bg-zinc-800 flex items-center justify-center">
+                      <Users className="w-8 h-8 text-zinc-500" />
+                    </div>
+                  )}
+                  <div className="p-2.5">
+                    <p className="text-sm font-semibold text-white truncate">{beat.title}</p>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      {beat.bpm ? `${beat.bpm} BPM` : '—'} · {beat.key_signature || '—'}
+                    </p>
+                    <p className="text-sm font-bold text-rose-300 mt-2">{formatPrice(beat.price || 0)}</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mt-4">
+          <h2 className="text-lg font-semibold text-white mb-4">Battles</h2>
+
+          {isBattlesLoading && (
+            <div className="space-y-3">
+              {[...Array(4)].map((_, index) => (
+                <div key={index} className="h-14 rounded-lg bg-zinc-800 animate-pulse" />
+              ))}
+            </div>
+          )}
+
+          {!isBattlesLoading && battlesError && (
+            <p className="text-sm text-red-400">{battlesError}</p>
+          )}
+
+          {!isBattlesLoading && !battlesError && battles.length === 0 && (
+            <p className="text-sm text-zinc-400">Aucune battle pour le moment.</p>
+          )}
+
+          {!isBattlesLoading && !battlesError && battles.length > 0 && (
+            <div className="space-y-3">
+              {battles.map((battle) => (
+                <Link
+                  key={battle.id}
+                  to={`/battles/${battle.slug}`}
+                  className="block rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2.5 hover:border-zinc-600 transition"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-white truncate">{battle.title}</p>
+                      <p className="text-[11px] text-zinc-400 mt-0.5">
+                        Statut: {battle.status}
+                      </p>
+                    </div>
+                    {battle.winner_id === producer.id && (
+                      <span className="shrink-0 inline-flex items-center rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-200">
+                        🏆 Gagnant
+                      </span>
+                    )}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
