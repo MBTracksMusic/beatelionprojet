@@ -259,6 +259,55 @@ export interface AiTrainingFeedback {
   created_by: string | null;
 }
 
+export interface ForumAuthor {
+  id: string;
+  username: string | null;
+  avatar_url: string | null;
+}
+
+export interface ForumCategory {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  is_premium_only: boolean;
+  position: number;
+  created_at: string;
+  topic_count: number;
+  post_count: number;
+}
+
+export interface ForumTopic {
+  id: string;
+  category_id: string;
+  user_id: string;
+  title: string;
+  slug: string;
+  is_pinned: boolean;
+  is_locked: boolean;
+  created_at: string;
+  last_post_at: string;
+  post_count: number;
+  author?: ForumAuthor;
+}
+
+export interface ForumPost {
+  id: string;
+  topic_id: string;
+  user_id: string;
+  content: string;
+  edited_at: string | null;
+  is_deleted: boolean;
+  created_at: string;
+  author?: ForumAuthor;
+}
+
+export interface LatestForumTopic extends ForumTopic {
+  category_name: string;
+  category_slug: string;
+  category_is_premium_only: boolean;
+}
+
 export interface AdminNotification {
   id: string;
   user_id: string;

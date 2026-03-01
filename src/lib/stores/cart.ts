@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { supabase } from '../supabase/client';
 import { GENRE_SAFE_COLUMNS, MOOD_SAFE_COLUMNS, PRODUCT_SAFE_COLUMNS } from '../supabase/selects';
-import type { CartItemWithProduct, ProductWithRelations } from '../supabase/types';
+import type { CartItemWithProduct } from '../supabase/types';
 
 interface CartState {
   items: CartItemWithProduct[];
@@ -37,17 +37,16 @@ export const useCartStore = create<CartState>((set, get) => ({
             genre:genres(${GENRE_SAFE_COLUMNS}),
             mood:moods(${MOOD_SAFE_COLUMNS})
           )
-        `)
+        ` as any)
         .eq('user_id', user.id);
 
       if (error) throw error;
 
-      const validItems = (data || []).filter(
-        (item): item is CartItemWithProduct & { product: ProductWithRelations } =>
-          item.product !== null &&
-          item.product.is_published &&
-          (!item.product.is_exclusive || !item.product.is_sold)
-      );
+      const rows = ((data as unknown as CartItemWithProduct[] | null) ?? []);
+      const validItems = rows.filter((item): item is CartItemWithProduct & { product: NonNullable<CartItemWithProduct['product']> } => {
+        if (!item.product) return false;
+        return item.product.is_published && (!item.product.is_exclusive || !item.product.is_sold);
+      });
 
       set({ items: validItems, isLoading: false });
     } catch (error) {

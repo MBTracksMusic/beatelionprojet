@@ -82,7 +82,6 @@ export function CartPage() {
           Authorization: `Bearer ${accessToken}`,
           'x-supabase-auth': `Bearer ${accessToken}`,
         },
-        jwt: accessToken,
       });
 
       if (error) {

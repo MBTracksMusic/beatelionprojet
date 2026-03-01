@@ -208,7 +208,7 @@ export function DashboardPage() {
               created_at,
               updated_at
             )
-          `)
+          ` as any)
           .eq('user_id', user.id)
           .eq('status', 'completed')
           .order('created_at', { ascending: false })
@@ -219,7 +219,7 @@ export function DashboardPage() {
         }
 
         if (!isCancelled) {
-          const rows = (data as DashboardPurchase[] | null) ?? [];
+          const rows = (data as unknown as DashboardPurchase[] | null) ?? [];
           const producerIds = [...new Set(
             rows
               .map((purchase) => purchase.product?.producer_id)
@@ -300,7 +300,7 @@ export function DashboardPage() {
                 genre:genres(${GENRE_SAFE_COLUMNS}),
                 mood:moods(${MOOD_SAFE_COLUMNS})
               )
-            `)
+            ` as any)
             .eq('user_id', user.id)
             .order('created_at', { ascending: false })
             .limit(3),
@@ -318,7 +318,7 @@ export function DashboardPage() {
             setRecentWishlist([]);
           }
         } else if (!isCancelled) {
-          const rows = (data as WishlistProductRow[] | null) ?? [];
+          const rows = (data as unknown as WishlistProductRow[] | null) ?? [];
           const mappedProducts = rows
             .map((row) => row.product)
             .filter((product): product is ProductWithRelations => product !== null);

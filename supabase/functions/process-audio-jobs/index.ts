@@ -3,10 +3,13 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { FFmpeg } from "npm:@ffmpeg/ffmpeg@0.12.6";
 import { fetchFile, toBlobURL } from "npm:@ffmpeg/util@0.12.1";
 
+const INTERNAL_SECRET_HEADER = "x-audio-worker-secret";
+
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  // This endpoint is strictly internal. It should not be callable from arbitrary browser origins.
+  "Access-Control-Allow-Origin": "null",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, x-worker-secret, x-audio-worker-secret, x-supabase-auth",
+  "Access-Control-Allow-Headers": `Content-Type, ${INTERNAL_SECRET_HEADER}`,
 };
 
 const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
@@ -92,6 +95,29 @@ const normalizeLimit = (value: unknown) => {
 const normalizeWorkerName = (value: unknown) => {
   const worker = asNonEmptyString(value);
   return worker ?? `audio-worker-${crypto.randomUUID()}`;
+};
+
+const requireInternalSecret = (req: Request): Response | null => {
+  const configuredSecret = Deno.env.get("AUDIO_WORKER_SECRET")?.trim();
+
+  if (!configuredSecret) {
+    console.error("[process-audio-jobs] missing AUDIO_WORKER_SECRET");
+    return new Response(JSON.stringify({ error: "Internal server error" }), {
+      status: 500,
+      headers: jsonHeaders,
+    });
+  }
+
+  const providedSecret = req.headers.get(INTERNAL_SECRET_HEADER)?.trim();
+
+  if (!providedSecret || providedSecret !== configuredSecret) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: jsonHeaders,
+    });
+  }
+
+  return null;
 };
 
 const createAdminClient = () => {
@@ -718,6 +744,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
       status: 405,
       headers: jsonHeaders,
     });
+  }
+
+  // This function drives private storage and DB updates with service_role privileges.
+  // Require a dedicated internal secret before any business logic is executed.
+  const authError = requireInternalSecret(req);
+  if (authError) {
+    return authError;
   }
 
   let ffmpegContext: InvocationFfmpegContext | null = null;

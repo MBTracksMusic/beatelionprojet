@@ -15,7 +15,11 @@ export function ProtectedRoute({
   const { user, profile, isInitialized, isLoading } = useAuth();
   const location = useLocation();
 
-  if (!isInitialized || isLoading) {
+  if (isLoading) {
+    return null;
+  }
+
+  if (!isInitialized) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />

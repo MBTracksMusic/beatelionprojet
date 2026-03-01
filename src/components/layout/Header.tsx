@@ -72,6 +72,12 @@ export function Header() {
                 {t('nav.producers')}
               </Link>
               <Link
+                to="/forum"
+                className="px-3 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
+              >
+                Forum
+              </Link>
+              <Link
                 to="/pricing"
                 className="px-3 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
               >
@@ -302,6 +308,13 @@ export function Header() {
               className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg"
             >
               {t('nav.producers')}
+            </Link>
+            <Link
+              to="/forum"
+              onClick={() => setIsMenuOpen(false)}
+              className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg"
+            >
+              Forum
             </Link>
             <Link
               to="/pricing"

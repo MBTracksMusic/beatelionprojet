@@ -80,6 +80,16 @@ function toStatusLabel(status: BattleStatus) {
   return 'Pending';
 }
 
+function slugifyBattleTitle(value: string) {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
 export function ProducerBattlesPage() {
   const { profile } = useAuth();
 
@@ -290,13 +300,14 @@ export function ProducerBattlesPage() {
       .from('battles')
       .insert({
         title: form.title.trim(),
+        slug: `${slugifyBattleTitle(form.title.trim()) || 'battle'}-${crypto.randomUUID().slice(0, 8)}`,
         description: form.description.trim() || null,
         producer1_id: profile.id,
         producer2_id: form.producer2Id,
         product1_id: form.product1Id || null,
         product2_id: form.product2Id || null,
         status: 'pending_acceptance',
-        winner_id: null,
+        winner_id: undefined,
         votes_producer1: 0,
         votes_producer2: 0,
       });
@@ -334,7 +345,7 @@ export function ProducerBattlesPage() {
     const { error: rpcError } = await supabase.rpc('respond_to_battle', {
       p_battle_id: battleId,
       p_accept: accept,
-      p_reason: accept ? null : reason,
+      p_reason: accept ? undefined : reason,
     });
 
     if (rpcError) {

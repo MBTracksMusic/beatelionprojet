@@ -4,6 +4,7 @@ import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { supabase } from '../../lib/supabase/client';
+import type { Json } from '../../lib/supabase/database.types';
 
 const SOCIAL_SETTINGS_KEY = 'social_links';
 const SITE_AUDIO_SETTINGS_TABLE = 'site_audio_settings';
@@ -201,7 +202,7 @@ export function AdminSettingsPage() {
       .upsert(
         {
           key: SOCIAL_SETTINGS_KEY,
-          value: nextForm,
+          value: nextForm as unknown as Json,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'key' },
@@ -314,7 +315,7 @@ export function AdminSettingsPage() {
       });
     } else if (payload.path) {
       setSiteAudioSettings((prev) => prev
-        ? { ...prev, watermark_audio_path: payload.path, updated_at: new Date().toISOString() }
+        ? { ...prev, watermark_audio_path: payload.path ?? null, updated_at: new Date().toISOString() }
         : prev);
     }
 

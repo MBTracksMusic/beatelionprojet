@@ -43,8 +43,20 @@ export function BeatsPage({ mode = 'beats' }: BeatsPageProps) {
         supabase.from('genres').select('*').eq('is_active', true).order('sort_order'),
         supabase.from('moods').select('*').eq('is_active', true).order('sort_order'),
       ]);
-      if (genresRes.data) setGenres(genresRes.data);
-      if (moodsRes.data) setMoods(moodsRes.data);
+      if (genresRes.data) {
+        setGenres(genresRes.data.map((genre) => ({
+          ...genre,
+          sort_order: genre.sort_order ?? 0,
+          is_active: genre.is_active ?? false,
+        })));
+      }
+      if (moodsRes.data) {
+        setMoods(moodsRes.data.map((mood) => ({
+          ...mood,
+          sort_order: mood.sort_order ?? 0,
+          is_active: mood.is_active ?? false,
+        })));
+      }
     }
     fetchFilters();
   }, []);
@@ -67,7 +79,7 @@ export function BeatsPage({ mode = 'beats' }: BeatsPageProps) {
             ${PRODUCT_SAFE_COLUMNS},
             genre:genres(${GENRE_SAFE_COLUMNS}),
             mood:moods(${MOOD_SAFE_COLUMNS})
-          `)
+          ` as any)
           .eq('is_published', true);
 
         if (mode === 'exclusives') {
@@ -118,7 +130,7 @@ export function BeatsPage({ mode = 'beats' }: BeatsPageProps) {
 
         const { data, error } = await query.limit(50);
         if (error) throw error;
-        const rows = ((data as ProductWithRelations[] | null) ?? []);
+        const rows = ((data as unknown as ProductWithRelations[] | null) ?? []);
         const producerProfilesMap = await fetchPublicProducerProfilesMap(
           rows.map((row) => row.producer_id)
         );

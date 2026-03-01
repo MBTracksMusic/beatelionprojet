@@ -56,6 +56,8 @@ const DEFAULT_DELTAS: AdminPilotageDeltas = {
   beats_growth_30d_pct: null,
 };
 
+void DEFAULT_DELTAS;
+
 const DEFAULT_BUSINESS: AdminBusinessMetrics = {
   producer_publication_rate_pct: 0,
   beats_conversion_rate_pct: 0,

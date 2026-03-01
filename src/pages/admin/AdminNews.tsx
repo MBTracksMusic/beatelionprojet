@@ -179,7 +179,7 @@ export function AdminNewsPage() {
       ? supabase.from(newsVideosSource).update(payload).eq('id', editingRow.id)
       : supabase.from(newsVideosSource).insert(payload);
 
-    const { data, error } = await query.select('*').single();
+    const { data, error } = await (query as any).select('*').single();
 
     if (error) {
       console.error('Error saving news video:', error);

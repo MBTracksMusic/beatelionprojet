@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from './components/layout/Layout';
 import { HomePage } from './pages/Home';
 import { BeatsPage } from './pages/Beats';
@@ -29,27 +28,24 @@ import { AdminNewsPage } from './pages/admin/AdminNews';
 import { AdminBattlesWrapper } from './pages/admin/AdminBattlesWrapper';
 import { AdminPilotagePage } from './pages/admin/AdminPilotage';
 import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
+import { AdminForumPage } from './pages/admin/AdminForum';
+import { AdminForumCategoriesPage } from './pages/admin/AdminForumCategories';
 import { ProducerGuide } from './pages/support/ProducerGuide';
 import { Faq } from './pages/support/Faq';
 import { ContactPage } from './pages/support/Contact';
 import { Terms } from './pages/legal/Terms';
 import { Privacy } from './pages/legal/Privacy';
 import { Licenses } from './pages/legal/Licenses';
+import { ForumPage } from './pages/forum/ForumPage';
+import { ForumCategoryPage } from './pages/ForumCategory';
+import { TopicPage } from './pages/forum/TopicPage';
+import { CreateTopicPage } from './pages/forum/CreateTopic';
 import { MyMessagesPage } from './pages/dashboard/MyMessages';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { initializeAuth } from './lib/auth/store';
 import { useCartStore } from './lib/stores/cart';
 import { useAuth } from './lib/auth/hooks';
 import { AdminMessagesPage } from './pages/admin/AdminMessages';
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 5,
-      retry: 1,
-    },
-  },
-});
 
 function AppContent() {
   const { user, isInitialized } = useAuth();
@@ -92,6 +88,38 @@ function AppContent() {
         <Route path="guide-producteur" element={<ProducerGuide />} />
         <Route path="faq" element={<Faq />} />
         <Route path="contact" element={<ContactPage />} />
+        <Route
+          path="/forum"
+          element={
+            <ProtectedRoute>
+              <ForumPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/forum/new"
+          element={
+            <ProtectedRoute>
+              <CreateTopicPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/forum/:categorySlug"
+          element={
+            <ProtectedRoute>
+              <ForumCategoryPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/forum/:categorySlug/:topicSlug"
+          element={
+            <ProtectedRoute>
+              <TopicPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/licenses" element={<Licenses />} />
         <Route path="terms" element={<Terms />} />
         <Route path="privacy" element={<Privacy />} />
@@ -174,6 +202,8 @@ function AppContent() {
           <Route path="news" element={<AdminNewsPage />} />
           <Route path="battles" element={<AdminBattlesWrapper />} />
           <Route path="messages" element={<AdminMessagesPage />} />
+          <Route path="forum" element={<AdminForumPage />} />
+          <Route path="forum/categories" element={<AdminForumCategoriesPage />} />
           <Route path="settings" element={<AdminSettingsPage />} />
         </Route>
         <Route path="*" element={<NotFound />} />
@@ -198,27 +228,25 @@ function App() {
   }, []);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <AppContent />
-        <Toaster
-          position="bottom-right"
-          toastOptions={{
-            style: {
-              background: '#18181b',
-              color: '#fff',
-              border: '1px solid #27272a',
+    <BrowserRouter>
+      <AppContent />
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            background: '#18181b',
+            color: '#fff',
+            border: '1px solid #27272a',
+          },
+          success: {
+            iconTheme: {
+              primary: '#f43f5e',
+              secondary: '#fff',
             },
-            success: {
-              iconTheme: {
-                primary: '#f43f5e',
-                secondary: '#fff',
-              },
-            },
-          }}
-        />
-      </BrowserRouter>
-    </QueryClientProvider>
+          },
+        }}
+      />
+    </BrowserRouter>
   );
 }
 

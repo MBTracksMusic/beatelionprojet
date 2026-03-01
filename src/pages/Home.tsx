@@ -72,7 +72,7 @@ export function HomePage() {
             ${PRODUCT_SAFE_COLUMNS},
             genre:genres(${GENRE_SAFE_COLUMNS}),
             mood:moods(${MOOD_SAFE_COLUMNS})
-          `)
+          ` as any)
           .eq('is_published', true)
           .eq('is_exclusive', true)
           .eq('is_sold', false)
@@ -80,7 +80,7 @@ export function HomePage() {
           .limit(4);
 
         if (data) {
-          const rows = (data as ProductWithRelations[]) ?? [];
+          const rows = (data as unknown as ProductWithRelations[]) ?? [];
           const producerProfilesMap = await fetchPublicProducerProfilesMap(
             rows.map((row) => row.producer_id)
           );

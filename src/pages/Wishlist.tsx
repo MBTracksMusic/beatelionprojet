@@ -48,7 +48,7 @@ export function WishlistPage() {
               genre:genres(${GENRE_SAFE_COLUMNS}),
               mood:moods(${MOOD_SAFE_COLUMNS})
             )
-          `)
+          ` as any)
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
 
@@ -56,7 +56,7 @@ export function WishlistPage() {
           throw queryError;
         }
 
-        const rows = (data as WishlistProductRow[] | null) ?? [];
+        const rows = (data as unknown as WishlistProductRow[] | null) ?? [];
         const mappedProducts = rows
           .map((row) => row.product)
           .filter((product): product is ProductWithRelations => product !== null);

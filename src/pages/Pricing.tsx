@@ -237,7 +237,9 @@ export function PricingPage() {
           success_url: `${window.location.origin}/pricing?status=success`,
           cancel_url: `${window.location.origin}/pricing?status=cancel`,
         },
-        jwt: accessToken, // force Authorization: Bearer <user token> pour la gateway
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
       });
 
       if (fnError) {

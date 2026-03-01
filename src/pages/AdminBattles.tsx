@@ -8,6 +8,7 @@ import { Card } from '../components/ui/Card';
 import { AdminPriorityCards } from '../components/admin/AdminPriorityCards';
 import { supabase } from '../lib/supabase/client';
 import type { BattleStatus } from '../lib/supabase/types';
+import type { Json } from '../lib/supabase/database.types';
 
 interface ProducerLite {
   id: string;
@@ -710,8 +711,8 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
   ) => {
     const { error: insertError } = await supabase.from('ai_training_feedback').insert({
       action_id: action.id,
-      ai_prediction: action.ai_decision,
-      human_decision: humanDecision,
+      ai_prediction: action.ai_decision as unknown as Json,
+      human_decision: humanDecision as unknown as Json,
       delta,
       created_by: adminContext.userId,
     });
@@ -899,7 +900,7 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
     const { error: rpcError } = await supabase.rpc('admin_extend_battle_duration', {
       p_battle_id: battleId,
       p_days: days,
-      p_reason: trimmedReason.length > 0 ? trimmedReason : null,
+      p_reason: trimmedReason.length > 0 ? trimmedReason : undefined,
     });
 
     if (rpcError) {
@@ -942,13 +943,13 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
 
       const { error: feedbackError } = await supabase.from('ai_training_feedback').insert({
         action_id: latestCommentAction.id,
-        ai_prediction: latestCommentAction.ai_decision,
+        ai_prediction: latestCommentAction.ai_decision as unknown as Json,
         human_decision: {
           decision: humanAction,
           source: 'admin_comment_toggle',
           comment_id: comment.id,
           override: isOverride,
-        },
+        } as unknown as Json,
         delta: isOverride ? 1 : 0,
         created_by: adminContext.userId,
       });
@@ -970,7 +971,7 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
 
       const { error: aiUpdateError } = await supabase
         .from('ai_admin_actions')
-        .update(actionUpdate)
+        .update(actionUpdate as Record<string, unknown>)
         .eq('id', latestCommentAction.id);
 
       if (aiUpdateError) {

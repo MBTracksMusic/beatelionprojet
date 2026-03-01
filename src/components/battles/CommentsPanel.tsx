@@ -6,6 +6,7 @@ import { useAuth, useIsAdmin, useIsEmailVerified } from '../../lib/auth/hooks';
 import { useTranslation } from '../../lib/i18n';
 import { supabase } from '../../lib/supabase/client';
 import { fetchPublicProducerProfilesMap } from '../../lib/supabase/publicProfiles';
+import type { Json } from '../../lib/supabase/database.types';
 
 interface BattleCommentItem {
   id: string;
@@ -218,13 +219,13 @@ export function CommentsPanel({ battleId, commentsOpen }: CommentsPanelProps) {
 
         const { error: feedbackError } = await supabase.from('ai_training_feedback').insert({
           action_id: latestAiAction.id,
-          ai_prediction: aiDecision,
+          ai_prediction: aiDecision as unknown as Json,
           human_decision: {
             decision: humanAction,
             source: 'battle_detail_comment_toggle',
             comment_id: comment.id,
             override: isOverride,
-          },
+          } as unknown as Json,
           delta: isOverride ? 1 : 0,
           created_by: user.id,
         });
