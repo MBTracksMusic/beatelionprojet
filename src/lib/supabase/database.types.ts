@@ -1427,6 +1427,7 @@ export type Database = {
       }
       products: {
         Row: {
+          archived_at: string | null
           bpm: number | null
           cover_image_url: string | null
           created_at: string
@@ -1441,25 +1442,38 @@ export type Database = {
           is_published: boolean
           is_sold: boolean
           key_signature: string | null
+          last_watermark_hash: string | null
           license_terms: Json | null
           master_path: string | null
           master_url: string | null
           mood_id: string | null
+          original_beat_id: string | null
+          parent_product_id: string | null
           play_count: number
+          preview_signature: string | null
+          preview_version: number
           preview_url: string | null
           price: number
+          processed_at: string | null
+          processing_error: string | null
+          processing_status: string
           producer_id: string
           product_type: Database["public"]["Enums"]["product_type"]
           slug: string
           sold_at: string | null
           sold_to_user_id: string | null
+          status: string
           tags: string[] | null
           title: string
           updated_at: string
+          version: number
+          version_number: number
           watermark_profile_id: string | null
+          watermarked_bucket: string | null
           watermarked_path: string | null
         }
         Insert: {
+          archived_at?: string | null
           bpm?: number | null
           cover_image_url?: string | null
           created_at?: string
@@ -1474,25 +1488,38 @@ export type Database = {
           is_published?: boolean
           is_sold?: boolean
           key_signature?: string | null
+          last_watermark_hash?: string | null
           license_terms?: Json | null
           master_path?: string | null
           master_url?: string | null
           mood_id?: string | null
+          original_beat_id?: string | null
+          parent_product_id?: string | null
           play_count?: number
+          preview_signature?: string | null
+          preview_version?: number
           preview_url?: string | null
           price: number
+          processed_at?: string | null
+          processing_error?: string | null
+          processing_status?: string
           producer_id: string
           product_type: Database["public"]["Enums"]["product_type"]
           slug: string
           sold_at?: string | null
           sold_to_user_id?: string | null
+          status?: string
           tags?: string[] | null
           title: string
           updated_at?: string
+          version?: number
+          version_number?: number
           watermark_profile_id?: string | null
+          watermarked_bucket?: string | null
           watermarked_path?: string | null
         }
         Update: {
+          archived_at?: string | null
           bpm?: number | null
           cover_image_url?: string | null
           created_at?: string
@@ -1507,22 +1534,34 @@ export type Database = {
           is_published?: boolean
           is_sold?: boolean
           key_signature?: string | null
+          last_watermark_hash?: string | null
           license_terms?: Json | null
           master_path?: string | null
           master_url?: string | null
           mood_id?: string | null
+          original_beat_id?: string | null
+          parent_product_id?: string | null
           play_count?: number
+          preview_signature?: string | null
+          preview_version?: number
           preview_url?: string | null
           price?: number
+          processed_at?: string | null
+          processing_error?: string | null
+          processing_status?: string
           producer_id?: string
           product_type?: Database["public"]["Enums"]["product_type"]
           slug?: string
           sold_at?: string | null
           sold_to_user_id?: string | null
+          status?: string
           tags?: string[] | null
           title?: string
           updated_at?: string
+          version?: number
+          version_number?: number
           watermark_profile_id?: string | null
+          watermarked_bucket?: string | null
           watermarked_path?: string | null
         }
         Relationships: [
@@ -1594,20 +1633,30 @@ export type Database = {
       purchases: {
         Row: {
           amount: number
+          audio_path_snapshot: string | null
+          beat_slug_snapshot: string | null
+          beat_title_snapshot: string | null
+          beat_version_snapshot: number | null
           completed_at: string | null
           contract_email_sent_at: string | null
           contract_pdf_path: string | null
+          cover_image_url_snapshot: string | null
           created_at: string
           currency: string
+          currency_snapshot: string | null
           download_count: number
           download_expires_at: string | null
           id: string
           is_exclusive: boolean
           license_id: string | null
+          license_name_snapshot: string | null
           license_type: string | null
+          license_type_snapshot: string | null
           max_downloads: number
           metadata: Json | null
+          price_snapshot: number | null
           producer_id: string
+          producer_display_name_snapshot: string | null
           product_id: string
           status: Database["public"]["Enums"]["purchase_status"]
           stripe_checkout_session_id: string | null
@@ -1616,20 +1665,30 @@ export type Database = {
         }
         Insert: {
           amount: number
+          audio_path_snapshot?: string | null
+          beat_slug_snapshot?: string | null
+          beat_title_snapshot?: string | null
+          beat_version_snapshot?: number | null
           completed_at?: string | null
           contract_email_sent_at?: string | null
           contract_pdf_path?: string | null
+          cover_image_url_snapshot?: string | null
           created_at?: string
           currency?: string
+          currency_snapshot?: string | null
           download_count?: number
           download_expires_at?: string | null
           id?: string
           is_exclusive?: boolean
           license_id?: string | null
+          license_name_snapshot?: string | null
           license_type?: string | null
+          license_type_snapshot?: string | null
           max_downloads?: number
           metadata?: Json | null
+          price_snapshot?: number | null
           producer_id: string
+          producer_display_name_snapshot?: string | null
           product_id: string
           status?: Database["public"]["Enums"]["purchase_status"]
           stripe_checkout_session_id?: string | null
@@ -1638,20 +1697,30 @@ export type Database = {
         }
         Update: {
           amount?: number
+          audio_path_snapshot?: string | null
+          beat_slug_snapshot?: string | null
+          beat_title_snapshot?: string | null
+          beat_version_snapshot?: number | null
           completed_at?: string | null
           contract_email_sent_at?: string | null
           contract_pdf_path?: string | null
+          cover_image_url_snapshot?: string | null
           created_at?: string
           currency?: string
+          currency_snapshot?: string | null
           download_count?: number
           download_expires_at?: string | null
           id?: string
           is_exclusive?: boolean
           license_id?: string | null
+          license_name_snapshot?: string | null
           license_type?: string | null
+          license_type_snapshot?: string | null
           max_downloads?: number
           metadata?: Json | null
+          price_snapshot?: number | null
           producer_id?: string
+          producer_display_name_snapshot?: string | null
           product_id?: string
           status?: Database["public"]["Enums"]["purchase_status"]
           stripe_checkout_session_id?: string | null
@@ -2214,6 +2283,10 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: boolean
       }
+      can_edit_product: {
+        Args: { p_product_id: string }
+        Returns: Json
+      }
       can_create_battle: { Args: { p_user_id: string }; Returns: boolean }
       can_create_product: { Args: { p_user_id: string }; Returns: boolean }
       can_publish_beat: {
@@ -2279,6 +2352,10 @@ export type Database = {
         }
         Returns: string
       }
+      create_new_version_from_beat: {
+        Args: { p_beat_id: string; p_new_data?: Json }
+        Returns: Database["public"]["Tables"]["products"]["Row"]
+      }
       create_exclusive_lock: {
         Args: {
           p_checkout_session_id: string
@@ -2286,6 +2363,10 @@ export type Database = {
           p_user_id: string
         }
         Returns: boolean
+      }
+      delete_beat_if_no_sales: {
+        Args: { p_beat_id: string }
+        Returns: Json
       }
       detect_admin_action_anomalies: {
         Args: { p_lookback_minutes?: number }
@@ -2442,6 +2523,26 @@ export type Database = {
       respond_to_battle: {
         Args: { p_accept: boolean; p_battle_id: string; p_reason?: string }
         Returns: boolean
+      }
+      remove_beat_from_sale: {
+        Args: { p_beat_id: string }
+        Returns: Database["public"]["Tables"]["products"]["Row"]
+      }
+      rpc_archive_product: {
+        Args: { p_product_id: string }
+        Returns: Database["public"]["Tables"]["products"]["Row"]
+      }
+      rpc_create_product_version: {
+        Args: { p_product_id: string }
+        Returns: string
+      }
+      rpc_delete_product_if_no_sales: {
+        Args: { p_product_id: string }
+        Returns: Json
+      }
+      rpc_publish_product_version: {
+        Args: { p_new_data?: Json; p_source_product_id: string }
+        Returns: Database["public"]["Tables"]["products"]["Row"]
       }
       should_flag_battle_refusal_risk: {
         Args: { p_threshold?: number; p_user_id: string }

@@ -9,7 +9,9 @@
 
 BEGIN;
 
-CREATE OR REPLACE VIEW public.public_producer_profiles AS
+DROP VIEW IF EXISTS public.public_producer_profiles CASCADE;
+
+CREATE VIEW public.public_producer_profiles AS
 SELECT
   up.id AS user_id,
   up.username,
@@ -28,7 +30,9 @@ GRANT SELECT ON TABLE public.public_producer_profiles TO anon;
 GRANT SELECT ON TABLE public.public_producer_profiles TO authenticated;
 GRANT SELECT ON TABLE public.public_producer_profiles TO service_role;
 
-CREATE OR REPLACE VIEW public.my_user_profile AS
+DROP VIEW IF EXISTS public.my_user_profile CASCADE;
+
+CREATE VIEW public.my_user_profile AS
 SELECT up.*
 FROM public.user_profiles up
 WHERE up.id = auth.uid();

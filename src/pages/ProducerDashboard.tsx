@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Music, BarChart3, ShoppingBag, UploadCloud, Trash2 } from 'lucide-react';
 import { useTranslation } from '../lib/i18n';
 import { useAuth } from '../lib/auth/hooks';
@@ -28,6 +28,28 @@ interface ProducerSubscriptionSummary {
   cancel_at_period_end: boolean;
   stripe_subscription_id: string | null;
 }
+
+type ProductSalesCountMap = Record<string, number>;
+
+interface ProducerProduct extends Product {
+  sales_count: number;
+  active_battle_count: number;
+}
+
+const SALE_STATUSES: Array<Database['public']['Enums']['purchase_status']> = ['completed', 'refunded'];
+
+const getRpcErrorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string') {
+    return error.message;
+  }
+  return fallback;
+};
+
+const getProductLifecycleLabel = (product: Product, draftLabel: string, publishedLabel: string) => {
+  if (product.status === 'archived') return 'Archivé';
+  return product.is_published ? publishedLabel : draftLabel;
+};
 
 const toProducerTier = (value: unknown): ProducerTier => {
   if (value === 'starter' || value === 'pro' || value === 'elite') return value;
@@ -86,9 +108,10 @@ const formatSubscriptionDate = (value: string | number | Date | null | undefined
 export function ProducerDashboardPage() {
   const { t } = useTranslation();
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const currentTier = toProducerTier(profile?.producer_tier);
   const hasAdvancedAccess = currentTier === 'pro' || currentTier === 'elite';
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<ProducerProduct[]>([]);
   const [productCount, setProductCount] = useState(0);
   const [salesCount, setSalesCount] = useState(0);
   const [revenueCents, setRevenueCents] = useState(0);
@@ -99,6 +122,8 @@ export function ProducerDashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [versioningId, setVersioningId] = useState<string | null>(null);
   const [producerSubscription, setProducerSubscription] = useState<ProducerSubscriptionSummary | null>(null);
   const [isSubscriptionLoading, setIsSubscriptionLoading] = useState(false);
   const [isPortalLoading, setIsPortalLoading] = useState(false);
@@ -134,7 +159,8 @@ export function ProducerDashboardPage() {
         const [
           { count: totalProducts, error: productCountError },
           { data: productsData, error: productsError },
-          { count: totalSales, error: salesError },
+          { data: purchaseRows, error: salesError },
+          { data: activeBattleRows, error: activeBattleError },
         ] = await Promise.all([
           supabase
             .from('products')
@@ -149,9 +175,14 @@ export function ProducerDashboardPage() {
             .order('created_at', { ascending: false }),
           supabase
             .from('purchases')
-            .select('id', { count: 'exact', head: true })
+            .select('product_id')
             .eq('producer_id', profile.id)
-            .eq('status', 'completed'),
+            .in('status', SALE_STATUSES),
+          supabase
+            .from('battles')
+            .select('product1_id, product2_id')
+            .eq('status', 'active')
+            .or(`producer1_id.eq.${profile.id},producer2_id.eq.${profile.id}`),
         ]);
 
         if (productCountError) {
@@ -161,6 +192,25 @@ export function ProducerDashboardPage() {
           setProductCount(totalProducts ?? 0);
         }
 
+        const salesByProduct = (((purchaseRows as Array<{ product_id: string }> | null) || [])).reduce<ProductSalesCountMap>(
+          (acc, purchase) => {
+            acc[purchase.product_id] = (acc[purchase.product_id] ?? 0) + 1;
+            return acc;
+          },
+          {}
+        );
+
+        const battlesByProduct = (((activeBattleRows as Array<{ product1_id: string | null; product2_id: string | null }> | null) || []))
+          .reduce<ProductSalesCountMap>((acc, battle) => {
+            if (battle.product1_id) {
+              acc[battle.product1_id] = (acc[battle.product1_id] ?? 0) + 1;
+            }
+            if (battle.product2_id) {
+              acc[battle.product2_id] = (acc[battle.product2_id] ?? 0) + 1;
+            }
+            return acc;
+          }, {});
+
         if (productsError) {
           console.error('Error loading producer products', productsError);
           if (!isCancelled) {
@@ -168,14 +218,24 @@ export function ProducerDashboardPage() {
             setError(productsError.message);
           }
         } else if (!isCancelled) {
-          setProducts((productsData as Product[]) || []);
+          const typedProducts = ((productsData as unknown as Product[]) || []);
+          setProducts(
+            typedProducts.map((product) => ({
+              ...product,
+              sales_count: salesByProduct[product.id] ?? 0,
+              active_battle_count: battlesByProduct[product.id] ?? 0,
+            }))
+          );
         }
 
         if (salesError) {
           console.error('Error loading producer sales count', salesError);
         }
+        if (activeBattleError) {
+          console.error('Error loading producer active battle counts', activeBattleError);
+        }
         if (!isCancelled) {
-          setSalesCount(totalSales ?? 0);
+          setSalesCount((purchaseRows as Array<{ product_id: string }> | null)?.length ?? 0);
         }
 
         let computedRevenueCents: number | null = null;
@@ -188,7 +248,8 @@ export function ProducerDashboardPage() {
 
         if (producerStatsError) {
           console.error('Producer stats view unavailable, falling back to purchases sum', producerStatsError);
-          const fallbackViewsCount = ((productsData as Product[]) || []).reduce(
+          const typedProductsData = ((productsData as unknown as Product[]) || []);
+          const fallbackViewsCount = typedProductsData.reduce(
             (total, product) => total + (product.play_count || 0),
             0
           );
@@ -307,7 +368,7 @@ export function ProducerDashboardPage() {
       isCancelled = true;
     };
   }, [profile?.id]);
-  const AUDIO_BUCKET = import.meta.env.VITE_SUPABASE_AUDIO_BUCKET || 'beats-audio';
+  const WATERMARKED_BUCKET = import.meta.env.VITE_SUPABASE_WATERMARKED_BUCKET || 'beats-watermarked';
   const COVER_BUCKET = import.meta.env.VITE_SUPABASE_COVER_BUCKET || 'beats-covers';
   const producerSubscriptionStatus = producerSubscription?.subscription_status ?? 'Aucun abonnement';
   const nextBillingDate = formatSubscriptionDate(producerSubscription?.current_period_end);
@@ -352,7 +413,6 @@ export function ProducerDashboardPage() {
             Authorization: `Bearer ${accessToken}`,
             'x-supabase-auth': `Bearer ${accessToken}`,
           },
-          jwt: accessToken,
         }
       );
 
@@ -404,23 +464,42 @@ export function ProducerDashboardPage() {
     }
   };
 
-  const deleteProduct = async (product: Product) => {
-    if (!profile?.id) return;
+  const removeProductStorageAssets = async (product: Product) => {
+    const watermarkedBucket = product.watermarked_bucket || WATERMARKED_BUCKET;
+    const watermarkedPaths = [
+      extractStoragePathFromCandidate(product.watermarked_path, watermarkedBucket),
+      extractStoragePathFromCandidate(product.preview_url, watermarkedBucket),
+      extractStoragePathFromCandidate(product.exclusive_preview_url, watermarkedBucket),
+    ].filter(Boolean) as string[];
 
-    const { count: purchaseCount, error: purchaseCheckError } = await supabase
-      .from('purchases')
-      .select('id', { count: 'exact', head: true })
-      .eq('product_id', product.id)
-      .eq('producer_id', profile.id);
+    const coverPaths = [
+      extractStoragePathFromCandidate(product.cover_image_url, COVER_BUCKET),
+    ].filter(Boolean) as string[];
 
-    if (purchaseCheckError) {
-      console.error('Error checking product purchases before delete', purchaseCheckError);
-      setError("Impossible de verifier l'historique des ventes pour ce produit.");
-      return;
+    const uniqueWatermarkedPaths = [...new Set(watermarkedPaths)];
+    const uniqueCoverPaths = [...new Set(coverPaths)];
+
+    if (uniqueWatermarkedPaths.length) {
+      const { error: previewError } = await supabase.storage
+        .from(watermarkedBucket)
+        .remove(uniqueWatermarkedPaths);
+      if (previewError) {
+        console.warn('Preview deletion warning', previewError);
+      }
     }
 
-    if ((purchaseCount ?? 0) > 0) {
-      window.alert('Ce produit a deja ete vendu et ne peut pas etre supprime.');
+    if (uniqueCoverPaths.length) {
+      const { error: coverError } = await supabase.storage.from(COVER_BUCKET).remove(uniqueCoverPaths);
+      if (coverError) {
+        console.warn('Cover deletion warning', coverError);
+      }
+    }
+  };
+
+  const deleteProduct = async (product: ProducerProduct) => {
+    const productSalesCount = product.sales_count;
+    if (productSalesCount > 0) {
+      window.alert('Ce beat a deja des ventes. Retirez-le de la vente ou creez une nouvelle version.');
       return;
     }
 
@@ -432,62 +511,87 @@ export function ProducerDashboardPage() {
     setDeletingId(product.id);
     setError(null);
 
-    // Collect storage paths to delete
-    const audioPaths = [
-      extractStoragePathFromCandidate(product.watermarked_path, AUDIO_BUCKET),
-      extractStoragePathFromCandidate(product.preview_url, AUDIO_BUCKET),
-      extractStoragePathFromCandidate(product.exclusive_preview_url, AUDIO_BUCKET),
-    ].filter(Boolean) as string[];
-
-    const coverPaths = [extractStoragePathFromCandidate(product.cover_image_url, COVER_BUCKET)].filter(
-      Boolean
-    ) as string[];
-
     try {
-      // Clean related rows first to avoid FK constraints
-      await supabase.from('wishlists').delete().eq('product_id', product.id);
-      await supabase.from('cart_items').delete().eq('product_id', product.id);
-      await supabase.from('product_files').delete().eq('product_id', product.id);
+      const { error: deleteError } = await supabase.rpc('rpc_delete_product_if_no_sales', {
+        p_product_id: product.id,
+      });
 
-      // Delete storage files (ignore errors but log them)
-      if (audioPaths.length) {
-        const { error: storageError } = await supabase.storage
-          .from(AUDIO_BUCKET)
-          .remove(audioPaths);
-        if (storageError) {
-          console.warn('Audio deletion warning', storageError);
-        }
-      }
-      if (coverPaths.length) {
-        const { error: coverError } = await supabase.storage
-          .from(COVER_BUCKET)
-          .remove(coverPaths);
-        if (coverError) {
-          console.warn('Cover deletion warning', coverError);
-        }
+      if (deleteError) {
+        throw deleteError;
       }
 
-      // Soft-delete the product row (scoped to the producer for safety)
-      const { error: productError } = await supabase
-        .from('products')
-        .update({ deleted_at: new Date().toISOString() })
-        .eq('id', product.id)
-        .eq('producer_id', profile.id);
+      await removeProductStorageAssets(product);
 
-      if (productError) {
-        throw productError;
-      }
-
-      // Update local state
       setProducts((prev) => prev.filter((p) => p.id !== product.id));
       setProductCount((prev) => Math.max(0, prev - 1));
+      setSalesCount((prev) => Math.max(0, prev - productSalesCount));
       setViewsCount((prev) => Math.max(0, prev - (product.play_count || 0)));
     } catch (e) {
       console.error('Error deleting product', e);
-      setError(e instanceof Error ? e.message : 'Suppression impossible pour le moment.');
+      const message = getRpcErrorMessage(e, 'Suppression impossible pour le moment.');
+      setError(
+        message.includes('beat_has_sales') || message.includes('product_has_sales')
+          ? 'Ce beat a deja des ventes. Retirez-le de la vente ou creez une nouvelle version.'
+          : message
+      );
     } finally {
       setDeletingId(null);
     }
+  };
+
+  const removeProductFromSale = async (product: ProducerProduct) => {
+    if (product.status === 'archived') return;
+
+    setRemovingId(product.id);
+    setError(null);
+
+    try {
+      const { data, error: removeError } = await supabase.rpc('rpc_archive_product', {
+        p_product_id: product.id,
+      });
+
+      if (removeError) {
+        throw removeError;
+      }
+
+      const updatedProduct = data as Product | null;
+      if (updatedProduct) {
+        setProducts((prev) => prev.map((row) => (
+          row.id === product.id
+            ? { ...row, ...(updatedProduct as Product) }
+            : row
+        )));
+      }
+    } catch (e) {
+      console.error('Error removing product from sale', e);
+      setError(getRpcErrorMessage(e, 'Retrait de la vente impossible pour le moment.'));
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  const createNewVersion = async (product: ProducerProduct) => {
+    const nextVersion = Math.max(product.version_number || product.version || 1, 1) + 1;
+    const confirm = window.confirm(
+      `Créer une nouvelle version brouillon (${nextVersion}) de "${product.title}" ? Le beat actuel restera inchangé.`
+    );
+    if (!confirm) return;
+
+    setVersioningId(product.id);
+    setError(null);
+
+    try {
+      navigate(`/producer/upload?cloneFrom=${encodeURIComponent(product.id)}`);
+    } catch (e) {
+      console.error('Error creating new product version', e);
+      setError(getRpcErrorMessage(e, 'Creation de nouvelle version impossible pour le moment.'));
+    } finally {
+      setVersioningId(null);
+    }
+  };
+
+  const editProduct = (product: ProducerProduct) => {
+    navigate(`/producer/upload?editProductId=${encodeURIComponent(product.id)}`);
   };
 
   return (
@@ -595,24 +699,56 @@ export function ProducerDashboardPage() {
               {products.map((product) => (
                 <li key={product.id} className="py-3 flex items-center justify-between text-sm gap-3">
                   <div className="min-w-0">
-                    <p className="text-white font-medium truncate">{product.title}</p>
+                    <p className="text-white font-medium truncate">{`${product.title} V${product.version_number || product.version}`}</p>
                     <p className="text-zinc-500">
                       {product.bpm ? `${product.bpm} BPM` : '—'} ·{' '}
-                      {product.key_signature || '—'} · {product.is_published ? t('producer.published') : t('producer.draft')}
+                      {product.key_signature || '—'} · {getProductLifecycleLabel(product, t('producer.draft'), t('producer.published'))} ·{' '}
+                      {product.sales_count} vente{product.sales_count > 1 ? 's' : ''} · {product.active_battle_count} battle{product.active_battle_count > 1 ? 's' : ''} active{product.active_battle_count > 1 ? 's' : ''}
                     </p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-wrap justify-end">
                     <span className="text-zinc-300 whitespace-nowrap">
                       {formatPrice(product.price || 0)}
                     </span>
-                    <button
-                      onClick={() => deleteProduct(product)}
-                      disabled={deletingId === product.id}
-                      className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-500/30 text-red-300 hover:text-red-100 hover:border-red-400/70 bg-red-500/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      {deletingId === product.id ? 'Suppression...' : 'Supprimer'}
-                    </button>
+                    {product.sales_count === 0 ? (
+                      <>
+                        <button
+                          onClick={() => editProduct(product)}
+                          className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg border border-sky-500/30 text-sky-200 hover:text-sky-100 hover:border-sky-400/70 bg-sky-500/10 transition"
+                        >
+                          {product.active_battle_count > 0 ? 'Modifier (sans audio)' : 'Modifier'}
+                        </button>
+                        <button
+                          onClick={() => deleteProduct(product)}
+                          disabled={deletingId === product.id}
+                          className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg border border-red-500/30 text-red-300 hover:text-red-100 hover:border-red-400/70 bg-red-500/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          {deletingId === product.id ? 'Suppression...' : 'Supprimer'}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => removeProductFromSale(product)}
+                          disabled={removingId === product.id || product.status === 'archived'}
+                          className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg border border-amber-500/30 text-amber-200 hover:text-amber-100 hover:border-amber-400/70 bg-amber-500/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {removingId === product.id
+                            ? 'Retrait...'
+                            : product.status === 'archived'
+                              ? 'Deja archive'
+                              : 'Retirer de la vente'}
+                        </button>
+                        <button
+                          onClick={() => createNewVersion(product)}
+                          disabled={versioningId === product.id}
+                          className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg border border-rose-500/30 text-rose-200 hover:text-rose-100 hover:border-rose-400/70 bg-rose-500/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {versioningId === product.id ? 'Creation...' : `Creer V${Math.max(product.version_number || product.version || 1, 1) + 1}`}
+                        </button>
+                      </>
+                    )}
                   </div>
                 </li>
               ))}

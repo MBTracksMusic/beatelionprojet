@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   UploadCloud,
   Music,
@@ -13,6 +13,7 @@ import toast from 'react-hot-toast';
 import { useTranslation } from '../lib/i18n';
 import { useAuth } from '../lib/auth/hooks';
 import { supabase } from '../lib/supabase/client';
+import type { Database } from '../lib/supabase/types';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
@@ -23,6 +24,44 @@ type UploadPhase = 'idle' | 'uploading' | 'success' | 'error';
 
 type ErrorState = Partial<Record<'audio' | 'image' | 'form', string>>;
 
+interface VersionSourceRow {
+  id: string;
+  parent_product_id: string | null;
+  version_number: number;
+  title: string;
+  description: string | null;
+  price: number;
+  bpm: number | null;
+  key_signature: string | null;
+  cover_image_url: string | null;
+  genre_id: string | null;
+  mood_id: string | null;
+  tags: string[] | null;
+  duration_seconds: number | null;
+  file_format: string | null;
+  license_terms: Database['public']['Tables']['products']['Row']['license_terms'];
+  is_exclusive: boolean;
+  watermarked_bucket: string | null;
+}
+
+interface EditProductRow {
+  id: string;
+  title: string;
+  description: string | null;
+  price: number;
+  bpm: number | null;
+  key_signature: string | null;
+  cover_image_url: string | null;
+  is_published: boolean;
+  file_format: string | null;
+}
+
+interface EditPermissions {
+  can_edit_audio: boolean;
+  can_edit_metadata: boolean;
+  must_create_new_version: boolean;
+}
+
 const MAX_AUDIO_SIZE = 50 * 1024 * 1024; // 50 MB
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5 MB
 const MAX_AUDIO_DURATION = 10 * 60; // 10 minutes in seconds
@@ -30,6 +69,12 @@ const MIN_IMAGE_DIMENSION = 500; // px
 
 const MASTER_BUCKET = import.meta.env.VITE_SUPABASE_MASTER_BUCKET || 'beats-masters';
 const COVER_BUCKET = import.meta.env.VITE_SUPABASE_COVER_BUCKET || 'beats-covers';
+
+const revokeObjectUrl = (value: string | null) => {
+  if (value?.startsWith('blob:')) {
+    URL.revokeObjectURL(value);
+  }
+};
 
 const getErrorMessage = (error: unknown, fallback: string) => {
   if (error instanceof Error && error.message) {
@@ -60,6 +105,7 @@ export function UploadBeatPage() {
   const { t } = useTranslation();
   const { profile } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const audioInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
@@ -83,6 +129,16 @@ export function UploadBeatPage() {
   const [bpm, setBpm] = useState('');
   const [keySignature, setKeySignature] = useState('');
   const [isWatermarkProcessing, setIsWatermarkProcessing] = useState(false);
+  const [versionSource, setVersionSource] = useState<VersionSourceRow | null>(null);
+  const [isVersionSourceLoading, setIsVersionSourceLoading] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<EditProductRow | null>(null);
+  const [editPermissions, setEditPermissions] = useState<EditPermissions | null>(null);
+  const [isEditProductLoading, setIsEditProductLoading] = useState(false);
+
+  const cloneFrom = searchParams.get('cloneFrom');
+  const editProductId = searchParams.get('editProductId');
+  const isEditMode = typeof editProductId === 'string' && editProductId.length > 0;
+  const isVersionMode = !isEditMode && typeof cloneFrom === 'string' && cloneFrom.length > 0;
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -90,28 +146,177 @@ export function UploadBeatPage() {
 
   useEffect(() => {
     return () => {
-      if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+      revokeObjectUrl(audioPreviewUrl);
     };
   }, [audioPreviewUrl]);
 
   useEffect(() => {
     return () => {
-      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+      revokeObjectUrl(imagePreviewUrl);
     };
   }, [imagePreviewUrl]);
 
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadVersionSource = async () => {
+      if (!cloneFrom || !profile?.id) {
+        if (!isCancelled) {
+          setVersionSource(null);
+          setIsVersionSourceLoading(false);
+        }
+        return;
+      }
+
+      setIsVersionSourceLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .select(
+            'id, parent_product_id, version_number, title, description, price, bpm, key_signature, cover_image_url, genre_id, mood_id, tags, duration_seconds, file_format, license_terms, is_exclusive, watermarked_bucket'
+          )
+          .eq('id', cloneFrom)
+          .eq('producer_id', profile.id)
+          .maybeSingle();
+
+        if (error) {
+          throw error;
+        }
+
+        const sourceRow = (data as VersionSourceRow | null) ?? null;
+        if (!sourceRow) {
+          throw new Error('Version source introuvable.');
+        }
+
+        if (!isCancelled) {
+          setVersionSource(sourceRow);
+          setTitle(sourceRow.title);
+          setPrice((sourceRow.price / 100).toString());
+          setDescription(sourceRow.description ?? '');
+          setBpm(sourceRow.bpm ? String(sourceRow.bpm) : '');
+          setKeySignature(sourceRow.key_signature ?? '');
+          setImagePreviewUrl(sourceRow.cover_image_url);
+          setErrors((prev) => ({ ...prev, form: undefined }));
+        }
+      } catch (error) {
+        console.error('[upload-beat] failed to load version source', error);
+        if (!isCancelled) {
+          setErrors((prev) => ({
+            ...prev,
+            form: getErrorMessage(error, 'Impossible de charger la version source.'),
+          }));
+          setVersionSource(null);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsVersionSourceLoading(false);
+        }
+      }
+    };
+
+    void loadVersionSource();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [cloneFrom, profile?.id]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadEditProduct = async () => {
+      if (!editProductId || !profile?.id) {
+        if (!isCancelled) {
+          setEditingProduct(null);
+          setEditPermissions(null);
+          setIsEditProductLoading(false);
+        }
+        return;
+      }
+
+      setIsEditProductLoading(true);
+      try {
+        const [{ data: productData, error: productError }, { data: editabilityData, error: editabilityError }] = await Promise.all([
+          supabase
+            .from('products')
+            .select('id, title, description, price, bpm, key_signature, cover_image_url, is_published, file_format')
+            .eq('id', editProductId)
+            .eq('producer_id', profile.id)
+            .maybeSingle(),
+          supabase.rpc('can_edit_product', { p_product_id: editProductId }),
+        ]);
+
+        if (productError) throw productError;
+        if (editabilityError) throw editabilityError;
+
+        const sourceRow = (productData as EditProductRow | null) ?? null;
+        const permissions = (editabilityData as EditPermissions | null) ?? null;
+
+        if (!sourceRow) {
+          throw new Error('Produit introuvable.');
+        }
+
+        if (!permissions) {
+          throw new Error('Impossible de verifier les droits de modification.');
+        }
+
+        if (!isCancelled) {
+          setEditingProduct(sourceRow);
+          setEditPermissions(permissions);
+          setTitle(sourceRow.title);
+          setPrice((sourceRow.price / 100).toString());
+          setDescription(sourceRow.description ?? '');
+          setBpm(sourceRow.bpm ? String(sourceRow.bpm) : '');
+          setKeySignature(sourceRow.key_signature ?? '');
+          setImagePreviewUrl(sourceRow.cover_image_url);
+          setErrors((prev) => ({
+            ...prev,
+            form: permissions.must_create_new_version
+              ? 'Ce beat a deja des ventes. Creez une nouvelle version.'
+              : undefined,
+          }));
+        }
+      } catch (error) {
+        console.error('[upload-beat] failed to load edit product', error);
+        if (!isCancelled) {
+          setErrors((prev) => ({
+            ...prev,
+            form: getErrorMessage(error, 'Impossible de charger le produit a modifier.'),
+          }));
+          setEditingProduct(null);
+          setEditPermissions(null);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsEditProductLoading(false);
+        }
+      }
+    };
+
+    void loadEditProduct();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [editProductId, profile?.id]);
+
   const isProducerActive = profile?.is_producer_active ?? false;
   const hasValidationErrors = !!errors.audio || !!errors.image;
+  const isSourceLoading = isVersionSourceLoading || isEditProductLoading;
+  const requiresAudioFile = !isEditMode;
   const isPublishDisabled =
-    !audioFile ||
+    (requiresAudioFile && !audioFile) ||
     !title.trim() ||
     !price ||
     hasValidationErrors ||
     isUploading ||
-    !isProducerActive;
+    !isProducerActive ||
+    isSourceLoading ||
+    (isVersionMode && !versionSource) ||
+    (isEditMode && (!editingProduct || !editPermissions || !editPermissions.can_edit_metadata));
 
   const resetAudio = () => {
-    if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+    revokeObjectUrl(audioPreviewUrl);
     setAudioFile(null);
     setAudioPreviewUrl(null);
     setAudioDuration(0);
@@ -120,7 +325,7 @@ export function UploadBeatPage() {
   };
 
   const resetImage = () => {
-    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    revokeObjectUrl(imagePreviewUrl);
     setImageFile(null);
     setImagePreviewUrl(null);
     setUploadProgress((prev) => ({ ...prev, image: 0 }));
@@ -160,6 +365,15 @@ export function UploadBeatPage() {
     });
 
   const handleAudioChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (isEditMode && editPermissions && !editPermissions.can_edit_audio) {
+      setErrors((prev) => ({
+        ...prev,
+        audio: 'Audio verrouille: une battle active empeche la modification du master.',
+      }));
+      event.target.value = '';
+      return;
+    }
+
     const file = event.target.files?.[0];
     if (!file) return;
     event.target.value = '';
@@ -282,8 +496,18 @@ export function UploadBeatPage() {
   };
 
   const uploadToSupabase = async () => {
-    if (!audioFile) {
+    if (requiresAudioFile && !audioFile) {
       setErrors((prev) => ({ ...prev, form: t('producer.audioRequired') }));
+      return;
+    }
+
+    if (isEditMode && !editPermissions?.can_edit_metadata) {
+      setErrors((prev) => ({
+        ...prev,
+        form: editPermissions?.must_create_new_version
+          ? 'Ce beat a deja des ventes. Creez une nouvelle version.'
+          : 'Modification impossible pour le moment.',
+      }));
       return;
     }
 
@@ -320,6 +544,8 @@ export function UploadBeatPage() {
     const priceCents = Math.round(priceValue * 100);
     let audioPath = '';
     let coverPath = '';
+    let persistedVersion = false;
+    let updatedExistingProduct = false;
 
     try {
       const { data: authData, error: authError } = await supabase.auth.getUser();
@@ -328,27 +554,30 @@ export function UploadBeatPage() {
         throw new Error('Session expirée. Reconnectez-vous puis réessayez.');
       }
 
-      audioPath = `${producerId}/audio/${timestamp}-${audioFile.name.replace(/\s+/g, '-')}`;
-      setUploadProgress((prev) => ({ ...prev, audio: 15 }));
-      const { data: audioData, error: audioError } = await supabase.storage
-        .from(MASTER_BUCKET)
-        .upload(audioPath, audioFile, {
-          cacheControl: '3600',
-          upsert: false,
-        });
+      let masterStorageReference: string | null = null;
+      if (audioFile) {
+        audioPath = `${producerId}/audio/${timestamp}-${audioFile.name.replace(/\s+/g, '-')}`;
+        setUploadProgress((prev) => ({ ...prev, audio: 15 }));
+        const { data: audioData, error: audioError } = await supabase.storage
+          .from(MASTER_BUCKET)
+          .upload(audioPath, audioFile, {
+            cacheControl: '3600',
+            upsert: false,
+          });
 
-      if (audioError) {
-        throw audioError;
+        if (audioError) {
+          throw audioError;
+        }
+
+        const normalizedMasterPath = normalizeStoragePath(audioData?.path || audioPath, MASTER_BUCKET);
+        if (!normalizedMasterPath) {
+          throw new Error('Echec upload master: chemin invalide.');
+        }
+        masterStorageReference = `${MASTER_BUCKET}/${normalizedMasterPath}`;
+
+        setUploadStatus((prev) => ({ ...prev, audio: 'success' }));
+        setUploadProgress((prev) => ({ ...prev, audio: 100 }));
       }
-
-      const normalizedMasterPath = normalizeStoragePath(audioData?.path || audioPath, MASTER_BUCKET);
-      if (!normalizedMasterPath) {
-        throw new Error('Echec upload master: chemin invalide.');
-      }
-      const masterStorageReference = `${MASTER_BUCKET}/${normalizedMasterPath}`;
-
-      setUploadStatus((prev) => ({ ...prev, audio: 'success' }));
-      setUploadProgress((prev) => ({ ...prev, audio: 100 }));
 
       if (imageFile) {
         coverPath = `${producerId}/cover/${timestamp}-${imageFile.name.replace(/\s+/g, '-')}`;
@@ -367,9 +596,9 @@ export function UploadBeatPage() {
       }
       const coverPublicUrl = coverPath
         ? supabase.storage.from(COVER_BUCKET).getPublicUrl(coverPath).data?.publicUrl
-        : null;
+        : editingProduct?.cover_image_url ?? versionSource?.cover_image_url ?? null;
 
-      const basePayload = {
+      const basePayload: Database['public']['Tables']['products']['Insert'] = {
         producer_id: producerId,
         title: trimmedTitle,
         slug,
@@ -379,47 +608,110 @@ export function UploadBeatPage() {
         bpm: bpm ? parseInt(bpm) : null,
         key_signature: keySignature || null,
         cover_image_url: coverPublicUrl,
-        is_published: true,
-        duration_seconds: Math.round(audioDuration) || null,
-        file_format: audioFile.type || 'audio/mpeg',
+        is_published: editingProduct?.is_published ?? true,
+        duration_seconds: audioFile ? Math.round(audioDuration) || null : null,
+        file_format: audioFile?.type || editingProduct?.file_format || 'audio/mpeg',
       };
 
-      const legacyPayload = {
-        ...basePayload,
-        preview_url: null,
-        master_url: masterStorageReference,
-      };
+      if (versionSource) {
+        const versionPayload: Database['public']['Functions']['rpc_publish_product_version']['Args']['p_new_data'] = {
+          ...basePayload,
+          master_path: masterStorageReference,
+          master_url: masterStorageReference,
+          watermarked_bucket: versionSource.watermarked_bucket,
+          is_exclusive: versionSource.is_exclusive,
+          genre_id: versionSource.genre_id,
+          mood_id: versionSource.mood_id,
+          tags: versionSource.tags,
+          license_terms: versionSource.license_terms,
+        };
 
-      const modernPayload = {
-        ...basePayload,
-        preview_url: null,
-        watermarked_path: null,
-        master_path: masterStorageReference,
-        master_url: masterStorageReference,
-      };
+        const { error: versionPublishError } = await supabase.rpc('rpc_publish_product_version', {
+          p_source_product_id: versionSource.id,
+          p_new_data: versionPayload,
+        });
 
-      const payloads = [modernPayload, legacyPayload];
-
-      let productError: unknown = null;
-      for (const payload of payloads) {
-        const { error } = await supabase.from('products').insert(payload);
-        if (!error) {
-          productError = null;
-          break;
+        if (versionPublishError) {
+          throw versionPublishError;
         }
 
-        productError = error;
-        if (!isProductSchemaMismatchError(error)) {
-          break;
+        persistedVersion = true;
+      } else if (editingProduct) {
+        const updatePayload: Database['public']['Tables']['products']['Update'] = {
+          title: trimmedTitle,
+          description: description.trim() || null,
+          price: priceCents,
+          bpm: bpm ? parseInt(bpm) : null,
+          key_signature: keySignature || null,
+          cover_image_url: coverPublicUrl,
+          updated_at: new Date().toISOString(),
+        };
+
+        if (masterStorageReference) {
+          updatePayload.master_path = masterStorageReference;
+          updatePayload.master_url = masterStorageReference;
+          updatePayload.duration_seconds = Math.round(audioDuration) || null;
+          updatePayload.file_format = audioFile?.type || editingProduct.file_format || 'audio/mpeg';
+        }
+
+        const { error: updateError } = await supabase
+          .from('products')
+          .update(updatePayload)
+          .eq('id', editingProduct.id);
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        updatedExistingProduct = true;
+      } else {
+        const legacyPayload: Database['public']['Tables']['products']['Insert'] = {
+          ...basePayload,
+          preview_url: null,
+          master_url: masterStorageReference,
+        };
+
+        const modernPayload: Database['public']['Tables']['products']['Insert'] = {
+          ...basePayload,
+          preview_url: null,
+          watermarked_path: null,
+          master_path: masterStorageReference,
+          master_url: masterStorageReference,
+        };
+
+        const payloads = [modernPayload, legacyPayload];
+
+        let productError: unknown = null;
+        for (const payload of payloads) {
+          const { error } = await supabase.from('products').insert(payload);
+          if (!error) {
+            productError = null;
+            break;
+          }
+
+          productError = error;
+          if (!isProductSchemaMismatchError(error)) {
+            break;
+          }
+        }
+
+        if (productError) {
+          throw productError;
         }
       }
 
-      if (productError) {
-        throw productError;
-      }
-
-      setIsWatermarkProcessing(true);
-      toast.success('Beat publié. Traitement watermark en cours.');
+      setIsWatermarkProcessing(Boolean(versionSource || audioFile));
+      toast.success(
+        versionSource
+          ? 'Nouvelle version publiée. Traitement watermark en cours.'
+          : editingProduct
+            ? (
+              audioFile
+                ? 'Produit mis a jour. Traitement watermark en cours.'
+                : 'Produit mis a jour.'
+            )
+            : 'Beat publié. Traitement watermark en cours.'
+      );
       setErrors({});
       setTitle('');
       setPrice('');
@@ -428,9 +720,28 @@ export function UploadBeatPage() {
       setKeySignature('');
       resetAudio();
       resetImage();
+      setVersionSource(null);
+      setEditingProduct(null);
+      setEditPermissions(null);
+
+      if (persistedVersion || updatedExistingProduct) {
+        navigate('/producer');
+      }
     } catch (error) {
       const errorMessage = getErrorMessage(error, 'Upload impossible pour le moment.');
       console.error('[upload-beat] upload failed', error);
+      if (audioPath) {
+        const { error: cleanupAudioError } = await supabase.storage.from(MASTER_BUCKET).remove([audioPath]);
+        if (cleanupAudioError) {
+          console.warn('[upload-beat] audio cleanup warning', cleanupAudioError);
+        }
+      }
+      if (coverPath) {
+        const { error: cleanupCoverError } = await supabase.storage.from(COVER_BUCKET).remove([coverPath]);
+        if (cleanupCoverError) {
+          console.warn('[upload-beat] cover cleanup warning', cleanupCoverError);
+        }
+      }
       setUploadStatus((prev) => ({ ...prev, audio: 'error', image: imageFile ? 'error' : prev.image }));
       setErrors((prev) => ({
         ...prev,
@@ -486,10 +797,20 @@ export function UploadBeatPage() {
               {t('producer.uploadBeat')}
             </p>
             <h1 className="text-3xl font-bold mt-1">
-              {profile?.username || profile?.email}
+              {isEditMode ? 'Modifier le beat' : isVersionMode ? 'Nouvelle version' : (profile?.username || profile?.email)}
             </h1>
             <p className="text-zinc-400 mt-1">
-              {t('producer.subscriptionRequired')}
+              {isEditMode
+                ? (
+                  editPermissions?.must_create_new_version
+                    ? 'Ce beat a deja des ventes. Creez une nouvelle version.'
+                    : editPermissions?.can_edit_audio === false
+                      ? 'Modification partielle: les metadonnees restent modifiables, mais l’audio est verrouille par une battle active.'
+                      : 'Modification complete autorisee.'
+                )
+                : isVersionMode
+                ? `Pré-remplissage depuis la version ${versionSource?.version_number ?? 'source'}. Aucune ligne ne sera créée tant que vous ne cliquez pas sur Publier.`
+                : t('producer.subscriptionRequired')}
             </p>
           </div>
         </header>
@@ -588,23 +909,23 @@ export function UploadBeatPage() {
                   accept="audio/wav,audio/mp3,audio/mpeg"
                   className="hidden"
                   onChange={handleAudioChange}
-                  disabled={isUploading}
+                  disabled={isUploading || (isEditMode && editPermissions?.can_edit_audio === false)}
                 />
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={() => audioInputRef.current?.click()}
-                  disabled={isUploading}
+                  disabled={isUploading || (isEditMode && editPermissions?.can_edit_audio === false)}
                   leftIcon={<UploadCloud className="w-4 h-4" />}
                 >
-                  {t('producer.chooseAudioFile')}
+                  {isEditMode && editPermissions?.can_edit_audio === false ? 'Audio verrouille' : t('producer.chooseAudioFile')}
                 </Button>
                 {audioFile && (
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => audioInputRef.current?.click()}
-                    disabled={isUploading}
+                    disabled={isUploading || (isEditMode && editPermissions?.can_edit_audio === false)}
                   >
                     {t('producer.replaceFile')}
                   </Button>
@@ -637,7 +958,9 @@ export function UploadBeatPage() {
                 </div>
               ) : (
                 <p className="text-xs text-zinc-500">
-                  {t('producer.fileMissing')} – {t('producer.audioRequirements')}
+                  {isEditMode && editPermissions?.can_edit_audio === false
+                    ? 'Le master actuel est conserve car une battle active verrouille l’audio.'
+                    : `${t('producer.fileMissing')} – ${t('producer.audioRequirements')}`}
                 </p>
               )}
             </div>
@@ -690,12 +1013,14 @@ export function UploadBeatPage() {
                 )}
               </div>
 
-              {imageFile ? (
+              {imageFile || imagePreviewUrl ? (
                 <div className="bg-zinc-950/60 border border-zinc-800 rounded-lg p-3 space-y-2 transition-all duration-200">
-                  <div className="flex items-center justify-between text-sm text-zinc-200">
-                    <span className="truncate">{imageFile.name}</span>
-                    <span className="text-xs text-zinc-500">{formatBytes(imageFile.size)}</span>
-                  </div>
+                  {imageFile && (
+                    <div className="flex items-center justify-between text-sm text-zinc-200">
+                      <span className="truncate">{imageFile.name}</span>
+                      <span className="text-xs text-zinc-500">{formatBytes(imageFile.size)}</span>
+                    </div>
+                  )}
                   {imagePreviewUrl && (
                     <div className="overflow-hidden rounded-lg border border-zinc-800">
                       <img
@@ -704,6 +1029,11 @@ export function UploadBeatPage() {
                         className="w-full aspect-square object-cover"
                       />
                     </div>
+                  )}
+                  {!imageFile && imagePreviewUrl && (
+                    <p className="text-xs text-zinc-500">
+                      La pochette actuelle sera conservée tant que vous n’en choisissez pas une autre.
+                    </p>
                   )}
                   {isUploading &&
                     renderProgressBar(t('producer.uploadCover'), uploadProgress.image, uploadStatus.image)}
@@ -729,6 +1059,12 @@ export function UploadBeatPage() {
             </div>
           )}
 
+          {isSourceLoading && (
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-sm text-zinc-300">
+              Chargement du produit...
+            </div>
+          )}
+
           {isWatermarkProcessing && (
             <div className="rounded-lg border border-amber-700/60 bg-amber-900/15 px-3 py-2 text-sm text-amber-200">
               Traitement en cours: la preview watermarked n'est pas encore disponible.
@@ -743,7 +1079,7 @@ export function UploadBeatPage() {
                   <span>{t('producer.subscriptionRequired')}</span>
                 </>
               )}
-              {!audioFile && isProducerActive && (
+              {!audioFile && requiresAudioFile && isProducerActive && (
                 <span className="text-amber-300">{t('producer.audioRequired')}</span>
               )}
             </div>

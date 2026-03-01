@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,26 +8,20 @@ const corsHeaders = {
 };
 
 const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
-const WATERMARK_BUCKET = (Deno.env.get("SUPABASE_WATERMARK_ASSETS_BUCKET") || "watermark-assets").trim() || "watermark-assets";
-const FIXED_WATERMARK_PATH = "global-watermark.mp3";
-const ALLOWED_TYPES = new Set(["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/wave"]);
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
-
-const createAdminClient = () => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("Missing Supabase env vars");
-  }
-
-  return createClient(supabaseUrl, serviceRoleKey, {
+const supabaseAdmin = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  {
     auth: {
       persistSession: false,
-      autoRefreshToken: false,
     },
-  });
-};
+  }
+);
+
+const WATERMARK_BUCKET = "watermark-assets";
+const FIXED_WATERMARK_PATH = "admin/global-watermark.wav";
+const ALLOWED_TYPES = new Set(["audio/wav", "audio/x-wav", "audio/wave"]);
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
 const requireAdmin = async (req: Request) => {
   const rawAuthHeader = req.headers.get("x-supabase-auth") || req.headers.get("Authorization");
@@ -36,8 +30,25 @@ const requireAdmin = async (req: Request) => {
     return { error: new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: jsonHeaders }) };
   }
 
-  const supabaseAdmin = createAdminClient();
-  const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(jwt);
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  if (!supabaseUrl || !anonKey) {
+    console.error("[admin-upload-watermark] missing auth env vars");
+    return { error: new Response(JSON.stringify({ error: "Internal server error" }), { status: 500, headers: jsonHeaders }) };
+  }
+
+  const supabaseUser = createClient(supabaseUrl, anonKey, {
+    auth: {
+      persistSession: false,
+    },
+    global: {
+      headers: {
+        Authorization: rawAuthHeader?.startsWith("Bearer ") ? rawAuthHeader : `Bearer ${jwt}`,
+      },
+    },
+  });
+
+  const { data: authData, error: authError } = await supabaseUser.auth.getUser();
   if (authError || !authData.user) {
     console.error("[admin-upload-watermark] invalid auth token", authError);
     return { error: new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: jsonHeaders }) };
@@ -61,7 +72,7 @@ const requireAdmin = async (req: Request) => {
   return { supabaseAdmin, userId: authData.user.id };
 };
 
-const cleanupLegacyWatermarks = async (supabaseAdmin: ReturnType<typeof createAdminClient>) => {
+const cleanupLegacyWatermarks = async () => {
   const { data, error } = await supabaseAdmin.storage.from(WATERMARK_BUCKET).list("admin", {
     limit: 1000,
     sortBy: { column: "name", order: "asc" },
@@ -75,7 +86,8 @@ const cleanupLegacyWatermarks = async (supabaseAdmin: ReturnType<typeof createAd
   const legacyPaths = (data ?? [])
     .map((entry) => entry.name?.trim())
     .filter((name): name is string => Boolean(name))
-    .map((name) => `admin/${name}`);
+    .map((name) => `admin/${name}`)
+    .filter((path) => path !== FIXED_WATERMARK_PATH);
 
   if (legacyPaths.length === 0) {
     return;
@@ -139,59 +151,60 @@ Deno.serve(async (req: Request): Promise<Response> => {
       });
     }
 
-    const storagePath = FIXED_WATERMARK_PATH;
+    const filePath = FIXED_WATERMARK_PATH;
+    const fileBuffer = await file.arrayBuffer();
 
     console.log("[admin-upload-watermark] uploading", {
       userId,
       bucket: WATERMARK_BUCKET,
-      storagePath,
+      storagePath: filePath,
       contentType: file.type,
       size: file.size,
     });
 
-    const { error: uploadError } = await supabaseAdmin.storage.from(WATERMARK_BUCKET).upload(storagePath, file, {
-      cacheControl: "3600",
+    const { error } = await supabaseAdmin.storage.from("watermark-assets").upload(filePath, fileBuffer, {
+      contentType: "audio/wav",
       upsert: true,
-      contentType: "audio/mpeg",
     });
 
-    if (uploadError) {
-      console.error("[admin-upload-watermark] upload failed", uploadError);
-      return new Response(JSON.stringify({ error: "Failed to upload watermark asset" }), {
+    if (error) {
+      console.error("UPLOAD WATERMARK ERROR:", error);
+      return new Response(JSON.stringify({ error: error.message }), {
         status: 500,
         headers: jsonHeaders,
       });
     }
 
-    const { data: existingSettings, error: existingSettingsError } = await supabaseAdmin
+    const { data: activeSettings, error: activeSettingsError } = await supabaseAdmin
       .from("site_audio_settings")
       .select("id")
+      .eq("enabled", true)
+      .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (existingSettingsError) {
-      console.error("[admin-upload-watermark] failed to load settings", existingSettingsError);
+    if (activeSettingsError) {
+      console.error("[admin-upload-watermark] failed to load active settings", activeSettingsError);
       return new Response(JSON.stringify({ error: "Failed to load site audio settings" }), {
         status: 500,
         headers: jsonHeaders,
       });
     }
 
-    const payload = {
-      watermark_audio_path: FIXED_WATERMARK_PATH,
-      updated_at: new Date().toISOString(),
-    };
+    if (!activeSettings) {
+      return new Response(JSON.stringify({ error: "No active site audio settings found" }), {
+        status: 500,
+        headers: jsonHeaders,
+      });
+    }
 
-    const settingsQuery = existingSettings
-      ? supabaseAdmin
-          .from("site_audio_settings")
-          .update(payload)
-          .eq("id", existingSettings.id)
-      : supabaseAdmin
-          .from("site_audio_settings")
-          .insert({ ...payload, enabled: true, gain_db: -10, min_interval_sec: 20, max_interval_sec: 45 });
-
-    const { data: updatedSettings, error: updateError } = await settingsQuery
+    const { data: updatedSettings, error: updateError } = await supabaseAdmin
+      .from("site_audio_settings")
+      .update({
+        watermark_audio_path: filePath,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", activeSettings.id)
       .select("id, enabled, watermark_audio_path, gain_db, min_interval_sec, max_interval_sec, updated_at, created_at")
       .maybeSingle();
 
@@ -203,15 +216,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
       });
     }
 
-    await cleanupLegacyWatermarks(supabaseAdmin);
+    await cleanupLegacyWatermarks();
 
     console.log("[admin-upload-watermark] success", {
       userId,
-      storagePath: FIXED_WATERMARK_PATH,
+      storagePath: filePath,
       settingsId: updatedSettings?.id ?? null,
     });
 
-    return new Response(JSON.stringify({ path: FIXED_WATERMARK_PATH, settings: updatedSettings ?? null }), {
+    return new Response(JSON.stringify({ path: filePath, settings: updatedSettings ?? null }), {
       status: 200,
       headers: jsonHeaders,
     });

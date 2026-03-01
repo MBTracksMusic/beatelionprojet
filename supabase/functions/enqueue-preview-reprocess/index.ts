@@ -87,6 +87,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
       });
     }
 
+    const { error: workerError } = await supabaseAdmin.functions.invoke("process-audio-jobs");
+    if (workerError) {
+      console.error("[enqueue-preview-reprocess] worker invoke failed", workerError);
+    }
+
     const payload = (data ?? {}) as { enqueued_count?: number; skipped_count?: number };
     const enqueuedCount = Number.isFinite(payload.enqueued_count) ? Number(payload.enqueued_count) : 0;
     const skippedCount = Number.isFinite(payload.skipped_count) ? Number(payload.skipped_count) : 0;

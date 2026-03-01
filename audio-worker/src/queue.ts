@@ -27,17 +27,6 @@ const PRODUCT_SELECT = [
   "processed_at",
 ].join(", ");
 
-const SITE_AUDIO_SETTINGS_SELECT = [
-  "id",
-  "enabled",
-  "watermark_audio_path",
-  "gain_db",
-  "min_interval_sec",
-  "max_interval_sec",
-  "created_at",
-  "updated_at",
-].join(", ");
-
 const isClaimArgumentMismatch = (error: { message?: string; details?: string; hint?: string }) => {
   const message = `${error.message ?? ""} ${error.details ?? ""} ${error.hint ?? ""}`.toLowerCase();
   return (
@@ -79,22 +68,23 @@ export const claimAudioProcessingJobs = async (
 export const loadSiteAudioSettings = async (
   supabase: SupabaseAdminClient,
 ): Promise<SiteAudioSettingsRow> => {
-  const { data, error } = await supabase
+  const { data: settings, error } = await supabase
     .from("site_audio_settings")
-    .select(SITE_AUDIO_SETTINGS_SELECT)
-    .order("created_at", { ascending: true })
+    .select("*")
+    .eq("enabled", true)
+    .order("created_at", { ascending: false })
     .limit(1)
-    .maybeSingle();
+    .single();
 
   if (error) {
     throw new Error(`Failed to load site_audio_settings: ${error.message}`);
   }
 
-  if (!data) {
-    throw new Error("site_audio_settings row not found");
+  if (!settings) {
+    throw new Error("active site_audio_settings row not found");
   }
 
-  return data as unknown as SiteAudioSettingsRow;
+  return settings as unknown as SiteAudioSettingsRow;
 };
 
 export const loadProductForProcessing = async (

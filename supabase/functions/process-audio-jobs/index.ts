@@ -13,7 +13,6 @@ const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
 const MASTER_BUCKET = (Deno.env.get("SUPABASE_MASTER_BUCKET") || "beats-masters").trim() || "beats-masters";
 const WATERMARKED_BUCKET = (Deno.env.get("SUPABASE_WATERMARKED_BUCKET") || "beats-watermarked").trim() || "beats-watermarked";
 const WATERMARK_ASSETS_BUCKET = (Deno.env.get("SUPABASE_WATERMARK_ASSETS_BUCKET") || "watermark-assets").trim() || "watermark-assets";
-const WORKER_SECRET = (Deno.env.get("AUDIO_WORKER_SECRET") || "").trim();
 const FFMPEG_CORE_BASE_URL = (
   Deno.env.get("FFMPEG_CORE_BASE_URL") || "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd"
 ).trim();
@@ -97,7 +96,7 @@ const normalizeWorkerName = (value: unknown) => {
 
 const createAdminClient = () => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const serviceRoleKey = Deno.env.get("SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
   if (!supabaseUrl || !serviceRoleKey) {
     throw new Error("Missing Supabase env vars");
@@ -247,48 +246,6 @@ const updateProductProcessingState = async (
   if (error) {
     console.error("[process-audio-jobs] failed to update product", { productId, error });
   }
-};
-
-const requireWorkerOrAdmin = async (req: Request) => {
-  const providedSecret = req.headers.get("x-worker-secret")?.trim()
-    || req.headers.get("x-audio-worker-secret")?.trim()
-    || req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "").trim()
-    || "";
-
-  const supabaseAdmin = createAdminClient();
-
-  if (WORKER_SECRET && providedSecret === WORKER_SECRET) {
-    return { supabaseAdmin, actor: "worker-secret" };
-  }
-
-  const rawAuthHeader = req.headers.get("x-supabase-auth") || req.headers.get("Authorization");
-  const jwt = rawAuthHeader?.replace(/^Bearer\s+/i, "").trim();
-  if (!jwt) {
-    return { error: new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: jsonHeaders }) };
-  }
-
-  const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(jwt);
-  if (authError || !authData.user) {
-    console.error("[process-audio-jobs] invalid auth token", authError);
-    return { error: new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: jsonHeaders }) };
-  }
-
-  const { data: profile, error: profileError } = await supabaseAdmin
-    .from("user_profiles")
-    .select("id, role")
-    .eq("id", authData.user.id)
-    .maybeSingle();
-
-  if (profileError) {
-    console.error("[process-audio-jobs] failed to load profile", profileError);
-    return { error: new Response(JSON.stringify({ error: "Failed to verify admin" }), { status: 500, headers: jsonHeaders }) };
-  }
-
-  if (!profile || profile.role !== "admin") {
-    return { error: new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: jsonHeaders }) };
-  }
-
-  return { supabaseAdmin, actor: authData.user.id };
 };
 
 const withLogCapture = async <T>(ffmpeg: FFmpeg, callback: () => Promise<T>) => {
@@ -766,12 +723,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   let ffmpegContext: InvocationFfmpegContext | null = null;
 
   try {
-    const authContext = await requireWorkerOrAdmin(req);
-    if ("error" in authContext) {
-      return authContext.error as Response;
-    }
-
-    const { supabaseAdmin, actor } = authContext;
+    const supabaseAdmin = createAdminClient();
+    const actor = "service-role";
     const body = await req.json().catch(() => ({} as Record<string, unknown>));
     const limit = normalizeLimit(body.limit);
     const worker = normalizeWorkerName(body.worker);

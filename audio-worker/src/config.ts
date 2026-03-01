@@ -2,7 +2,6 @@ import os from "node:os";
 import path from "node:path";
 import type { WorkerConfig } from "./types.js";
 
-const DEFAULT_MASTER_BUCKET = "beats-masters";
 const DEFAULT_LEGACY_MASTER_BUCKET = "beats-audio";
 const DEFAULT_WATERMARKED_BUCKET = "beats-watermarked";
 const DEFAULT_WATERMARK_ASSETS_BUCKET = "watermark-assets";
@@ -25,6 +24,14 @@ const requireEnv = (name: string) => {
   return value;
 };
 
+const resolveServiceRoleKey = () => {
+  const value = readEnv("SERVICE_ROLE_KEY") || readEnv("SUPABASE_SERVICE_ROLE_KEY");
+  if (!value) {
+    throw new Error("Missing required environment variable: SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE_KEY");
+  }
+  return value;
+};
+
 const parsePositiveInt = (name: string, fallback: number) => {
   const raw = readEnv(name);
   if (!raw) return fallback;
@@ -40,6 +47,14 @@ const parseNonEmpty = (name: string, fallback: string) => {
   return raw || fallback;
 };
 
+const resolveMasterBucket = () => {
+  const masterBucket = readEnv("SUPABASE_MASTER_BUCKET") || readEnv("SUPABASE_AUDIO_BUCKET");
+  if (!masterBucket) {
+    throw new Error("Missing required environment variable: SUPABASE_MASTER_BUCKET or SUPABASE_AUDIO_BUCKET");
+  }
+  return masterBucket;
+};
+
 const buildDefaultWorkerId = () => {
   const host = os.hostname().replace(/[^a-zA-Z0-9._-]/g, "-");
   return `${host}-${process.pid}`;
@@ -47,8 +62,8 @@ const buildDefaultWorkerId = () => {
 
 export const config: WorkerConfig = {
   supabaseUrl: requireEnv("SUPABASE_URL"),
-  supabaseServiceRoleKey: requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
-  masterBucket: parseNonEmpty("SUPABASE_AUDIO_BUCKET", DEFAULT_MASTER_BUCKET),
+  supabaseServiceRoleKey: resolveServiceRoleKey(),
+  masterBucket: resolveMasterBucket(),
   legacyMasterBucket: parseNonEmpty("LEGACY_BUCKET", DEFAULT_LEGACY_MASTER_BUCKET),
   watermarkedBucket: parseNonEmpty("SUPABASE_WATERMARKED_BUCKET", DEFAULT_WATERMARKED_BUCKET),
   watermarkAssetsBucket: parseNonEmpty(

@@ -1,7 +1,7 @@
-import { assertFfmpegAvailable } from "./ffmpeg.js";
-import { config, publicConfig } from "./config.js";
-import { createSupabaseAdminClient } from "./supabaseClient.js";
-import { AudioWorkerService } from "./worker.js";
+import dotenv from "dotenv";
+import http from "node:http";
+
+dotenv.config();
 
 const log = (level: "info" | "warn" | "error", event: string, meta: Record<string, unknown> = {}) => {
   const payload = {
@@ -26,10 +26,31 @@ const log = (level: "info" | "warn" | "error", event: string, meta: Record<strin
 };
 
 const main = async () => {
+  const [{ assertFfmpegAvailable }, { config, publicConfig }, { createSupabaseAdminClient }, { AudioWorkerService }] =
+    await Promise.all([
+      import("./ffmpeg.js"),
+      import("./config.js"),
+      import("./supabaseClient.js"),
+      import("./worker.js"),
+    ]);
+
   await assertFfmpegAvailable(config.ffmpegBin, config.ffprobeBin);
 
   const supabase = createSupabaseAdminClient(config);
   const worker = new AudioWorkerService({ supabase, config });
+  const port = Number(process.env.PORT || 10000);
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("Audio worker is running");
+  });
+
+  server.listen(port, () => {
+    console.log(JSON.stringify({
+      level: "info",
+      event: "http_server_started",
+      port,
+    }));
+  });
 
   log("info", "worker_starting", publicConfig);
 

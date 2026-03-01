@@ -3,7 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { renderWatermarkedPreview } from "./ffmpeg.js";
 import { claimAudioProcessingJobs, loadProductForProcessing, loadSiteAudioSettings, updateAudioProcessingJob, updateProductProcessingState, } from "./queue.js";
-import { downloadObjectBuffer, getPublicObjectUrl, guessMasterExtension, loadWatermarkAsset, objectExists, resolveMasterDownloadSource, resolvePreviewReference, storageRefToString, uploadPreviewBuffer, } from "./storage.js";
+import { downloadObjectBuffer, getPublicObjectUrl, guessMasterExtension, loadWatermarkAsset, objectExists, resolveMasterDownloadSource, storageRefToString, uploadPreviewBuffer, } from "./storage.js";
 import { computePreviewSignature, computeWatermarkHash } from "./watermark.js";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const log = (level, event, meta = {}) => {
@@ -140,6 +140,11 @@ export class AudioWorkerService {
             return;
         }
         if (product.product_type !== "beat" || !product.is_published || product.deleted_at) {
+            await updateProductProcessingState(this.supabase, product.id, {
+                processing_status: "done",
+                processing_error: null,
+                processed_at: null,
+            });
             await updateAudioProcessingJob(this.supabase, job.id, {
                 status: "done",
                 last_error: null,
@@ -169,32 +174,21 @@ export class AudioWorkerService {
             });
         }
         const nextVersion = Math.max(product.preview_version ?? 1, 1);
+        const currentVersion = Math.max(product.preview_version ?? 1, 1);
         const targetRef = {
             bucket: product.watermarked_bucket?.trim() || this.config.watermarkedBucket,
             path: `${product.id}/preview_v${nextVersion}.mp3`,
         };
         const masterReference = storageRefToString(masterRef);
         const previewSignature = computePreviewSignature(masterReference, settings);
-        const existingPreviewRef = resolvePreviewReference(product, this.config);
         if (product.preview_signature === previewSignature &&
             product.last_watermark_hash === currentWatermarkHash) {
             const targetExists = await objectExists(this.supabase, targetRef).catch(() => false);
-            const existingPreviewExists = existingPreviewRef
-                ? await objectExists(this.supabase, existingPreviewRef).catch(() => false)
-                : false;
-            const skipRef = targetExists
-                ? targetRef
-                : existingPreviewExists &&
-                    existingPreviewRef &&
-                    existingPreviewRef.bucket === targetRef.bucket
-                    ? existingPreviewRef
-                    : null;
-            if (skipRef) {
+            if (targetExists) {
                 await updateProductProcessingState(this.supabase, product.id, {
-                    watermarked_path: storageRefToString(skipRef),
-                    preview_url: getPublicObjectUrl(this.supabase, skipRef),
-                    watermarked_bucket: skipRef.bucket,
-                    preview_version: nextVersion,
+                    watermarked_path: storageRefToString(targetRef),
+                    preview_url: getPublicObjectUrl(this.supabase, targetRef),
+                    watermarked_bucket: targetRef.bucket,
                     processing_status: "done",
                     processing_error: null,
                     processed_at: new Date().toISOString(),
@@ -211,8 +205,8 @@ export class AudioWorkerService {
                     workerId: this.config.workerId,
                     jobId: job.id,
                     productId: product.id,
-                    previewRef: storageRefToString(skipRef),
-                    previewVersion: nextVersion,
+                    previewRef: storageRefToString(targetRef),
+                    previewVersion: currentVersion,
                 });
                 return;
             }

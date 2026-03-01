@@ -119,7 +119,8 @@ BEGIN
         COALESCE(sas.max_interval_sec, 45)
       ) AS current_watermark_hash
     FROM public.site_audio_settings sas
-    ORDER BY sas.created_at ASC
+    WHERE sas.enabled = true
+    ORDER BY sas.updated_at DESC NULLS LAST, sas.created_at DESC
     LIMIT 1
   ),
   scannable_products AS (
@@ -195,7 +196,8 @@ BEGIN
         COALESCE(sas.max_interval_sec, 45)
       ) AS current_watermark_hash
     FROM public.site_audio_settings sas
-    ORDER BY sas.created_at ASC
+    WHERE sas.enabled = true
+    ORDER BY sas.updated_at DESC NULLS LAST, sas.created_at DESC
     LIMIT 1
   ),
   scannable_products AS (

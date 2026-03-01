@@ -80,6 +80,7 @@ export function AdminSettingsPage() {
   const [isEnqueueingReprocess, setIsEnqueueingReprocess] = useState(false);
   const [selectedWatermarkFile, setSelectedWatermarkFile] = useState<File | null>(null);
   const [reprocessStats, setReprocessStats] = useState<ReprocessStats | null>(null);
+  const [watermarkPreviewUrl, setWatermarkPreviewUrl] = useState<string | null>(null);
 
   const currentWatermarkPath = siteAudioSettings?.watermark_audio_path ?? null;
   const lastUpdatedLabel = useMemo(() => {
@@ -145,6 +146,39 @@ export function AdminSettingsPage() {
 
     void Promise.all([loadSocialLinks(), loadSiteAudioSettings()]);
   }, []);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadWatermarkPreviewUrl = async () => {
+      if (!currentWatermarkPath) {
+        setWatermarkPreviewUrl(null);
+        return;
+      }
+
+      const { data, error } = await supabase.storage
+        .from('watermark-assets')
+        .createSignedUrl(currentWatermarkPath, 60);
+
+      if (error) {
+        console.error('admin watermark preview signed url error', error);
+        if (!isCancelled) {
+          setWatermarkPreviewUrl(null);
+        }
+        return;
+      }
+
+      if (!isCancelled) {
+        setWatermarkPreviewUrl(data?.signedUrl ?? null);
+      }
+    };
+
+    void loadWatermarkPreviewUrl();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentWatermarkPath, siteAudioSettings?.updated_at]);
 
   const handleSocialSave = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -366,6 +400,9 @@ export function AdminSettingsPage() {
               <span className="text-zinc-500">Sample courant:</span>{' '}
               <span className="break-all">{currentWatermarkPath ?? 'Aucun sample uploadé'}</span>
             </p>
+            {watermarkPreviewUrl && (
+              <audio controls src={watermarkPreviewUrl} className="w-full rounded-md" />
+            )}
             <p>
               <span className="text-zinc-500">Dernière mise à jour:</span> {lastUpdatedLabel}
             </p>
