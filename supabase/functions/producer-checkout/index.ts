@@ -7,8 +7,8 @@ interface CheckoutBody {
   cancel_url?: string;
 }
 
-type CheckoutTier = "pro" | "elite";
-const CHECKOUT_TIERS = new Set<CheckoutTier>(["pro", "elite"]);
+type CheckoutTier = "producteur" | "elite";
+const CHECKOUT_TIERS = new Set<CheckoutTier>(["producteur", "elite"]);
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
 
 const isFutureTimestamp = (value: string | null | undefined) => {
@@ -20,6 +20,7 @@ const isFutureTimestamp = (value: string | null | undefined) => {
 const normalizeTier = (value: unknown): CheckoutTier | null => {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
+  if (normalized === "pro") return "producteur";
   if (CHECKOUT_TIERS.has(normalized as CheckoutTier)) {
     return normalized as CheckoutTier;
   }
@@ -144,7 +145,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: CheckoutBody = await req.json();
-    const parsedTier = body.tier === undefined ? "pro" : normalizeTier(body.tier);
+    const parsedTier = body.tier === undefined ? "producteur" : normalizeTier(body.tier);
     const requestedTier = parsedTier;
     const successUrl = body.success_url || `${req.headers.get("origin")}/pricing?status=success`;
     const cancelUrl = body.cancel_url || `${req.headers.get("origin")}/pricing?status=cancel`;

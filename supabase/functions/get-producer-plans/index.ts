@@ -7,16 +7,16 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, x-supabase-auth",
 };
 
-type ProducerTier = "starter" | "pro" | "elite";
+type ProducerTier = "user" | "producteur" | "elite";
 
 const tierOrder: Record<ProducerTier, number> = {
-  starter: 1,
-  pro: 2,
+  user: 1,
+  producteur: 2,
   elite: 3,
 };
 
 const isProducerTier = (value: unknown): value is ProducerTier =>
-  value === "starter" || value === "pro" || value === "elite";
+  value === "user" || value === "producteur" || value === "elite";
 
 const asNonEmptyString = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
@@ -148,7 +148,7 @@ Deno.serve(async (req: Request) => {
           ...plan,
           amount_cents: plan.amount_cents,
           currency: null as string | null,
-          interval: plan.tier === "starter" ? null : "month",
+          interval: plan.tier === "user" ? null : "month",
           stripe_price_active: null as boolean | null,
         };
 

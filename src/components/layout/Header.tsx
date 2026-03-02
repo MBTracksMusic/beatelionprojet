@@ -15,15 +15,19 @@ import {
   MessageSquareText,
   Music,
   Globe,
+  Trophy,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { useAuth } from '../../lib/auth/hooks';
+import { useMyReputation } from '../../lib/reputation/hooks';
 import { useTranslation, languageNames, type Language } from '../../lib/i18n';
 import { useCartStore } from '../../lib/stores/cart';
 
 export function Header() {
   const { t, language, setLanguage, languages } = useTranslation();
   const { user, profile, signOut } = useAuth();
+  const { reputation } = useMyReputation();
   const { items } = useCartStore();
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -76,6 +80,12 @@ export function Header() {
                 className="px-3 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
               >
                 Forum
+              </Link>
+              <Link
+                to="/leaderboard"
+                className="px-3 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
+              >
+                Leaderboard
               </Link>
               <Link
                 to="/pricing"
@@ -157,6 +167,12 @@ export function Header() {
                   onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
                   className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-zinc-800 transition-colors"
                 >
+                  {reputation && (
+                    <span className="hidden md:inline-flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300">
+                      <Sparkles className="h-3 w-3 text-amber-300" />
+                      Nv {reputation.level} • {reputation.rank_tier}
+                    </span>
+                  )}
                   {profile?.avatar_url ? (
                     <img
                       src={profile.avatar_url}
@@ -219,6 +235,14 @@ export function Header() {
                             {t('producer.dashboard')}
                           </Link>
                         )}
+                        <Link
+                          to="/leaderboard"
+                          onClick={() => setIsUserMenuOpen(false)}
+                          className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
+                        >
+                          <Trophy className="w-4 h-4" />
+                          Leaderboard
+                        </Link>
                         <Link
                           to="/settings"
                           onClick={() => setIsUserMenuOpen(false)}

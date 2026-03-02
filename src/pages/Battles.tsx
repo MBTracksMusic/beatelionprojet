@@ -4,6 +4,7 @@ import { Trophy, Clock, Users } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { Card } from '../components/ui/Card';
+import { ReputationBadge } from '../components/reputation/ReputationBadge';
 import { useTranslation } from '../lib/i18n';
 import { supabase } from '../lib/supabase/client';
 import { fetchPublicProducerProfilesMap } from '../lib/supabase/publicProfiles';
@@ -68,6 +69,10 @@ export function BattlesPage() {
                   id: producer1.user_id,
                   username: producer1.username,
                   avatar_url: producer1.avatar_url,
+                  xp: producer1.xp,
+                  level: producer1.level,
+                  rank_tier: producer1.rank_tier,
+                  reputation_score: producer1.reputation_score,
                 }
               : undefined,
             producer2: producer2
@@ -75,6 +80,10 @@ export function BattlesPage() {
                   id: producer2.user_id,
                   username: producer2.username,
                   avatar_url: producer2.avatar_url,
+                  xp: producer2.xp,
+                  level: producer2.level,
+                  rank_tier: producer2.rank_tier,
+                  reputation_score: producer2.reputation_score,
                 }
               : undefined,
             winner: winner
@@ -82,6 +91,10 @@ export function BattlesPage() {
                   id: winner.user_id,
                   username: winner.username,
                   avatar_url: winner.avatar_url,
+                  xp: winner.xp,
+                  level: winner.level,
+                  rank_tier: winner.rank_tier,
+                  reputation_score: winner.reputation_score,
                 }
               : undefined,
           };
@@ -256,6 +269,14 @@ function BattleCard({ battle }: BattleCardProps) {
               <p className="font-semibold text-white text-lg">
                 {battle.producer1?.username || 'Producteur 1'}
               </p>
+              {battle.producer1 && (
+                <ReputationBadge
+                  compact
+                  rankTier={battle.producer1.rank_tier}
+                  level={battle.producer1.level}
+                  xp={battle.producer1.xp}
+                />
+              )}
               {battle.product1 && (
                 <p className="text-zinc-400 text-sm">{battle.product1.title}</p>
               )}
@@ -280,6 +301,16 @@ function BattleCard({ battle }: BattleCardProps) {
               <p className="font-semibold text-white text-lg">
                 {battle.producer2?.username || 'Producteur 2'}
               </p>
+              {battle.producer2 && (
+                <div className="flex justify-end">
+                  <ReputationBadge
+                    compact
+                    rankTier={battle.producer2.rank_tier}
+                    level={battle.producer2.level}
+                    xp={battle.producer2.xp}
+                  />
+                </div>
+              )}
               {battle.product2 && (
                 <p className="text-zinc-400 text-sm">{battle.product2.title}</p>
               )}

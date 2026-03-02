@@ -1,4 +1,4 @@
-import { FolderTree, Inbox, LayoutDashboard, LineChart, MessageSquareText, Newspaper, Settings, Swords } from 'lucide-react';
+import { FolderTree, Inbox, LayoutDashboard, LineChart, MessageSquareText, Newspaper, Settings, Sparkles, Swords } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import type { ReactNode } from 'react';
 
@@ -45,6 +45,11 @@ const adminNavItems: AdminNavItem[] = [
     to: '/admin/forum/categories',
     label: 'Forum Categories',
     icon: <FolderTree className="w-4 h-4" />,
+  },
+  {
+    to: '/admin/reputation',
+    label: 'Reputation',
+    icon: <Sparkles className="w-4 h-4" />,
   },
   {
     to: '/admin/settings',

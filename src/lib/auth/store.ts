@@ -18,6 +18,13 @@ interface AuthState {
   signOut: () => Promise<void>;
 }
 
+const normalizeProducerTier = (value: unknown): UserProfile['producer_tier'] => {
+  if (value === 'elite') return 'elite';
+  if (value === 'pro' || value === 'producteur') return 'pro';
+  if (value === 'starter' || value === 'user') return 'starter';
+  return null;
+};
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   session: null,
@@ -72,10 +79,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             : 'user',
         is_confirmed: row.confirmed_at != null,
         is_producer_active: row.is_producer_active === true,
-        producer_tier:
-          row.producer_tier === 'starter' || row.producer_tier === 'pro' || row.producer_tier === 'elite'
-            ? row.producer_tier
-            : null,
+        producer_tier: normalizeProducerTier(row.producer_tier),
         stripe_customer_id: null,
         stripe_subscription_id: null,
         subscription_status: null,

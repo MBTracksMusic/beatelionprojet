@@ -8,11 +8,25 @@ const corsHeaders = {
 };
 
 interface CheckoutRequest {
-  productId: string;
-  licenseId?: string;
+  beatId: string;
+  productId?: string;
   licenseType?: string;
   successUrl: string;
   cancelUrl: string;
+}
+
+interface ProductRow {
+  id: string;
+  title: string;
+  slug: string;
+  price: number;
+  cover_image_url: string | null;
+  producer_id: string;
+  is_exclusive: boolean;
+  is_sold: boolean;
+  is_published: boolean;
+  deleted_at: string | null;
+  product_type: string;
 }
 
 interface LicenseRow {
@@ -27,6 +41,14 @@ const asNonEmptyString = (value: unknown) => {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 };
+
+const isValidCheckoutAmount = (value: unknown): value is number => (
+  typeof value === "number" &&
+  Number.isFinite(value) &&
+  Number.isInteger(value) &&
+  Number.isSafeInteger(value) &&
+  value > 0
+);
 
 async function resolveCheckoutLicense(
   supabaseAdmin: ReturnType<typeof createClient>,
@@ -160,17 +182,17 @@ Deno.serve(async (req: Request) => {
 
     const body: CheckoutRequest = await req.json();
     const {
+      beatId,
       productId,
-      licenseId: rawLicenseId,
       licenseType: rawLicenseType,
       successUrl,
       cancelUrl,
     } = body;
 
+    const resolvedBeatId = asNonEmptyString(beatId) || asNonEmptyString(productId);
     const licenseType = asNonEmptyString(rawLicenseType) || "standard";
-    const licenseId = asNonEmptyString(rawLicenseId);
 
-    if (!productId || !successUrl || !cancelUrl) {
+    if (!resolvedBeatId || !successUrl || !cancelUrl) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -179,19 +201,44 @@ Deno.serve(async (req: Request) => {
 
     const { data: product, error: productError } = await supabaseAdmin
       .from("products")
-      .select("*, producer:user_profiles!products_producer_id_fkey(id, username, stripe_customer_id)")
-      .eq("id", productId)
-      .eq("is_published", true)
+      .select("id, title, slug, price, cover_image_url, producer_id, is_exclusive, is_sold, is_published, deleted_at, product_type")
+      .eq("id", resolvedBeatId)
       .maybeSingle();
 
     if (productError || !product) {
-      return new Response(JSON.stringify({ error: "Product not found" }), {
-        status: 404,
+      console.warn("[create-checkout] Product lookup failed", {
+        beatId: resolvedBeatId,
+        licenseType,
+        message: productError?.message ?? "product_not_found",
+      });
+      return new Response(JSON.stringify({ error: "Beat introuvable ou indisponible." }), {
+        status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    if (product.is_exclusive && product.is_sold) {
+    const productRow = product as ProductRow;
+
+    if (!productRow.is_published || productRow.deleted_at !== null) {
+      return new Response(JSON.stringify({ error: "Beat introuvable ou indisponible." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!isValidCheckoutAmount(productRow.price)) {
+      console.error("[create-checkout] Invalid product price configuration", {
+        beatId: productRow.id,
+        licenseType,
+        price_db: productRow.price,
+      });
+      return new Response(JSON.stringify({ error: "Prix du beat invalide." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (productRow.is_exclusive && productRow.is_sold) {
       return new Response(JSON.stringify({ error: "This exclusive has already been sold" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -202,20 +249,20 @@ Deno.serve(async (req: Request) => {
     const selectedLicense = await resolveCheckoutLicense(
       supabaseAdmin as ReturnType<typeof createClient>,
       {
-        licenseId,
+        licenseId: null,
         licenseType,
-        isExclusiveProduct: Boolean(product.is_exclusive),
+        isExclusiveProduct: Boolean(productRow.is_exclusive),
       },
     );
 
     if (!selectedLicense) {
-      return new Response(JSON.stringify({ error: "No license configuration available" }), {
-        status: 500,
+      return new Response(JSON.stringify({ error: "Licence introuvable pour ce beat." }), {
+        status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    if (product.is_exclusive && !selectedLicense.exclusive_allowed) {
+    if (productRow.is_exclusive && !selectedLicense.exclusive_allowed) {
       return new Response(JSON.stringify({
         error: "Selected license is not valid for this exclusive product",
       }), {
@@ -230,7 +277,7 @@ Deno.serve(async (req: Request) => {
       .eq("id", user.id)
       .maybeSingle();
 
-    if (product.is_exclusive) {
+    if (productRow.is_exclusive) {
       let canPurchaseExclusive = false;
       const { data: isConfirmedData, error: isConfirmedError } = await supabaseAdmin.rpc(
         "is_confirmed_user",
@@ -258,7 +305,7 @@ Deno.serve(async (req: Request) => {
       const { data: lockCreated, error: lockError } = await supabaseAdmin.rpc(
         "create_exclusive_lock",
         {
-          p_product_id: productId,
+          p_product_id: resolvedBeatId,
           p_user_id: user.id,
           p_checkout_session_id: `pending_${Date.now()}`,
         }
@@ -298,6 +345,18 @@ Deno.serve(async (req: Request) => {
       });
 
       const customer = await customerResponse.json();
+      if (!customerResponse.ok || !customer?.id) {
+        console.error("[create-checkout] Failed to create Stripe customer", {
+          beatId: resolvedBeatId,
+          licenseType,
+          status: customerResponse.status,
+          error: customer?.error?.message ?? "unknown_customer_creation_error",
+        });
+        return new Response(JSON.stringify({ error: "Impossible de preparer le paiement." }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       customerId = customer.id;
 
       await supabaseAdmin
@@ -307,21 +366,14 @@ Deno.serve(async (req: Request) => {
     }
 
     const lineItems = new URLSearchParams();
-    const checkoutAmount = selectedLicense.price;
-
-    if (!Number.isInteger(checkoutAmount) || checkoutAmount < 0) {
-      return new Response(JSON.stringify({ error: "Invalid license price configuration" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const checkoutAmount = productRow.price;
 
     lineItems.append("line_items[0][price_data][currency]", "eur");
     lineItems.append("line_items[0][price_data][unit_amount]", checkoutAmount.toString());
-    lineItems.append("line_items[0][price_data][product_data][name]", product.title);
+    lineItems.append("line_items[0][price_data][product_data][name]", productRow.title);
     lineItems.append("line_items[0][price_data][product_data][description]", `Licence: ${selectedLicense.name}`);
-    if (product.cover_image_url) {
-      lineItems.append("line_items[0][price_data][product_data][images][0]", product.cover_image_url);
+    if (productRow.cover_image_url) {
+      lineItems.append("line_items[0][price_data][product_data][images][0]", productRow.cover_image_url);
     }
     lineItems.append("line_items[0][quantity]", "1");
 
@@ -330,13 +382,19 @@ Deno.serve(async (req: Request) => {
       success_url: successUrl,
       cancel_url: cancelUrl,
       "metadata[user_id]": user.id,
-      "metadata[product_id]": productId,
-      "metadata[product_title]": product.title,
-      "metadata[is_exclusive]": product.is_exclusive.toString(),
+      "metadata[buyer_id]": user.id,
+      "metadata[beat_id]": resolvedBeatId,
+      "metadata[product_id]": resolvedBeatId,
+      "metadata[producer_id]": productRow.producer_id,
+      "metadata[product_title]": productRow.title,
+      "metadata[product_slug]": productRow.slug,
+      "metadata[product_type]": productRow.product_type,
+      "metadata[is_exclusive]": productRow.is_exclusive.toString(),
       "metadata[license_id]": selectedLicense.id,
       "metadata[license_name]": selectedLicense.name,
-      // Keep legacy metadata key for backward compatibility in any downstream consumer.
-      "metadata[license_type]": selectedLicense.name,
+      "metadata[license_type]": licenseType,
+      "metadata[db_price]": checkoutAmount.toString(),
+      "metadata[price_source]": "products.price",
     };
 
     if (customerId) {
@@ -359,17 +417,32 @@ Deno.serve(async (req: Request) => {
     const session = await sessionResponse.json();
 
     if (session.error) {
+      console.error("[create-checkout] Stripe checkout session creation failed", {
+        beatId: resolvedBeatId,
+        licenseType,
+        price_db: checkoutAmount,
+        unit_amount: checkoutAmount,
+        message: session.error.message,
+      });
       return new Response(JSON.stringify({ error: session.error.message }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    if (product.is_exclusive) {
+    console.log("[create-checkout] Stripe checkout session created", {
+      beatId: resolvedBeatId,
+      licenseType,
+      price_db: checkoutAmount,
+      unit_amount: checkoutAmount,
+      sessionId: session.id,
+    });
+
+    if (productRow.is_exclusive) {
       await supabaseAdmin
         .from("exclusive_locks")
         .update({ stripe_checkout_session_id: session.id })
-        .eq("product_id", productId)
+        .eq("product_id", resolvedBeatId)
         .eq("user_id", user.id);
     }
 

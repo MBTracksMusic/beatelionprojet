@@ -98,6 +98,13 @@ const toNullableString = (value: unknown) => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+const normalizePlanTier = (value: unknown): ProducerTier | null => {
+  if (value === 'elite') return 'elite';
+  if (value === 'pro' || value === 'producteur') return 'pro';
+  if (value === 'starter' || value === 'user') return 'starter';
+  return null;
+};
+
 const buildPlansFromPayload = (payload: unknown) => {
   const nextPlans: Record<ProducerTier, ProducerPlan> = {
     starter: { ...DEFAULT_PLANS.starter },
@@ -109,8 +116,8 @@ const buildPlansFromPayload = (payload: unknown) => {
 
   payload.forEach((row) => {
     const item = row as Record<string, unknown>;
-    const tier = item?.tier;
-    if (tier !== 'starter' && tier !== 'pro' && tier !== 'elite') return;
+    const tier = normalizePlanTier(item?.tier);
+    if (!tier) return;
 
     nextPlans[tier] = {
       tier,
@@ -161,10 +168,7 @@ interface ProfileWithTier {
 }
 
 const toProducerTier = (value: unknown): ProducerTier => {
-  if (value === 'pro' || value === 'elite' || value === 'starter') {
-    return value;
-  }
-  return 'starter';
+  return normalizePlanTier(value) ?? 'starter';
 };
 
 export function PricingPage() {
@@ -291,6 +295,7 @@ export function PricingPage() {
     }
   };
 
+  const isUserCurrent = currentTier === 'starter';
   const isProCurrent = currentTier === 'pro';
   const isEliteCurrent = currentTier === 'elite';
   const proBeatsLimit = typeof proPlan.max_beats_published === 'number' ? proPlan.max_beats_published : 10;
@@ -407,6 +412,7 @@ export function PricingPage() {
                   Idéal pour découvrir la plateforme en tant qu’audience.
                 </p>
               </div>
+              {isUserCurrent && <Badge variant="info">Plan actuel</Badge>}
             </div>
 
             <div className="mb-5">
@@ -429,7 +435,7 @@ export function PricingPage() {
                   size="lg"
                   onClick={() => navigate('/dashboard')}
                 >
-                  Commencer gratuitement
+                  {isUserCurrent ? 'Plan actuel' : 'Commencer gratuitement'}
                 </Button>
               ) : (
                 <Link to="/register">
@@ -438,7 +444,7 @@ export function PricingPage() {
                     variant="secondary"
                     size="lg"
                   >
-                    Commencer gratuitement
+                    {isUserCurrent ? 'Plan actuel' : 'Commencer gratuitement'}
                   </Button>
                 </Link>
               )}

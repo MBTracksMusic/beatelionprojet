@@ -5,6 +5,7 @@ export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing'
 export type ProductType = 'beat' | 'exclusive' | 'kit';
 export type ProductLifecycleStatus = 'active' | 'archived';
 export type ProducerTier = 'starter' | 'pro' | 'elite';
+export type ReputationRankTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond';
 export type PurchaseStatus = 'pending' | 'completed' | 'failed' | 'refunded';
 export type EntitlementType = 'purchase' | 'subscription' | 'promo' | 'admin_grant';
 export type BattleStatus =
@@ -58,6 +59,27 @@ export interface UserProfile {
   bio: string | null;
   website_url: string | null;
   social_links: Record<string, string>;
+  xp?: number;
+  level?: number;
+  rank_tier?: ReputationRankTier | null;
+  forum_xp?: number;
+  battle_xp?: number;
+  commerce_xp?: number;
+  reputation_score?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserReputation {
+  user_id: string;
+  xp: number;
+  level: number;
+  rank_tier: ReputationRankTier;
+  forum_xp: number;
+  battle_xp: number;
+  commerce_xp: number;
+  reputation_score: number;
+  last_event_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -208,6 +230,8 @@ export interface BattleWithRelations extends Battle {
   winner?: UserProfile;
 }
 
+export type BattleProductSnapshot = GeneratedDatabase['public']['Tables']['battle_product_snapshots']['Row'];
+
 export interface BattleVote {
   id: string;
   battle_id: string;
@@ -263,6 +287,10 @@ export interface ForumAuthor {
   id: string;
   username: string | null;
   avatar_url: string | null;
+  xp?: number;
+  level?: number;
+  rank_tier?: ReputationRankTier | null;
+  reputation_score?: number;
 }
 
 export interface ForumCategory {
@@ -272,6 +300,12 @@ export interface ForumCategory {
   description: string | null;
   is_premium_only: boolean;
   position: number;
+  xp_multiplier?: number;
+  moderation_strictness?: 'low' | 'normal' | 'high';
+  is_competitive?: boolean;
+  required_rank_tier?: ReputationRankTier | null;
+  allow_links?: boolean;
+  allow_media?: boolean;
   created_at: string;
   topic_count: number;
   post_count: number;
@@ -285,9 +319,11 @@ export interface ForumTopic {
   slug: string;
   is_pinned: boolean;
   is_locked: boolean;
+  is_deleted?: boolean;
   created_at: string;
   last_post_at: string;
   post_count: number;
+  last_ai_reply_at?: string | null;
   author?: ForumAuthor;
 }
 
@@ -298,6 +334,16 @@ export interface ForumPost {
   content: string;
   edited_at: string | null;
   is_deleted: boolean;
+  moderation_status?: 'pending' | 'allowed' | 'review' | 'blocked';
+  is_visible?: boolean;
+  is_flagged?: boolean;
+  moderation_score?: number | null;
+  moderation_reason?: string | null;
+  moderated_at?: string | null;
+  moderation_model?: string | null;
+  is_ai_generated?: boolean;
+  ai_agent_name?: string | null;
+  source_post_id?: string | null;
   created_at: string;
   author?: ForumAuthor;
 }

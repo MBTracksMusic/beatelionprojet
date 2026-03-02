@@ -1,12 +1,16 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, Crown, MessageSquare, MessageSquareText } from 'lucide-react';
+import { ArrowRight, Crown, MessageSquare, MessageSquareText, ShieldCheck, Swords } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
+import { ReputationBadge } from '../../components/reputation/ReputationBadge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card';
 import { useForumCategories, useLatestForumTopics } from '../../lib/forum/hooks';
+import { useMyReputation } from '../../lib/reputation/hooks';
+import { meetsRankRequirement } from '../../lib/reputation/utils';
 import { formatRelativeTime } from '../../lib/utils/format';
 
 export function ForumPage() {
+  const { reputation } = useMyReputation();
   const { categories, isLoading: isCategoriesLoading, error: categoriesError, refresh: refreshCategories } = useForumCategories();
   const { topics, isLoading: isTopicsLoading, error: topicsError, refresh: refreshTopics } = useLatestForumTopics();
 
@@ -60,7 +64,10 @@ export function ForumPage() {
           )}
 
           <div className="grid gap-4">
-            {categories.map((category) => (
+            {categories.map((category) => {
+              const isRankLocked = !meetsRankRequirement(reputation?.rank_tier, category.required_rank_tier);
+
+              return (
               <Link key={category.id} to={`/forum/${category.slug}`} className="block">
                 <Card variant="interactive" className="border-zinc-800">
                   <CardHeader className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -73,10 +80,33 @@ export function ForumPage() {
                             Premium
                           </Badge>
                         )}
+                        {category.is_competitive && (
+                          <Badge variant="info">
+                            <Swords className="h-3 w-3" />
+                            Competitif
+                          </Badge>
+                        )}
+                        {category.required_rank_tier && (
+                          <Badge variant="warning">
+                            <ShieldCheck className="h-3 w-3" />
+                            Rang min. {category.required_rank_tier}
+                          </Badge>
+                        )}
+                        {isRankLocked && (
+                          <Badge variant="danger">
+                            Verrouille
+                          </Badge>
+                        )}
                       </div>
                       <CardDescription>
                         {category.description || 'Aucune description pour cette categorie.'}
                       </CardDescription>
+                      <div className="flex flex-wrap gap-2 text-xs text-zinc-500">
+                        <span>XP x{category.xp_multiplier ?? 1}</span>
+                        <span>Moderation {category.moderation_strictness ?? 'normal'}</span>
+                        <span>{category.allow_links === false ? 'Liens interdits' : 'Liens autorises'}</span>
+                        <span>{category.allow_media === false ? 'Media interdits' : 'Media autorises'}</span>
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-3 text-sm text-zinc-400">
                       <span className="inline-flex items-center gap-1">
@@ -91,7 +121,8 @@ export function ForumPage() {
                   </CardHeader>
                 </Card>
               </Link>
-            ))}
+              );
+            })}
           </div>
         </section>
 
@@ -132,6 +163,14 @@ export function ForumPage() {
                       <CardDescription>
                         {topic.category_name} • par {topic.author?.username || `Membre ${topic.user_id.slice(0, 8)}`}
                       </CardDescription>
+                      {topic.author && (
+                        <ReputationBadge
+                          compact
+                          rankTier={topic.author.rank_tier}
+                          level={topic.author.level}
+                          xp={topic.author.xp}
+                        />
+                      )}
                     </div>
                     <div className="text-right text-sm text-zinc-400">
                       <div>{topic.post_count} reponses</div>

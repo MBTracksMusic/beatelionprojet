@@ -22,6 +22,7 @@ import { WishlistPage } from './pages/Wishlist';
 import { ProductDetailsPage } from './pages/ProductDetails';
 import { ProducersPage } from './pages/Producers';
 import { ProducerPublicProfilePage } from './pages/ProducerPublicProfilePage';
+import { LeaderboardPage } from './pages/Leaderboard';
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { AdminDashboardPage } from './pages/admin/AdminDashboard';
 import { AdminNewsPage } from './pages/admin/AdminNews';
@@ -46,6 +47,7 @@ import { initializeAuth } from './lib/auth/store';
 import { useCartStore } from './lib/stores/cart';
 import { useAuth } from './lib/auth/hooks';
 import { AdminMessagesPage } from './pages/admin/AdminMessages';
+import { AdminReputationPage } from './pages/admin/AdminReputation';
 
 function AppContent() {
   const { user, isInitialized } = useAuth();
@@ -83,6 +85,14 @@ function AppContent() {
         <Route path="kits/:slug" element={<Navigate to="/beats" replace />} />
         <Route path="battles" element={<BattlesPage />} />
         <Route path="battles/:slug" element={<BattleDetailPage />} />
+        <Route
+          path="leaderboard"
+          element={
+            <ProtectedRoute>
+              <LeaderboardPage />
+            </ProtectedRoute>
+          }
+        />
         <Route path="pricing" element={<PricingPage />} />
         <Route path="tarifs" element={<PricingPage />} />
         <Route path="guide-producteur" element={<ProducerGuide />} />
@@ -204,6 +214,7 @@ function AppContent() {
           <Route path="messages" element={<AdminMessagesPage />} />
           <Route path="forum" element={<AdminForumPage />} />
           <Route path="forum/categories" element={<AdminForumCategoriesPage />} />
+          <Route path="reputation" element={<AdminReputationPage />} />
           <Route path="settings" element={<AdminSettingsPage />} />
         </Route>
         <Route path="*" element={<NotFound />} />

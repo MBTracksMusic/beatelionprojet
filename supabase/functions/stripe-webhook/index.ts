@@ -40,10 +40,12 @@ const asNonEmptyString = (value: unknown): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
-type ProducerTier = "starter" | "pro" | "elite";
+type ProducerTier = "user" | "producteur" | "elite";
 
 const asProducerTier = (value: unknown): ProducerTier | null => {
-  if (value === "starter" || value === "pro" || value === "elite") return value;
+  if (value === "user" || value === "producteur" || value === "elite") return value;
+  if (value === "starter") return "user";
+  if (value === "pro") return "producteur";
   return null;
 };
 
@@ -61,7 +63,7 @@ const extractSubscriptionPriceIds = (subscription: Stripe.Subscription | null | 
 
 const producerTierRank = (tier: ProducerTier) => {
   if (tier === "elite") return 3;
-  if (tier === "pro") return 2;
+  if (tier === "producteur") return 2;
   return 1;
 };
 
@@ -107,7 +109,7 @@ const resolveProducerTierFromSubscription = async (
 }) => {
   const { isActive, priceIds, currentTier, subscriptionId, userId } = params;
   if (!isActive) {
-    return { tier: "starter" as ProducerTier, matchedPriceId: null, source: "inactive" };
+    return { tier: "user" as ProducerTier, matchedPriceId: null, source: "inactive" };
   }
 
   const dbMatch = await resolveProducerTierFromDbPlans(supabase, priceIds);
@@ -123,10 +125,10 @@ const resolveProducerTierFromSubscription = async (
     return { tier: "elite" as ProducerTier, matchedPriceId: elitePriceId, source: "env_fallback" };
   }
   if (proPriceId && priceSet.has(proPriceId)) {
-    return { tier: "pro" as ProducerTier, matchedPriceId: proPriceId, source: "env_fallback" };
+    return { tier: "producteur" as ProducerTier, matchedPriceId: proPriceId, source: "env_fallback" };
   }
 
-  const fallbackTier = currentTier ?? "starter";
+  const fallbackTier = currentTier ?? "user";
   console.warn("TIER_SYNC_UNKNOWN_PRICE", {
     subscriptionId,
     userId,

@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useParams } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Lock } from 'lucide-react';
+import { Bot, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
+import { ReputationBadge } from '../components/reputation/ReputationBadge';
 import { useAuth } from '../lib/auth/hooks';
-import { useForumActions, useForumPosts } from '../lib/forum/hooks';
+import { getForumFunctionErrorCode, getForumFunctionErrorMessage, useForumActions, useForumPosts } from '../lib/forum/hooks';
 import { formatDateTime } from '../lib/utils/format';
 
 const PAGE_SIZE = 20;
@@ -43,17 +44,27 @@ export function ForumTopicPage() {
     }
 
     try {
-      await createReply({
+      const result = await createReply({
         topicId: topic.id,
         content: trimmedReply,
       });
       setReply('');
-      toast.success('Reponse publiee.');
+      if (result.status === 'review') {
+        toast.success('Reponse envoyee et placee en attente de moderation.');
+      } else {
+        toast.success('Reponse publiee.');
+      }
       await refresh();
       setPage(totalPages);
     } catch (replyError) {
       console.error('Failed to create forum reply', replyError);
-      toast.error('Impossible de publier la reponse.');
+      const errorCode = getForumFunctionErrorCode(replyError);
+      if (errorCode === 'blocked') {
+        toast.error('Contenu refuse.');
+        return;
+      }
+
+      toast.error(getForumFunctionErrorMessage(replyError, 'Impossible de publier la reponse.'));
     }
   };
 
@@ -118,14 +129,42 @@ export function ForumTopicPage() {
                   <CardDescription>
                     Message #{(page - 1) * PAGE_SIZE + index + 1} • {formatDateTime(post.created_at)}
                   </CardDescription>
+                  {post.author && !post.is_ai_generated && (
+                    <ReputationBadge
+                      compact
+                      rankTier={post.author.rank_tier}
+                      level={post.author.level}
+                      xp={post.author.xp}
+                    />
+                  )}
                 </div>
-                {post.edited_at && (
-                  <Badge variant="info">Edite le {formatDateTime(post.edited_at)}</Badge>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  {post.is_ai_generated && (
+                    <Badge variant="info">
+                      <Bot className="h-3 w-3" />
+                      {post.ai_agent_name || 'Assistant IA'}
+                    </Badge>
+                  )}
+                  {post.moderation_status === 'review' && (
+                    <Badge variant="warning">En revue</Badge>
+                  )}
+                  {post.moderation_status === 'blocked' && (
+                    <Badge variant="danger">Bloque</Badge>
+                  )}
+                  {post.edited_at && (
+                    <Badge variant="info">Edite le {formatDateTime(post.edited_at)}</Badge>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 <p className="whitespace-pre-wrap text-sm leading-7 text-zinc-200">
-                  {post.is_deleted ? 'Ce message a ete supprime.' : post.content}
+                  {post.is_deleted
+                    ? 'Ce message a ete supprime.'
+                    : post.is_visible === false && post.moderation_status === 'review'
+                    ? 'Ce message est en attente de moderation.'
+                    : post.is_visible === false && post.moderation_status === 'blocked'
+                    ? 'Ce message a ete masque par moderation.'
+                    : post.content}
                 </p>
               </CardContent>
             </Card>

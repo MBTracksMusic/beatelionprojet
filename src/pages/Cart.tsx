@@ -72,7 +72,7 @@ export function CartPage() {
 
       const { data, error } = await supabase.functions.invoke('create-checkout', {
         body: {
-          productId: firstItem.product_id,
+          beatId: firstItem.product_id,
           licenseType: firstItem.license_type,
           successUrl: `${window.location.origin}/cart?status=success`,
           cancelUrl: `${window.location.origin}/cart?status=cancel`,

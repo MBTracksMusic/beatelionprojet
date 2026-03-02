@@ -34,6 +34,7 @@ type ProductSalesCountMap = Record<string, number>;
 interface ProducerProduct extends Product {
   sales_count: number;
   active_battle_count: number;
+  terminated_battle_count: number;
 }
 
 const SALE_STATUSES: Array<Database['public']['Enums']['purchase_status']> = ['completed', 'refunded'];
@@ -50,6 +51,12 @@ const getProductLifecycleLabel = (product: Product, draftLabel: string, publishe
   if (product.status === 'archived') return 'Archivé';
   return product.is_published ? publishedLabel : draftLabel;
 };
+
+const hasProtectedProductHistory = (product: ProducerProduct) =>
+  product.sales_count > 0 || product.terminated_battle_count > 0;
+
+const getProtectedHistoryMessage = () =>
+  'Ce produit a participe a une battle terminee ou a des ventes. Vous pouvez seulement le masquer.';
 
 const toProducerTier = (value: unknown): ProducerTier => {
   if (value === 'starter' || value === 'pro' || value === 'elite') return value;
@@ -161,6 +168,7 @@ export function ProducerDashboardPage() {
           { data: productsData, error: productsError },
           { data: purchaseRows, error: salesError },
           { data: activeBattleRows, error: activeBattleError },
+          { data: terminatedBattleRows, error: terminatedBattleError },
         ] = await Promise.all([
           supabase
             .from('products')
@@ -182,6 +190,11 @@ export function ProducerDashboardPage() {
             .from('battles')
             .select('product1_id, product2_id')
             .eq('status', 'active')
+            .or(`producer1_id.eq.${profile.id},producer2_id.eq.${profile.id}`),
+          supabase
+            .from('battles')
+            .select('product1_id, product2_id')
+            .eq('status', 'completed')
             .or(`producer1_id.eq.${profile.id},producer2_id.eq.${profile.id}`),
         ]);
 
@@ -211,6 +224,17 @@ export function ProducerDashboardPage() {
             return acc;
           }, {});
 
+        const terminatedBattlesByProduct = (((terminatedBattleRows as Array<{ product1_id: string | null; product2_id: string | null }> | null) || []))
+          .reduce<ProductSalesCountMap>((acc, battle) => {
+            if (battle.product1_id) {
+              acc[battle.product1_id] = (acc[battle.product1_id] ?? 0) + 1;
+            }
+            if (battle.product2_id) {
+              acc[battle.product2_id] = (acc[battle.product2_id] ?? 0) + 1;
+            }
+            return acc;
+          }, {});
+
         if (productsError) {
           console.error('Error loading producer products', productsError);
           if (!isCancelled) {
@@ -224,6 +248,7 @@ export function ProducerDashboardPage() {
               ...product,
               sales_count: salesByProduct[product.id] ?? 0,
               active_battle_count: battlesByProduct[product.id] ?? 0,
+              terminated_battle_count: terminatedBattlesByProduct[product.id] ?? 0,
             }))
           );
         }
@@ -233,6 +258,9 @@ export function ProducerDashboardPage() {
         }
         if (activeBattleError) {
           console.error('Error loading producer active battle counts', activeBattleError);
+        }
+        if (terminatedBattleError) {
+          console.error('Error loading producer completed battle counts', terminatedBattleError);
         }
         if (!isCancelled) {
           setSalesCount((purchaseRows as Array<{ product_id: string }> | null)?.length ?? 0);
@@ -498,8 +526,13 @@ export function ProducerDashboardPage() {
 
   const deleteProduct = async (product: ProducerProduct) => {
     const productSalesCount = product.sales_count;
-    if (productSalesCount > 0) {
-      window.alert('Ce beat a deja des ventes. Retirez-le de la vente ou creez une nouvelle version.');
+    if (hasProtectedProductHistory(product)) {
+      console.error('[producer-dashboard] hard delete blocked by protected history', {
+        productId: product.id,
+        salesCount: product.sales_count,
+        terminatedBattleCount: product.terminated_battle_count,
+      });
+      window.alert(getProtectedHistoryMessage());
       return;
     }
 
@@ -530,8 +563,10 @@ export function ProducerDashboardPage() {
       console.error('Error deleting product', e);
       const message = getRpcErrorMessage(e, 'Suppression impossible pour le moment.');
       setError(
-        message.includes('beat_has_sales') || message.includes('product_has_sales')
-          ? 'Ce beat a deja des ventes. Retirez-le de la vente ou creez une nouvelle version.'
+        message.includes('beat_has_sales')
+          || message.includes('product_has_sales')
+          || message.includes('product_has_terminated_battle')
+          ? getProtectedHistoryMessage()
           : message
       );
     } finally {
@@ -546,6 +581,14 @@ export function ProducerDashboardPage() {
     setError(null);
 
     try {
+      if (hasProtectedProductHistory(product)) {
+        console.error('[producer-dashboard] archiving product with protected history', {
+          productId: product.id,
+          salesCount: product.sales_count,
+          terminatedBattleCount: product.terminated_battle_count,
+        });
+      }
+
       const { data, error: removeError } = await supabase.rpc('rpc_archive_product', {
         p_product_id: product.id,
       });
@@ -703,14 +746,14 @@ export function ProducerDashboardPage() {
                     <p className="text-zinc-500">
                       {product.bpm ? `${product.bpm} BPM` : '—'} ·{' '}
                       {product.key_signature || '—'} · {getProductLifecycleLabel(product, t('producer.draft'), t('producer.published'))} ·{' '}
-                      {product.sales_count} vente{product.sales_count > 1 ? 's' : ''} · {product.active_battle_count} battle{product.active_battle_count > 1 ? 's' : ''} active{product.active_battle_count > 1 ? 's' : ''}
+                      {product.sales_count} vente{product.sales_count > 1 ? 's' : ''} · {product.active_battle_count} battle{product.active_battle_count > 1 ? 's' : ''} active{product.active_battle_count > 1 ? 's' : ''} · {product.terminated_battle_count} battle{product.terminated_battle_count > 1 ? 's' : ''} terminee{product.terminated_battle_count > 1 ? 's' : ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-3 flex-wrap justify-end">
                     <span className="text-zinc-300 whitespace-nowrap">
                       {formatPrice(product.price || 0)}
                     </span>
-                    {product.sales_count === 0 ? (
+                    {!hasProtectedProductHistory(product) ? (
                       <>
                         <button
                           onClick={() => editProduct(product)}
@@ -735,10 +778,10 @@ export function ProducerDashboardPage() {
                           className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg border border-amber-500/30 text-amber-200 hover:text-amber-100 hover:border-amber-400/70 bg-amber-500/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {removingId === product.id
-                            ? 'Retrait...'
+                            ? 'Masquage...'
                             : product.status === 'archived'
-                              ? 'Deja archive'
-                              : 'Retirer de la vente'}
+                              ? 'Deja masque'
+                              : 'Masquer le produit'}
                         </button>
                         <button
                           onClick={() => createNewVersion(product)}

@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../supabase/client';
 import type { ForumAuthor, ForumCategory, ForumPost, ForumTopic, LatestForumTopic, UserProfile } from '../supabase/types';
-import { fetchPublicProducerProfilesMap } from '../supabase/publicProfiles';
-import { slugify } from '../utils/format';
+import { fetchForumPublicProfilesMap } from '../supabase/forumProfiles';
 import { useAuth } from '../auth/hooks';
 
 const FORUM_CATEGORIES_TABLE = 'forum_categories' as any;
@@ -12,6 +11,34 @@ const FORUM_POSTS_TABLE = 'forum_posts' as any;
 type ForumCategoryRow = Omit<ForumCategory, 'topic_count' | 'post_count'>;
 type ForumTopicRow = Omit<ForumTopic, 'author'>;
 type ForumPostRow = Omit<ForumPost, 'author'>;
+type ForumMutationStatus = 'allowed' | 'review';
+
+type ForumCreateTopicResult = {
+  ok: boolean;
+  status: ForumMutationStatus;
+  topic_id: string;
+  topic_slug: string;
+  category_slug: string;
+  post_id: string;
+  moderation_score?: number | null;
+  moderation_reason?: string | null;
+};
+
+type ForumCreatePostResult = {
+  ok: boolean;
+  status: ForumMutationStatus;
+  post_id: string;
+  topic_id: string;
+  topic_slug?: string | null;
+  category_slug?: string | null;
+  moderation_score?: number | null;
+  moderation_reason?: string | null;
+};
+
+type ForumFunctionError = Error & {
+  code?: string;
+  status?: number;
+};
 
 const getFallbackAuthor = (userId: string, profile: UserProfile | null | undefined): ForumAuthor | undefined => {
   if (!profile || profile.id !== userId) return undefined;
@@ -26,7 +53,7 @@ const attachAuthorsToTopics = async (
   rows: ForumTopicRow[],
   profile: UserProfile | null | undefined,
 ): Promise<ForumTopic[]> => {
-  const producerMap = await fetchPublicProducerProfilesMap(rows.map((row) => row.user_id));
+  const producerMap = await fetchForumPublicProfilesMap(rows.map((row) => row.user_id));
 
   return rows.map((row) => {
     const producer = producerMap.get(row.user_id);
@@ -39,17 +66,85 @@ const attachAuthorsToTopics = async (
             id: producer.user_id,
             username: producer.username,
             avatar_url: producer.avatar_url,
+            xp: producer.xp,
+            level: producer.level,
+            rank_tier: producer.rank_tier,
+            reputation_score: producer.reputation_score,
           }
         : fallback,
     };
   });
 };
 
+const readFunctionError = async (error: unknown, fallbackMessage: string): Promise<ForumFunctionError> => {
+  const enriched = new Error(fallbackMessage) as ForumFunctionError;
+
+  if (!(error instanceof Error)) {
+    return enriched;
+  }
+
+  enriched.name = error.name;
+  const maybeError = error as Error & { context?: Response };
+  const response = maybeError.context;
+
+  if (response instanceof Response) {
+    enriched.status = response.status;
+    try {
+      const payload = await response.json() as { error?: string; code?: string };
+      enriched.message = payload.error || fallbackMessage;
+      enriched.code = payload.code;
+      return enriched;
+    } catch {
+      enriched.message = fallbackMessage;
+      return enriched;
+    }
+  }
+
+  enriched.message = error.message || fallbackMessage;
+  return enriched;
+};
+
+const invokeForumFunction = async <T,>(functionName: string, body: Record<string, unknown>, fallbackMessage: string): Promise<T> => {
+  const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
+  const accessToken = sessionData.session?.access_token;
+
+  if (refreshError || !accessToken) {
+    throw new Error(refreshError?.message || 'Session expiree, merci de vous reconnecter.');
+  }
+
+  const { data, error } = await supabase.functions.invoke<T>(functionName, {
+    body,
+    headers: {
+      apikey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
+      Authorization: `Bearer ${accessToken}`,
+      'x-supabase-auth': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (error) {
+    throw await readFunctionError(error, fallbackMessage);
+  }
+
+  return data as T;
+};
+
+export const isForumFunctionError = (error: unknown): error is ForumFunctionError => {
+  return error instanceof Error;
+};
+
+export const getForumFunctionErrorCode = (error: unknown) => {
+  return isForumFunctionError(error) ? error.code ?? null : null;
+};
+
+export const getForumFunctionErrorMessage = (error: unknown, fallbackMessage: string) => {
+  return isForumFunctionError(error) ? error.message || fallbackMessage : fallbackMessage;
+};
+
 const attachAuthorsToPosts = async (
   rows: ForumPostRow[],
   profile: UserProfile | null | undefined,
 ): Promise<ForumPost[]> => {
-  const producerMap = await fetchPublicProducerProfilesMap(rows.map((row) => row.user_id));
+  const producerMap = await fetchForumPublicProfilesMap(rows.map((row) => row.user_id));
 
   return rows.map((row) => {
     const producer = producerMap.get(row.user_id);
@@ -62,6 +157,16 @@ const attachAuthorsToPosts = async (
             id: producer.user_id,
             username: producer.username,
             avatar_url: producer.avatar_url,
+            xp: producer.xp,
+            level: producer.level,
+            rank_tier: producer.rank_tier,
+            reputation_score: producer.reputation_score,
+          }
+        : row.is_ai_generated && row.ai_agent_name
+        ? {
+            id: row.user_id,
+            username: row.ai_agent_name,
+            avatar_url: null,
           }
         : fallback,
     };
@@ -85,10 +190,14 @@ export function useForumCategories() {
         ]);
 
       if (categoriesError) throw categoriesError;
-      if (topicsError) throw topicsError;
+      if (topicsError) {
+        console.warn('Forum topics counts unavailable, falling back to zero counts', topicsError);
+      }
 
       const categoryRows = ((categoriesData as unknown as ForumCategoryRow[] | null) ?? []);
-      const topicRows = ((topicsData as unknown as Array<Pick<ForumTopicRow, 'id' | 'category_id' | 'post_count'>> | null) ?? []);
+      const topicRows = topicsError
+        ? []
+        : ((topicsData as unknown as Array<Pick<ForumTopicRow, 'id' | 'category_id' | 'post_count'>> | null) ?? []);
 
       const countsByCategory = new Map<string, { topicCount: number; postCount: number }>();
 
@@ -379,55 +488,23 @@ export function useForumActions() {
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const createTopic = useCallback(async (input: { categoryId: string; title: string; content: string }) => {
+  const createTopic = useCallback(async (input: { categorySlug: string; title: string; content: string }) => {
     if (!user) {
       throw new Error('Vous devez etre connecte pour creer un topic.');
     }
 
     setIsSubmitting(true);
 
-    const slugBase = slugify(input.title.trim()) || 'topic';
-    const topicSlug = `${slugBase}-${crypto.randomUUID().slice(0, 8)}`;
-
     try {
-      const { data: topicData, error: topicError } = await supabase
-        .from(FORUM_TOPICS_TABLE)
-        .insert({
-          category_id: input.categoryId,
-          user_id: user.id,
+      return await invokeForumFunction<ForumCreateTopicResult>(
+        'forum-create-topic',
+        {
+          category_slug: input.categorySlug,
           title: input.title.trim(),
-          slug: topicSlug,
-        })
-        .select('*')
-        .single();
-
-      if (topicError) throw topicError;
-
-      const topic = topicData as unknown as ForumTopicRow;
-
-      const { error: postError } = await supabase
-        .from(FORUM_POSTS_TABLE)
-        .insert({
-          topic_id: topic.id,
-          user_id: user.id,
           content: input.content.trim(),
-        });
-
-      if (postError) {
-        const { error: cleanupError } = await supabase
-          .from(FORUM_TOPICS_TABLE)
-          .delete()
-          .eq('id', topic.id)
-          .eq('user_id', user.id);
-
-        if (cleanupError) {
-          console.error('Failed to rollback forum topic creation', cleanupError);
-        }
-
-        throw postError;
-      }
-
-      return topic;
+        },
+        'Impossible de creer ce topic.',
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -441,18 +518,14 @@ export function useForumActions() {
     setIsSubmitting(true);
 
     try {
-      const { data, error } = await supabase
-        .from(FORUM_POSTS_TABLE)
-        .insert({
+      return await invokeForumFunction<ForumCreatePostResult>(
+        'forum-create-post',
+        {
           topic_id: input.topicId,
-          user_id: user.id,
           content: input.content.trim(),
-        })
-        .select('*')
-        .single();
-
-      if (error) throw error;
-      return data as unknown as ForumPostRow;
+        },
+        'Impossible de publier la reponse.',
+      );
     } finally {
       setIsSubmitting(false);
     }

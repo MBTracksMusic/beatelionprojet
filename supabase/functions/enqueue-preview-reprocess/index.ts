@@ -25,6 +25,27 @@ const createAdminClient = () => {
   });
 };
 
+const createUserClient = (authorizationHeader: string) => {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+
+  if (!supabaseUrl || !anonKey) {
+    throw new Error("Missing Supabase auth env vars");
+  }
+
+  return createClient(supabaseUrl, anonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+    global: {
+      headers: {
+        Authorization: authorizationHeader,
+      },
+    },
+  });
+};
+
 const requireAdmin = async (req: Request) => {
   const rawAuthHeader = req.headers.get("x-supabase-auth") || req.headers.get("Authorization");
   const jwt = rawAuthHeader?.replace(/^Bearer\s+/i, "").trim();
@@ -33,7 +54,9 @@ const requireAdmin = async (req: Request) => {
   }
 
   const supabaseAdmin = createAdminClient();
-  const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(jwt);
+  const authorizationHeader = rawAuthHeader?.startsWith("Bearer ") ? rawAuthHeader : `Bearer ${jwt}`;
+  const supabaseUser = createUserClient(authorizationHeader);
+  const { data: authData, error: authError } = await supabaseUser.auth.getUser();
   if (authError || !authData.user) {
     console.error("[enqueue-preview-reprocess] invalid auth token", authError);
     return { error: new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: jsonHeaders }) };
@@ -80,8 +103,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const { data, error } = await supabaseAdmin.rpc("enqueue_reprocess_all_previews");
     if (error) {
-      console.error("[enqueue-preview-reprocess] rpc failed", error);
-      return new Response(JSON.stringify({ error: "Failed to enqueue preview reprocess jobs" }), {
+      console.error("[enqueue-preview-reprocess] rpc failed", {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      });
+      return new Response(JSON.stringify({
+        error: "Failed to enqueue preview reprocess jobs",
+        details: error.message,
+      }), {
         status: 500,
         headers: jsonHeaders,
       });

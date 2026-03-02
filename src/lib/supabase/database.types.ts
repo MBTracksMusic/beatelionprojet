@@ -421,6 +421,78 @@ export type Database = {
           },
         ]
       }
+      battle_product_snapshots: {
+        Row: {
+          battle_id: string
+          created_at: string
+          id: string
+          preview_url_snapshot: string | null
+          producer_id: string | null
+          product_id: string | null
+          slot: string
+          title_snapshot: string | null
+          updated_at: string
+        }
+        Insert: {
+          battle_id: string
+          created_at?: string
+          id?: string
+          preview_url_snapshot?: string | null
+          producer_id?: string | null
+          product_id?: string | null
+          slot: string
+          title_snapshot?: string | null
+          updated_at?: string
+        }
+        Update: {
+          battle_id?: string
+          created_at?: string
+          id?: string
+          preview_url_snapshot?: string | null
+          producer_id?: string | null
+          product_id?: string | null
+          slot?: string
+          title_snapshot?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "battle_product_snapshots_battle_id_fkey"
+            columns: ["battle_id"]
+            isOneToOne: false
+            referencedRelation: "battles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "battle_product_snapshots_producer_id_fkey"
+            columns: ["producer_id"]
+            isOneToOne: false
+            referencedRelation: "my_user_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "battle_product_snapshots_producer_id_fkey"
+            columns: ["producer_id"]
+            isOneToOne: false
+            referencedRelation: "my_user_profile"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "battle_product_snapshots_producer_id_fkey"
+            columns: ["producer_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "battle_product_snapshots_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       battle_votes: {
         Row: {
           battle_id: string
@@ -2388,6 +2460,16 @@ export type Database = {
           sales_per_published_beat: number
         }[]
       }
+      get_battles_quota_status: {
+        Args: never
+        Returns: {
+          can_create: boolean
+          max_per_month: number | null
+          reset_at: string
+          tier: string
+          used_this_month: number
+        }[]
+      }
       get_home_stats: { Args: never; Returns: Json }
       get_plan_limits: {
         Args: { p_tier: Database["public"]["Enums"]["producer_tier_type"] }
@@ -2510,6 +2592,10 @@ export type Database = {
       producer_tier_rank: {
         Args: { p_tier: Database["public"]["Enums"]["producer_tier_type"] }
         Returns: number
+      }
+      product_has_terminated_battle: {
+        Args: { p_product_id: string }
+        Returns: boolean
       }
       recalculate_engagement: { Args: { p_user_id: string }; Returns: number }
       record_battle_vote: {

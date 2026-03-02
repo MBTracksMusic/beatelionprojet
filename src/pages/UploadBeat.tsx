@@ -59,7 +59,11 @@ interface EditProductRow {
 interface EditPermissions {
   can_edit_audio: boolean;
   can_edit_metadata: boolean;
+  can_edit_metadata_essentials?: boolean;
   must_create_new_version: boolean;
+  has_sales?: boolean;
+  has_active_battle?: boolean;
+  has_terminated_battle?: boolean;
 }
 
 const MAX_AUDIO_SIZE = 50 * 1024 * 1024; // 50 MB
@@ -90,6 +94,56 @@ const getErrorMessage = (error: unknown, fallback: string) => {
   }
 
   return fallback;
+};
+
+const getEditLockMessage = (permissions: EditPermissions | null | undefined) => {
+  if (!permissions) {
+    return 'Modification impossible pour le moment.';
+  }
+
+  if (permissions.must_create_new_version) {
+    if (permissions.has_terminated_battle) {
+      return 'Ce produit a participe a une battle terminee. Creez une nouvelle version pour modifier l’audio ou les metadonnees essentielles.';
+    }
+
+    if (permissions.has_sales) {
+      return 'Ce beat a deja des ventes. Creez une nouvelle version.';
+    }
+  }
+
+  if (permissions.can_edit_audio === false && permissions.has_active_battle) {
+    return 'Audio verrouille: une battle active empeche la modification du master.';
+  }
+
+  if (permissions.can_edit_audio === false && permissions.has_terminated_battle) {
+    return 'Audio verrouille: une battle terminee fige l’historique de cette version.';
+  }
+
+  if (permissions.can_edit_metadata === false && permissions.has_terminated_battle) {
+    return 'Metadonnees essentielles verrouillees: ce produit a participe a une battle terminee.';
+  }
+
+  return 'Modification impossible pour le moment.';
+};
+
+const getEditModeDescription = (permissions: EditPermissions | null | undefined) => {
+  if (!permissions) {
+    return 'Verification des droits de modification en cours.';
+  }
+
+  if (permissions.must_create_new_version) {
+    return getEditLockMessage(permissions);
+  }
+
+  if (permissions.can_edit_audio === false && permissions.has_active_battle) {
+    return 'Modification partielle: les metadonnees essentielles restent modifiables, mais l’audio est verrouille par une battle active.';
+  }
+
+  if (permissions.can_edit_audio === false) {
+    return getEditLockMessage(permissions);
+  }
+
+  return 'Modification complete autorisee.';
 };
 
 const isProductSchemaMismatchError = (error: unknown) => {
@@ -271,9 +325,7 @@ export function UploadBeatPage() {
           setImagePreviewUrl(sourceRow.cover_image_url);
           setErrors((prev) => ({
             ...prev,
-            form: permissions.must_create_new_version
-              ? 'Ce beat a deja des ventes. Creez une nouvelle version.'
-              : undefined,
+            form: permissions.must_create_new_version ? getEditLockMessage(permissions) : undefined,
           }));
         }
       } catch (error) {
@@ -304,6 +356,7 @@ export function UploadBeatPage() {
   const hasValidationErrors = !!errors.audio || !!errors.image;
   const isSourceLoading = isVersionSourceLoading || isEditProductLoading;
   const requiresAudioFile = !isEditMode;
+  const isMetadataLocked = isEditMode && editPermissions?.can_edit_metadata === false;
   const isPublishDisabled =
     (requiresAudioFile && !audioFile) ||
     !title.trim() ||
@@ -368,7 +421,7 @@ export function UploadBeatPage() {
     if (isEditMode && editPermissions && !editPermissions.can_edit_audio) {
       setErrors((prev) => ({
         ...prev,
-        audio: 'Audio verrouille: une battle active empeche la modification du master.',
+        audio: getEditLockMessage(editPermissions),
       }));
       event.target.value = '';
       return;
@@ -504,9 +557,7 @@ export function UploadBeatPage() {
     if (isEditMode && !editPermissions?.can_edit_metadata) {
       setErrors((prev) => ({
         ...prev,
-        form: editPermissions?.must_create_new_version
-          ? 'Ce beat a deja des ventes. Creez une nouvelle version.'
-          : 'Modification impossible pour le moment.',
+        form: getEditLockMessage(editPermissions),
       }));
       return;
     }
@@ -801,13 +852,7 @@ export function UploadBeatPage() {
             </h1>
             <p className="text-zinc-400 mt-1">
               {isEditMode
-                ? (
-                  editPermissions?.must_create_new_version
-                    ? 'Ce beat a deja des ventes. Creez une nouvelle version.'
-                    : editPermissions?.can_edit_audio === false
-                      ? 'Modification partielle: les metadonnees restent modifiables, mais l’audio est verrouille par une battle active.'
-                      : 'Modification complete autorisee.'
-                )
+                ? getEditModeDescription(editPermissions)
                 : isVersionMode
                 ? `Pré-remplissage depuis la version ${versionSource?.version_number ?? 'source'}. Aucune ligne ne sera créée tant que vous ne cliquez pas sur Publier.`
                 : t('producer.subscriptionRequired')}
@@ -836,7 +881,7 @@ export function UploadBeatPage() {
               placeholder="Ex: Midnight Bounce"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              disabled={isUploading}
+              disabled={isUploading || isMetadataLocked}
             />
             <Input
               label={t('products.price')}
@@ -846,7 +891,7 @@ export function UploadBeatPage() {
               step="0.01"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
-              disabled={isUploading}
+              disabled={isUploading || isMetadataLocked}
             />
           </div>
 
@@ -860,7 +905,7 @@ export function UploadBeatPage() {
               placeholder="Décris l'ambiance, les instruments, les licences..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              disabled={isUploading}
+              disabled={isUploading || isMetadataLocked}
             />
           </div>
 
@@ -872,14 +917,14 @@ export function UploadBeatPage() {
               min="0"
               value={bpm}
               onChange={(e) => setBpm(e.target.value)}
-              disabled={isUploading}
+              disabled={isUploading || isMetadataLocked}
             />
             <Input
               label={t('products.key')}
               placeholder="Ex: Am"
               value={keySignature}
               onChange={(e) => setKeySignature(e.target.value)}
-              disabled={isUploading}
+              disabled={isUploading || isMetadataLocked}
             />
           </div>
 
@@ -990,23 +1035,23 @@ export function UploadBeatPage() {
                   accept="image/jpeg,image/png"
                   className="hidden"
                   onChange={handleImageChange}
-                  disabled={isUploading}
+                  disabled={isUploading || isMetadataLocked}
                 />
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={() => imageInputRef.current?.click()}
-                  disabled={isUploading}
+                  disabled={isUploading || isMetadataLocked}
                   leftIcon={<UploadCloud className="w-4 h-4" />}
                 >
-                  {t('producer.chooseCoverFile')}
+                  {isMetadataLocked ? 'Pochette verrouillee' : t('producer.chooseCoverFile')}
                 </Button>
                 {imageFile && (
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => imageInputRef.current?.click()}
-                    disabled={isUploading}
+                    disabled={isUploading || isMetadataLocked}
                   >
                     {t('producer.replaceFile')}
                   </Button>
@@ -1046,7 +1091,9 @@ export function UploadBeatPage() {
                 </div>
               ) : (
                 <p className="text-xs text-zinc-500">
-                  {t('producer.fileMissing')} – {t('producer.coverRequirements')}
+                  {isMetadataLocked
+                    ? 'La pochette actuelle est conservee car les metadonnees essentielles sont verrouillees.'
+                    : `${t('producer.fileMissing')} – ${t('producer.coverRequirements')}`}
                 </p>
               )}
             </div>

@@ -47,6 +47,14 @@ interface IncomingBattle {
   product2?: { title: string };
 }
 
+interface BattleQuotaStatus {
+  tier: string;
+  used_this_month: number;
+  max_per_month: number | null;
+  can_create: boolean;
+  reset_at: string;
+}
+
 const badgeByStatus: Record<BattleStatus, 'default' | 'success' | 'warning' | 'danger' | 'info' | 'premium'> = {
   pending: 'warning',
   pending_acceptance: 'warning',
@@ -59,13 +67,26 @@ const badgeByStatus: Record<BattleStatus, 'default' | 'success' | 'warning' | 'd
   rejected: 'danger',
 };
 
-function toRpcErrorMessage(message: string) {
+function toRpcErrorMessage(error: {
+  code?: string;
+  details?: string | null;
+  message?: string;
+}) {
+  const code = error.code || 'unknown_code';
+  const message = error.message || 'Unknown error';
+  const details = error.details ? ` (${error.details})` : '';
+  const technical = `[${code}] ${message}${details}`;
+
   if (message.includes('rejection_reason_required')) return 'La raison du refus est obligatoire.';
   if (message.includes('response_already_recorded')) return 'Une reponse a deja ete enregistree.';
   if (message.includes('battle_not_waiting_for_response')) return 'Cette battle n\'attend plus de reponse.';
   if (message.includes('only_invited_producer_can_respond')) return 'Seul le producteur invite peut repondre.';
   if (message.includes('battle_not_found')) return 'Battle introuvable.';
-  return 'Action impossible pour le moment.';
+  if (message.includes('auth_required') || code === '42501') {
+    return `Session invalide ou expiree. Reconnectez-vous puis reessayez. ${technical}`;
+  }
+
+  return `Action impossible pour le moment. ${technical}`;
 }
 
 function toStatusLabel(status: BattleStatus) {
@@ -90,6 +111,32 @@ function slugifyBattleTitle(value: string) {
     .slice(0, 80);
 }
 
+function toBattleInsertErrorMessage(error: {
+  code?: string;
+  details?: string | null;
+  message?: string;
+}, quotaStatus: BattleQuotaStatus | null) {
+  const code = error.code || 'unknown_code';
+  const message = error.message || 'Unknown error';
+  const details = error.details ? ` (${error.details})` : '';
+  const technical = `[${code}] ${message}${details}`;
+
+  const isRlsError =
+    code === '42501'
+    || message.includes('new row violates row-level security')
+    || message.includes('permission denied');
+
+  if (isRlsError && quotaStatus && quotaStatus.can_create === false) {
+    return `Creation refusee: quota mensuel atteint ou plan non autorise pour les battles. ${technical}`;
+  }
+
+  if (isRlsError) {
+    return `Creation refusee par les regles de securite. Verifiez que le producteur invite est actif et que les produits selectionnes appartiennent bien a chaque producteur. ${technical}`;
+  }
+
+  return `Creation de la battle impossible. ${technical}`;
+}
+
 export function ProducerBattlesPage() {
   const { profile } = useAuth();
 
@@ -100,6 +147,9 @@ export function ProducerBattlesPage() {
   const [incomingBattles, setIncomingBattles] = useState<IncomingBattle[]>([]);
   const [rejectReasons, setRejectReasons] = useState<Record<string, string>>({});
   const [respondingId, setRespondingId] = useState<string | null>(null);
+  const [quotaStatus, setQuotaStatus] = useState<BattleQuotaStatus | null>(null);
+  const [quotaError, setQuotaError] = useState<string | null>(null);
+  const [isQuotaLoading, setIsQuotaLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -135,6 +185,34 @@ export function ProducerBattlesPage() {
     ],
     [producer2Products]
   );
+
+  const loadQuotaStatus = useCallback(async () => {
+    if (!profile?.id) return null;
+
+    setIsQuotaLoading(true);
+
+    const { data, error: quotaFetchError } = await supabase.rpc('get_battles_quota_status');
+
+    if (quotaFetchError) {
+      console.error('Error loading battles quota status:', {
+        code: quotaFetchError.code,
+        message: quotaFetchError.message,
+        details: quotaFetchError.details,
+      });
+      setQuotaStatus(null);
+      setQuotaError(
+        `Impossible de charger le quota battles. [${quotaFetchError.code || 'unknown_code'}] ${quotaFetchError.message}`
+      );
+      setIsQuotaLoading(false);
+      return null;
+    }
+
+    const quotaRow = (Array.isArray(data) ? data[0] : data) as BattleQuotaStatus | null;
+    setQuotaStatus(quotaRow);
+    setQuotaError(null);
+    setIsQuotaLoading(false);
+    return quotaRow;
+  }, [profile?.id]);
 
   const loadBattles = useCallback(async () => {
     if (!profile?.id) return;
@@ -234,7 +312,7 @@ export function ProducerBattlesPage() {
         setProducers(producerRows);
         setMyProducts((productsRes.data as ProductOption[] | null) ?? []);
 
-        await loadBattles();
+        await Promise.all([loadBattles(), loadQuotaStatus()]);
         setIsLoading(false);
       }
     }
@@ -244,7 +322,7 @@ export function ProducerBattlesPage() {
     return () => {
       isCancelled = true;
     };
-  }, [loadBattles, profile?.id]);
+  }, [loadBattles, loadQuotaStatus, profile?.id]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -296,6 +374,13 @@ export function ProducerBattlesPage() {
     setError(null);
     setIsSaving(true);
 
+    const latestQuota = await loadQuotaStatus();
+    if (latestQuota && !latestQuota.can_create) {
+      setError('Quota battles atteint pour ce mois ou plan non autorise. Passez au plan superieur pour continuer.');
+      setIsSaving(false);
+      return;
+    }
+
     const { error: insertError } = await supabase
       .from('battles')
       .insert({
@@ -313,8 +398,13 @@ export function ProducerBattlesPage() {
       });
 
     if (insertError) {
-      console.error('Error creating battle:', insertError);
-      setError('Creation de la battle impossible. Verifiez les champs renseignes.');
+      console.error('Error creating battle:', {
+        code: insertError.code,
+        message: insertError.message,
+        details: insertError.details,
+      });
+      const refreshedQuota = await loadQuotaStatus();
+      setError(toBattleInsertErrorMessage(insertError, refreshedQuota));
       setIsSaving(false);
       return;
     }
@@ -328,7 +418,7 @@ export function ProducerBattlesPage() {
     });
     setProducer2Products([]);
     setIsSaving(false);
-    await loadBattles();
+    await Promise.all([loadBattles(), loadQuotaStatus()]);
   };
 
   const respondToBattle = async (battleId: string, accept: boolean) => {
@@ -349,8 +439,15 @@ export function ProducerBattlesPage() {
     });
 
     if (rpcError) {
+      console.error('Error responding to battle:', {
+        battleId,
+        accept,
+        code: rpcError.code,
+        message: rpcError.message,
+        details: rpcError.details,
+      });
       setRespondingId(null);
-      setError(toRpcErrorMessage(rpcError.message));
+      setError(toRpcErrorMessage(rpcError));
       return;
     }
 
@@ -429,8 +526,37 @@ export function ProducerBattlesPage() {
             />
           </div>
 
-          <div className="flex justify-end">
-            <Button onClick={createBattle} isLoading={isSaving}>Creer</Button>
+          <div className="flex flex-col gap-3 border border-zinc-800 rounded-lg p-3 bg-zinc-900/40">
+            <p className="text-sm text-zinc-300">
+              {quotaStatus
+                ? `Battles ce mois: ${quotaStatus.used_this_month}/${quotaStatus.max_per_month ?? 'Illimite'}`
+                : isQuotaLoading
+                ? 'Chargement du quota battles...'
+                : 'Quota battles indisponible pour le moment.'}
+            </p>
+            {quotaStatus && !quotaStatus.can_create && (
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <p className="text-sm text-amber-300">
+                  Quota atteint ou plan actuel non autorise. Reinitialisation le{' '}
+                  {new Date(quotaStatus.reset_at).toLocaleDateString()}.
+                </p>
+                {quotaStatus.tier !== 'elite' && (
+                  <Link to="/pricing">
+                    <Button variant="outline">Voir les offres</Button>
+                  </Link>
+                )}
+              </div>
+            )}
+            {quotaError && <p className="text-sm text-red-400">{quotaError}</p>}
+            <div className="flex justify-end">
+              <Button
+                onClick={createBattle}
+                isLoading={isSaving}
+                disabled={quotaStatus !== null && !quotaStatus.can_create}
+              >
+                Creer
+              </Button>
+            </div>
           </div>
         </Card>
 

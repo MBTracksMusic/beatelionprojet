@@ -3,13 +3,17 @@ import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Clock, Trophy, Users } from 'lucide-react';
 import { Badge } from '../components/ui/Badge';
 import { Card } from '../components/ui/Card';
+import { ReputationBadge } from '../components/reputation/ReputationBadge';
 import { VotePanel } from '../components/battles/VotePanel';
 import { CommentsPanel } from '../components/battles/CommentsPanel';
 import { BattleAudioPlayer } from '../components/audio/BattleAudioPlayer';
 import { useTranslation } from '../lib/i18n';
 import { supabase } from '../lib/supabase/client';
 import { fetchPublicProducerProfilesMap } from '../lib/supabase/publicProfiles';
-import type { BattleWithRelations, ProductWithRelations } from '../lib/supabase/types';
+import type { BattleProductSnapshot, BattleWithRelations, ProductWithRelations } from '../lib/supabase/types';
+
+type BattleSnapshotSlot = 'producer1' | 'producer2';
+type BattleSnapshotMap = Partial<Record<BattleSnapshotSlot, BattleProductSnapshot>>;
 
 function getStatusVariant(status: BattleWithRelations['status']) {
   if (status === 'active' || status === 'voting') return 'success';
@@ -43,19 +47,24 @@ export function BattleDetailPage() {
   const { t } = useTranslation();
   const { slug } = useParams<{ slug: string }>();
   const [battle, setBattle] = useState<BattleWithRelations | null>(null);
+  const [battleSnapshots, setBattleSnapshots] = useState<BattleSnapshotMap>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [historyWarning, setHistoryWarning] = useState<string | null>(null);
   const [activeBattlePlayerId, setActiveBattlePlayerId] = useState<string | null>(null);
 
   const fetchBattle = useCallback(async () => {
     if (!slug) {
       setError('Battle introuvable.');
+      setBattleSnapshots({});
+      setHistoryWarning(null);
       setIsLoading(false);
       return;
     }
 
     setIsLoading(true);
     setError(null);
+    setHistoryWarning(null);
 
     try {
       const { data, error: fetchError } = await supabase
@@ -98,7 +107,27 @@ export function BattleDetailPage() {
       const row = (data as BattleWithRelations | null) ?? null;
       if (!row) {
         setBattle(null);
+        setBattleSnapshots({});
       } else {
+        const { data: snapshotData, error: snapshotError } = await supabase
+          .from('battle_product_snapshots')
+          .select('id, battle_id, slot, product_id, title_snapshot, preview_url_snapshot, producer_id, created_at, updated_at')
+          .eq('battle_id', row.id);
+
+        if (snapshotError) {
+          console.error('[battle-detail] failed to load battle product snapshots', snapshotError);
+          setHistoryWarning('Impossible de charger certaines donnees historiques de produit.');
+          setBattleSnapshots({});
+        } else {
+          const nextSnapshots = ((snapshotData as BattleProductSnapshot[] | null) ?? []).reduce<BattleSnapshotMap>((acc, snapshot) => {
+            if (snapshot.slot === 'producer1' || snapshot.slot === 'producer2') {
+              acc[snapshot.slot] = snapshot;
+            }
+            return acc;
+          }, {});
+          setBattleSnapshots(nextSnapshots);
+        }
+
         const producerProfilesMap = await fetchPublicProducerProfilesMap([
           row.producer1_id,
           row.producer2_id,
@@ -115,6 +144,10 @@ export function BattleDetailPage() {
                 id: producer1.user_id,
                 username: producer1.username,
                 avatar_url: producer1.avatar_url,
+                xp: producer1.xp,
+                level: producer1.level,
+                rank_tier: producer1.rank_tier,
+                reputation_score: producer1.reputation_score,
               }
             : undefined,
           producer2: producer2
@@ -122,6 +155,10 @@ export function BattleDetailPage() {
                 id: producer2.user_id,
                 username: producer2.username,
                 avatar_url: producer2.avatar_url,
+                xp: producer2.xp,
+                level: producer2.level,
+                rank_tier: producer2.rank_tier,
+                reputation_score: producer2.reputation_score,
               }
             : undefined,
           winner: winner
@@ -129,6 +166,10 @@ export function BattleDetailPage() {
                 id: winner.user_id,
                 username: winner.username,
                 avatar_url: winner.avatar_url,
+                xp: winner.xp,
+                level: winner.level,
+                rank_tier: winner.rank_tier,
+                reputation_score: winner.reputation_score,
               }
             : undefined,
         } as BattleWithRelations);
@@ -136,6 +177,8 @@ export function BattleDetailPage() {
     } catch (fetchErr) {
       console.error('Error fetching battle detail:', fetchErr);
       setBattle(null);
+      setBattleSnapshots({});
+      setHistoryWarning(null);
       setError('Impossible de charger la battle pour le moment.');
     } finally {
       setIsLoading(false);
@@ -164,6 +207,9 @@ export function BattleDetailPage() {
     if (!battle || totalVotes === 0) return 50;
     return (battle.votes_producer2 / totalVotes) * 100;
   }, [battle, totalVotes]);
+
+  const product1Snapshot = battleSnapshots.producer1;
+  const product2Snapshot = battleSnapshots.producer2;
 
   if (isLoading) {
     return (
@@ -213,6 +259,12 @@ export function BattleDetailPage() {
 
   const product1Url = getProductUrl(battle.product1 || null);
   const product2Url = getProductUrl(battle.product2 || null);
+  const product1Title = battle.product1?.title ?? product1Snapshot?.title_snapshot ?? null;
+  const product2Title = battle.product2?.title ?? product2Snapshot?.title_snapshot ?? null;
+  const product1PreviewUrl = battle.product1?.preview_url ?? product1Snapshot?.preview_url_snapshot ?? null;
+  const product2PreviewUrl = battle.product2?.preview_url ?? product2Snapshot?.preview_url_snapshot ?? null;
+  const product1IsHistoricalOnly = !battle.product1 && Boolean(product1Snapshot);
+  const product2IsHistoricalOnly = !battle.product2 && Boolean(product2Snapshot);
 
   return (
     <div className="min-h-screen bg-zinc-950 pt-8 pb-32">
@@ -239,11 +291,22 @@ export function BattleDetailPage() {
             <div className="bg-zinc-800/50 rounded-lg p-4">
               <p className="text-zinc-500 text-xs uppercase mb-1">Producteur 1</p>
               <p className="text-white font-semibold">{battle.producer1?.username || 'Producteur 1'}</p>
+              {battle.producer1 && (
+                <ReputationBadge
+                  compact
+                  rankTier={battle.producer1.rank_tier}
+                  level={battle.producer1.level}
+                  xp={battle.producer1.xp}
+                />
+              )}
               <p className="text-rose-400 text-sm mt-1">{battle.votes_producer1} {t('battles.votes')}</p>
               {battle.product1 && product1Url && (
                 <Link to={product1Url} className="text-xs text-zinc-400 hover:text-white mt-2 inline-block">
                   {battle.product1.title}
                 </Link>
+              )}
+              {!battle.product1 && product1Snapshot?.title_snapshot && (
+                <p className="text-xs text-amber-300 mt-2">Produit supprime: {product1Snapshot.title_snapshot}</p>
               )}
             </div>
 
@@ -266,14 +329,33 @@ export function BattleDetailPage() {
             <div className="bg-zinc-800/50 rounded-lg p-4 text-right">
               <p className="text-zinc-500 text-xs uppercase mb-1">Producteur 2</p>
               <p className="text-white font-semibold">{battle.producer2?.username || 'Producteur 2'}</p>
+              {battle.producer2 && (
+                <div className="flex justify-end">
+                  <ReputationBadge
+                    compact
+                    rankTier={battle.producer2.rank_tier}
+                    level={battle.producer2.level}
+                    xp={battle.producer2.xp}
+                  />
+                </div>
+              )}
               <p className="text-orange-400 text-sm mt-1">{battle.votes_producer2} {t('battles.votes')}</p>
               {battle.product2 && product2Url && (
                 <Link to={product2Url} className="text-xs text-zinc-400 hover:text-white mt-2 inline-block">
                   {battle.product2.title}
                 </Link>
               )}
+              {!battle.product2 && product2Snapshot?.title_snapshot && (
+                <p className="text-xs text-amber-300 mt-2">Produit supprime: {product2Snapshot.title_snapshot}</p>
+              )}
             </div>
           </div>
+
+          {historyWarning && (
+            <Card className="bg-amber-900/20 border border-amber-800">
+              <p className="text-sm text-amber-200">{historyWarning}</p>
+            </Card>
+          )}
 
           {battle.status === 'rejected' && battle.rejection_reason && (
             <Card className="bg-red-900/20 border border-red-800">
@@ -308,20 +390,26 @@ export function BattleDetailPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card className="bg-zinc-800/30">
               <p className="text-zinc-500 text-xs uppercase mb-2">Produit 1</p>
-              {battle.product1 ? (
+              {battle.product1 || product1Snapshot ? (
                 <div className="space-y-2">
-                  <p className="text-white font-medium">{battle.product1.title}</p>
+                  <p className="text-white font-medium">{product1Title || 'Produit indisponible'}</p>
+                  {product1IsHistoricalOnly && (
+                    <p className="text-xs text-amber-300">Produit supprime. Historique conserve.</p>
+                  )}
                   <BattleAudioPlayer
-                    src={battle.product1.preview_url}
-                    label="Preview producteur 1"
+                    src={product1PreviewUrl}
+                    label={product1IsHistoricalOnly ? 'Preview historique producteur 1' : 'Preview producteur 1'}
                     playerId={`battle-${battle.id}-product-1`}
                     activePlayerId={activeBattlePlayerId}
                     onActivePlayerChange={setActiveBattlePlayerId}
                   />
-                  {product1Url && (
+                  {battle.product1 && product1Url && (
                     <Link to={product1Url} className="text-xs text-zinc-400 hover:text-white">
                       Lien vers la page produit
                     </Link>
+                  )}
+                  {product1IsHistoricalOnly && !product1PreviewUrl && (
+                    <p className="text-xs text-zinc-500">Aucun extrait historique disponible.</p>
                   )}
                 </div>
               ) : (
@@ -331,20 +419,26 @@ export function BattleDetailPage() {
 
             <Card className="bg-zinc-800/30">
               <p className="text-zinc-500 text-xs uppercase mb-2">Produit 2</p>
-              {battle.product2 ? (
+              {battle.product2 || product2Snapshot ? (
                 <div className="space-y-2">
-                  <p className="text-white font-medium">{battle.product2.title}</p>
+                  <p className="text-white font-medium">{product2Title || 'Produit indisponible'}</p>
+                  {product2IsHistoricalOnly && (
+                    <p className="text-xs text-amber-300">Produit supprime. Historique conserve.</p>
+                  )}
                   <BattleAudioPlayer
-                    src={battle.product2.preview_url}
-                    label="Preview producteur 2"
+                    src={product2PreviewUrl}
+                    label={product2IsHistoricalOnly ? 'Preview historique producteur 2' : 'Preview producteur 2'}
                     playerId={`battle-${battle.id}-product-2`}
                     activePlayerId={activeBattlePlayerId}
                     onActivePlayerChange={setActiveBattlePlayerId}
                   />
-                  {product2Url && (
+                  {battle.product2 && product2Url && (
                     <Link to={product2Url} className="text-xs text-zinc-400 hover:text-white">
                       Lien vers la page produit
                     </Link>
+                  )}
+                  {product2IsHistoricalOnly && !product2PreviewUrl && (
+                    <p className="text-xs text-zinc-500">Aucun extrait historique disponible.</p>
                   )}
                 </div>
               ) : (

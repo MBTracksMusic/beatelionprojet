@@ -3,6 +3,7 @@ import { User, Mail, Shield, Music, ShoppingBag, Heart, Download, FileText } fro
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../lib/auth/hooks';
+import { useMyReputation } from '../lib/reputation/hooks';
 import { supabase } from '../lib/supabase/client';
 import type { License, ProductWithRelations, Purchase } from '../lib/supabase/types';
 import { fetchPublicProducerProfilesMap, type PublicProducerProfileRow } from '../lib/supabase/publicProfiles';
@@ -12,6 +13,7 @@ import { formatPrice } from '../lib/utils/format';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
+import { ReputationBadge } from '../components/reputation/ReputationBadge';
 import { ProductCard } from '../components/products/ProductCard';
 import { useWishlistStore } from '../lib/stores/wishlist';
 
@@ -158,6 +160,7 @@ const WATERMARKED_BUCKET = import.meta.env.VITE_SUPABASE_WATERMARKED_BUCKET || '
 
 export function DashboardPage() {
   const { user, profile } = useAuth();
+  const { reputation } = useMyReputation();
   const navigate = useNavigate();
   const { fetchWishlist, toggleWishlist } = useWishlistStore();
   const [purchases, setPurchases] = useState<DashboardPurchase[]>([]);
@@ -759,6 +762,25 @@ export function DashboardPage() {
             </Card>
           ))}
         </div>
+
+        {reputation && (
+          <Card className="p-6 mb-8">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm text-zinc-400 mb-1">Reputation</p>
+                <p className="text-2xl font-bold text-white">{reputation.xp} XP</p>
+                <p className="text-sm text-zinc-500">
+                  Forum {reputation.forum_xp} • Battles {reputation.battle_xp} • Score {Number(reputation.reputation_score).toFixed(0)}
+                </p>
+              </div>
+              <ReputationBadge
+                rankTier={reputation.rank_tier}
+                level={reputation.level}
+                xp={reputation.xp}
+              />
+            </div>
+          </Card>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card className="p-6">

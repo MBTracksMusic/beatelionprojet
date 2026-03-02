@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ExternalLink, Instagram, Twitter, Users, Youtube } from 'lucide-react';
+import { ReputationBadge } from '../components/reputation/ReputationBadge';
 import { supabase } from '../lib/supabase/client';
-import type { ProducerTier } from '../lib/supabase/types';
+import type { ProducerTier, ReputationRankTier } from '../lib/supabase/types';
 import { formatPrice } from '../lib/utils/format';
 
 interface PublicProducerProfile {
@@ -12,6 +13,10 @@ interface PublicProducerProfile {
   bio: string | null;
   social_links: Record<string, string> | null;
   producer_tier: ProducerTier | null;
+  xp: number;
+  level: number;
+  rank_tier: ReputationRankTier;
+  reputation_score: number;
   created_at: string;
 }
 
@@ -95,7 +100,7 @@ export function ProducerPublicProfilePage() {
       try {
         const { data, error: profileFetchError } = await supabase
           .from('public_producer_profiles')
-          .select('user_id, username, avatar_url, bio, social_links, producer_tier, created_at')
+          .select('user_id, username, avatar_url, bio, social_links, producer_tier, xp, level, rank_tier, reputation_score, created_at')
           .eq('username', username)
           .single();
 
@@ -230,12 +235,13 @@ export function ProducerPublicProfilePage() {
               <p className="text-zinc-400">
                 Producteur actif {producer.producer_tier ? `• ${producer.producer_tier.toUpperCase()}` : ''}
               </p>
+              <ReputationBadge rankTier={producer.rank_tier} level={producer.level} xp={producer.xp} />
             </div>
           </div>
           <p className="text-zinc-300 whitespace-pre-wrap">
             {producer.bio || 'Aucune biographie disponible.'}
           </p>
-          <div className="grid grid-cols-3 gap-2 mt-5 max-w-md">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-5 max-w-xl">
             <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
               <p className="text-[11px] uppercase tracking-wide text-zinc-500">Beats</p>
               <p className="text-base font-semibold text-white">{beats.length}</p>
@@ -249,6 +255,18 @@ export function ProducerPublicProfilePage() {
               <p className="text-base font-semibold text-white">
                 {battles.filter((battle) => battle.winner_id === producer.user_id).length}
               </p>
+            </div>
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-zinc-500">XP</p>
+              <p className="text-base font-semibold text-white">{producer.xp}</p>
+            </div>
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-zinc-500">Rang</p>
+              <p className="text-base font-semibold text-white">{producer.rank_tier}</p>
+            </div>
+            <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-zinc-500">Niveau</p>
+              <p className="text-base font-semibold text-white">{producer.level}</p>
             </div>
           </div>
         </section>

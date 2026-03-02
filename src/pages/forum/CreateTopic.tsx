@@ -5,7 +5,7 @@ import { ChevronLeft } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
-import { useForumActions, useForumCategories } from '../../lib/forum/hooks';
+import { getForumFunctionErrorCode, getForumFunctionErrorMessage, useForumActions, useForumCategories } from '../../lib/forum/hooks';
 
 export function CreateTopicPage() {
   const navigate = useNavigate();
@@ -44,16 +44,27 @@ export function CreateTopicPage() {
 
     try {
       const topic = await createTopic({
-        categoryId,
+        categorySlug: selectedCategory?.slug ?? categorySlugParam,
         title: trimmedTitle,
         content: trimmedContent,
       });
 
-      toast.success('Topic cree.');
-      navigate(`/forum/${selectedCategory?.slug ?? categorySlugParam}/${topic.slug}`);
+      if (topic.status === 'review') {
+        toast.success('Topic cree et place en attente de moderation.');
+      } else {
+        toast.success('Topic cree.');
+      }
+
+      navigate(`/forum/${topic.category_slug}/${topic.topic_slug}`);
     } catch (createError) {
       console.error('Failed to create topic', createError);
-      toast.error('Impossible de creer ce topic.');
+      const errorCode = getForumFunctionErrorCode(createError);
+      if (errorCode === 'blocked') {
+        toast.error('Contenu refuse.');
+        return;
+      }
+
+      toast.error(getForumFunctionErrorMessage(createError, 'Impossible de creer ce topic.'));
     }
   };
 

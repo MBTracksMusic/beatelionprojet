@@ -1,14 +1,17 @@
 import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Crown, Lock, MessageSquarePlus, Pin } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Crown, Lock, MessageSquarePlus, Pin, ShieldCheck, Swords } from 'lucide-react';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
+import { ReputationBadge } from '../components/reputation/ReputationBadge';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { useAuth } from '../lib/auth/hooks';
-import { useForumActions, useForumTopics } from '../lib/forum/hooks';
+import { getForumFunctionErrorCode, getForumFunctionErrorMessage, useForumActions, useForumTopics } from '../lib/forum/hooks';
+import { useMyReputation } from '../lib/reputation/hooks';
+import { meetsRankRequirement } from '../lib/reputation/utils';
 import { formatRelativeTime } from '../lib/utils/format';
 
 const PAGE_SIZE = 20;
@@ -17,6 +20,7 @@ export function ForumCategoryPage() {
   const navigate = useNavigate();
   const { categorySlug } = useParams<{ categorySlug: string }>();
   const { user } = useAuth();
+  const { reputation } = useMyReputation();
   const [page, setPage] = useState(1);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [title, setTitle] = useState('');
@@ -28,6 +32,7 @@ export function ForumCategoryPage() {
     pageSize: PAGE_SIZE,
   });
   const { createTopic, isSubmitting } = useForumActions();
+  const isRankLocked = category ? !meetsRankRequirement(reputation?.rank_tier, category.required_rank_tier) : false;
 
   const paginationLabel = useMemo(() => {
     if (totalCount === 0) return '0 topic';
@@ -55,18 +60,28 @@ export function ForumCategoryPage() {
 
     try {
       const topic = await createTopic({
-        categoryId: category.id,
+        categorySlug: category.slug,
         title: trimmedTitle,
         content: trimmedContent,
       });
 
       resetCreateForm();
       setIsCreateOpen(false);
-      toast.success('Topic cree.');
-      navigate(`/forum/${category.slug}/${topic.slug}`);
+      if (topic.status === 'review') {
+        toast.success('Topic cree et place en attente de moderation.');
+      } else {
+        toast.success('Topic cree.');
+      }
+      navigate(`/forum/${topic.category_slug}/${topic.topic_slug}`);
     } catch (createError) {
       console.error('Failed to create forum topic', createError);
-      toast.error('Impossible de creer ce topic.');
+      const errorCode = getForumFunctionErrorCode(createError);
+      if (errorCode === 'blocked') {
+        toast.error('Contenu refuse.');
+        return;
+      }
+
+      toast.error(getForumFunctionErrorMessage(createError, 'Impossible de creer ce topic.'));
     }
   };
 
@@ -88,18 +103,46 @@ export function ForumCategoryPage() {
                     Premium
                   </Badge>
                 )}
+                {category?.is_competitive && (
+                  <Badge variant="info">
+                    <Swords className="h-3 w-3" />
+                    Competitif
+                  </Badge>
+                )}
+                {category?.required_rank_tier && (
+                  <Badge variant="warning">
+                    <ShieldCheck className="h-3 w-3" />
+                    Rang min. {category.required_rank_tier}
+                  </Badge>
+                )}
               </div>
               <p className="text-zinc-400">
                 {category?.description || 'Parcourez les discussions les plus recentes.'}
               </p>
+              {category && (
+                <div className="flex flex-wrap gap-2 text-xs text-zinc-500">
+                  <span>XP x{category.xp_multiplier ?? 1}</span>
+                  <span>Moderation {category.moderation_strictness ?? 'normal'}</span>
+                  <span>{category.allow_links === false ? 'Liens interdits' : 'Liens autorises'}</span>
+                  <span>{category.allow_media === false ? 'Media interdits' : 'Media autorises'}</span>
+                </div>
+              )}
             </div>
-            {user && (
+            {user && !isRankLocked && (
               <Button leftIcon={<MessageSquarePlus className="h-4 w-4" />} onClick={() => setIsCreateOpen(true)}>
                 Nouveau topic
               </Button>
             )}
           </div>
         </div>
+
+        {isRankLocked && category?.required_rank_tier && (
+          <Card className="border-amber-900 bg-amber-950/20">
+            <CardContent className="text-sm text-amber-300">
+              Cette categorie est reservee au rang {category.required_rank_tier} minimum.
+            </CardContent>
+          </Card>
+        )}
 
         <div className="flex items-center justify-between text-sm text-zinc-400">
           <span>{paginationLabel}</span>
@@ -158,6 +201,14 @@ export function ForumCategoryPage() {
                       {' '}
                       cree {formatRelativeTime(topic.created_at)}
                     </CardDescription>
+                    {topic.author && (
+                      <ReputationBadge
+                        compact
+                        rankTier={topic.author.rank_tier}
+                        level={topic.author.level}
+                        xp={topic.author.xp}
+                      />
+                    )}
                   </div>
                   <div className="text-right text-sm text-zinc-400">
                     <div>{topic.post_count} reponses</div>
