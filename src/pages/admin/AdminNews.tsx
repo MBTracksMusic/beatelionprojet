@@ -101,12 +101,8 @@ export function AdminNewsPage() {
 
   const invokeBroadcast = useCallback(
     async (row: NewsRow, options?: { silentSuccess?: boolean }) => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token;
-
       const { data, error } = await supabase.functions.invoke('broadcast-news', {
         body: { news_id: row.id },
-        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
       });
 
       if (error) {

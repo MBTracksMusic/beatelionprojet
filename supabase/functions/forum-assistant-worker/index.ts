@@ -10,6 +10,7 @@ import {
   requireInternalAgent,
   ensureAssistantUser,
 } from "../_shared/forumAgents.ts";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 interface WorkerBody {
   jobId?: string;
@@ -30,7 +31,7 @@ async function markJobFailed(
     .eq("id", jobId);
 }
 
-Deno.serve(async (req: Request): Promise<Response> => {
+serveWithErrorHandling("forum-assistant-worker", async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }

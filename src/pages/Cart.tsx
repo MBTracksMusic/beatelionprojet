@@ -6,7 +6,7 @@ import { useTranslation } from '../lib/i18n';
 import { formatPrice } from '../lib/utils/format';
 import { Button } from '../components/ui/Button';
 import { LogoLoader } from '../components/ui/LogoLoader';
-import { supabase } from '../lib/supabase/client';
+import { invokeProtectedEdgeFunction } from '../lib/supabase/edgeAuth';
 
 export function CartPage() {
   const navigate = useNavigate();
@@ -64,45 +64,16 @@ export function CartPage() {
     setIsCheckoutLoading(true);
 
     try {
-      const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
-      const accessToken = sessionData.session?.access_token;
-
-      if (refreshError || !accessToken) {
-        throw new Error(refreshError?.message || t('checkout.sessionExpired'));
-      }
-
-      const { data, error } = await supabase.functions.invoke('create-checkout', {
+      const data = await invokeProtectedEdgeFunction<{ url?: string }>('create-checkout', {
         body: {
           beatId: firstItem.product_id,
           licenseType: firstItem.license_type,
           successUrl: `${window.location.origin}/cart?status=success`,
           cancelUrl: `${window.location.origin}/cart?status=cancel`,
         },
-        headers: {
-          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
-          Authorization: `Bearer ${accessToken}`,
-          'x-supabase-auth': `Bearer ${accessToken}`,
-        },
       });
 
-      if (error) {
-        const apiError = (data as { error?: string })?.error;
-        const contextResponse = (error as { context?: Response })?.context;
-        let backendError: string | undefined;
-
-        if (contextResponse instanceof Response) {
-          try {
-            const contextPayload = await contextResponse.clone().json() as { error?: string; message?: string };
-            backendError = contextPayload?.error || contextPayload?.message;
-          } catch {
-            backendError = undefined;
-          }
-        }
-
-        throw new Error(apiError || backendError || error.message || t('checkout.paymentStartError'));
-      }
-
-      const url = (data as { url?: string })?.url;
+      const url = data?.url;
       if (url) {
         window.location.href = url;
       } else {

@@ -1,27 +1,150 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { Resend } from "npm:resend";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+const BASE_CORS_HEADERS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, apikey, x-supabase-auth, x-hcaptcha-token",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, apikey, x-hcaptcha-token",
   "Content-Type": "application/json",
 };
 
-const DEFAULT_EMAIL_FROM = "onboarding@resend.dev";
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const DEFAULT_SUBJECT = "Contact form submission";
-const MIN_NAME_LENGTH = 2;
-const MAX_NAME_LENGTH = 120;
-const MIN_MESSAGE_LENGTH = 10;
-const MAX_MESSAGE_LENGTH = 5000;
+const DEFAULT_ALLOWED_CORS_ORIGINS = [
+  "https://beatelion.com",
+  "https://www.beatelion.com",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://dev.beatelion.local:5173",
+];
+
+const normalizeOrigin = (value: string): string | null => {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+};
+
+const resolveAllowedCorsOrigins = () => {
+  const allowed = new Set<string>(DEFAULT_ALLOWED_CORS_ORIGINS);
+
+  const csv = Deno.env.get("CORS_ALLOWED_ORIGINS");
+  if (typeof csv === "string" && csv.trim().length > 0) {
+    for (const token of csv.split(",")) {
+      const normalized = normalizeOrigin(token.trim());
+      if (normalized) {
+        allowed.add(normalized);
+      }
+    }
+  }
+
+  for (const envValue of [
+    Deno.env.get("APP_URL"),
+    Deno.env.get("SITE_URL"),
+    Deno.env.get("PUBLIC_SITE_URL"),
+    Deno.env.get("VITE_APP_URL"),
+  ]) {
+    if (typeof envValue !== "string") continue;
+    const normalized = normalizeOrigin(envValue.trim());
+    if (normalized) {
+      allowed.add(normalized);
+    }
+  }
+
+  return allowed;
+};
+
+const ALLOWED_CORS_ORIGINS = resolveAllowedCorsOrigins();
+const DEFAULT_CORS_ORIGIN = DEFAULT_ALLOWED_CORS_ORIGINS[0];
+
+const resolveRequestOrigin = (req: Request) => {
+  const origin = req.headers.get("origin");
+  if (!origin) return null;
+  const normalized = normalizeOrigin(origin);
+  if (!normalized) return null;
+  return ALLOWED_CORS_ORIGINS.has(normalized) ? normalized : null;
+};
+
+const buildCorsHeaders = (origin: string | null) => ({
+  ...BASE_CORS_HEADERS,
+  "Access-Control-Allow-Origin": origin ?? DEFAULT_CORS_ORIGIN,
+  "Vary": "Origin",
+});
+
+// Required server env vars:
+// - SUPABASE_URL
+// - SUPABASE_SERVICE_ROLE_KEY
+// - HCAPTCHA_SECRET_KEY (preferred) or HCAPTCHA_SECRET (legacy fallback)
+// Optional email notification env vars (must be configured together):
+// - RESEND_API_KEY
+// - CONTACT_TO_EMAIL
+// - RESEND_FROM_EMAIL
+const DEFAULT_EMAIL_FROM = "BeatElion <noreply@beatelion.com>";
+const DEFAULT_SUBJECT = "Contact request";
 const HCAPTCHA_VERIFY_URL = "https://hcaptcha.com/siteverify";
-const ALLOWED_FIELDS = new Set(["name", "email", "message"]);
-const CONTACT_SUBMIT_RATE_LIMIT_RPC = "rpc_contact_submit_rate_limit";
-const PRODUCTION_ENV_VALUES = new Set(["production", "prod"]);
+const CONTACT_SUBMIT_LOG_TABLE = "contact_submit_log";
+const FALLBACK_UNKNOWN_IP_BUCKET = "__unknown_ip__";
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const MIN_NAME_LENGTH = 2;
+const MAX_NAME_LENGTH = 80;
+const MIN_SUBJECT_LENGTH = 3;
+const MAX_SUBJECT_LENGTH = 120;
+const MIN_MESSAGE_LENGTH = 20;
+const MAX_MESSAGE_LENGTH = 5000;
+const MIN_HUMAN_SUBMISSION_DELAY_MS = 1500;
+
+const RATE_LIMIT_IP_MAX_15_MIN = 3;
+const RATE_LIMIT_IP_MAX_24_HOURS = 10;
+const RATE_LIMIT_EMAIL_MAX_15_MIN = 2;
+const RATE_LIMIT_IP_ATTEMPTS_MAX_15_MIN = 25;
+const DUPLICATE_WINDOW_MINUTES = 10;
+
+const ALLOWED_FIELDS = new Set([
+  "name",
+  "email",
+  "subject",
+  "message",
+  "honeypot",
+  "website",
+  "company",
+  "hp",
+  "captcha_token",
+  "hcaptcha_token",
+  "hcaptchaToken",
+  "captchaToken",
+  "form_started_at",
+  "started_at",
+]);
+
+const PLACEHOLDER_VALUES = new Set([
+  "test",
+  "testing",
+  "hello",
+  "bonjour",
+  "coucou",
+  "none",
+  "n/a",
+  "na",
+  "-",
+  "...",
+  "lorem ipsum",
+]);
 
 type JsonObject = Record<string, unknown>;
+type ContactLogStatus = "accepted" | "rejected";
+type SupabaseAdminClient = any;
+
+type ContactSubmitLogRow = {
+  ip_address: string | null;
+  email_hash: string | null;
+  submission_hash: string | null;
+  user_agent: string | null;
+  subject: string | null;
+  status: ContactLogStatus;
+  reason: string | null;
+};
 
 const asNonEmptyString = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
@@ -29,48 +152,176 @@ const asNonEmptyString = (value: unknown): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
-const runtimeEnv = (asNonEmptyString(Deno.env.get("ENV")) ??
-  asNonEmptyString(Deno.env.get("NODE_ENV")) ??
-  "development").toLowerCase();
-const IS_PRODUCTION = PRODUCTION_ENV_VALUES.has(runtimeEnv);
-const HCAPTCHA_SECRET = asNonEmptyString(Deno.env.get("HCAPTCHA_SECRET"));
+const DEFAULT_ALLOWED_CAPTCHA_HOSTNAMES = [
+  "localhost",
+  "127.0.0.1",
+  "dev.beatelion.local",
+  "beatelion.com",
+  "www.beatelion.com",
+];
 
-if (IS_PRODUCTION && !HCAPTCHA_SECRET) {
-  throw new Error("Missing HCAPTCHA_SECRET environment variable in production");
-}
+const normalizeHostname = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const fromUrl = (() => {
+    try {
+      return new URL(trimmed).hostname;
+    } catch {
+      return null;
+    }
+  })();
+  const candidate = (fromUrl ?? trimmed).toLowerCase().replace(/\.$/, "");
+
+  if (candidate.includes(":") && !candidate.includes("[")) {
+    return candidate.split(":")[0] ?? null;
+  }
+
+  return candidate;
+};
+
+const resolveAllowedCaptchaHostnames = () => {
+  const allowed = new Set<string>(
+    DEFAULT_ALLOWED_CAPTCHA_HOSTNAMES
+      .map((value) => normalizeHostname(value))
+      .filter((value): value is string => Boolean(value)),
+  );
+
+  const csv = asNonEmptyString(Deno.env.get("HCAPTCHA_ALLOWED_HOSTNAMES"));
+  if (csv) {
+    for (const token of csv.split(",")) {
+      const normalized = normalizeHostname(token);
+      if (normalized) {
+        allowed.add(normalized);
+      }
+    }
+  }
+
+  return allowed;
+};
+
+const ALLOWED_CAPTCHA_HOSTNAMES = resolveAllowedCaptchaHostnames();
+
+const normalizeWhitespace = (value: string) => value.replace(/\s+/g, " ").trim();
+
+const normalizeEmail = (value: unknown) => {
+  const raw = asNonEmptyString(value);
+  if (!raw) return null;
+  return raw.toLowerCase();
+};
+
+const normalizeForFingerprint = (value: string) => normalizeWhitespace(value).toLowerCase();
+
+const isValidEmail = (value: string | null): value is string => {
+  if (!value) return false;
+  return EMAIL_REGEX.test(value);
+};
+
+const escapeHtml = (value: string) => {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+};
+
+const stripControlChars = (
+  value: string,
+  options?: { preserveLineBreaks?: boolean },
+) => {
+  let sanitized = "";
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    const code = value.charCodeAt(index);
+    const isControl = code < 32 || code === 127;
+
+    if (!isControl) {
+      sanitized += char;
+      continue;
+    }
+
+    if (options?.preserveLineBreaks && (code === 10 || code === 13)) {
+      sanitized += char;
+    }
+  }
+
+  return sanitized;
+};
+
+const stripHtmlTags = (value: string) => value.replace(/<[^>]*>/g, " ");
+
+const sanitizeSingleLineField = (value: string) =>
+  normalizeWhitespace(stripHtmlTags(stripControlChars(value)));
+
+const sanitizeMessageField = (value: string) =>
+  stripHtmlTags(
+    stripControlChars(value, { preserveLineBreaks: true }).replace(/\r\n?/g, "\n"),
+  ).trim();
+
+const containsHeaderInjectionPattern = (value: string | null) => {
+  if (!value) return false;
+  return /(?:\r|\n|%0a|%0d|(?:^|[\s,;])(?:bcc|cc|to|content-type|mime-version)\s*:)/i.test(value);
+};
 
 const normalizeIpAddress = (value: string): string | null => {
-  const cleaned = value.trim().toLowerCase();
-  if (!cleaned || cleaned === "unknown") return null;
+  let candidate = value.trim();
+  if (!candidate) return null;
 
-  if (/^[0-9.]+$/.test(cleaned)) return cleaned;
-  if (/^[0-9a-f:]+$/.test(cleaned)) return cleaned;
+  candidate = candidate.replace(/^for=/i, "").replace(/^"(.+)"$/, "$1").trim();
+
+  if (candidate.startsWith("[") && candidate.includes("]")) {
+    candidate = candidate.slice(1, candidate.indexOf("]"));
+  }
+
+  if (candidate.includes(".") && candidate.includes(":")) {
+    const maybeIpv4 = candidate.split(":")[0]?.trim();
+    if (maybeIpv4 && maybeIpv4.includes(".")) {
+      candidate = maybeIpv4;
+    }
+  }
+
+  candidate = candidate.toLowerCase().replace(/%[a-z0-9._-]+$/i, "");
+
+  if (!candidate || candidate === "unknown") return null;
+
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(candidate)) {
+    const parts = candidate.split(".").map((part) => Number(part));
+    if (parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)) {
+      return candidate;
+    }
+    return null;
+  }
+
+  if (candidate.includes(":") && /^[0-9a-f:]+$/i.test(candidate)) {
+    return candidate;
+  }
 
   return null;
 };
 
 const extractIpAddress = (req: Request): string | null => {
   const candidateHeaders = [
+    req.headers.get("cf-connecting-ip"),
     req.headers.get("x-forwarded-for"),
     req.headers.get("x-real-ip"),
-    req.headers.get("cf-connecting-ip"),
   ];
 
   for (const rawValue of candidateHeaders) {
     const clean = asNonEmptyString(rawValue);
     if (!clean) continue;
+
     const first = clean.split(",")[0]?.trim();
     if (!first) continue;
+
     const normalized = normalizeIpAddress(first);
-    if (normalized) return normalized;
+    if (normalized) {
+      return normalized;
+    }
   }
 
   return null;
-};
-
-const isValidEmail = (value: string | null): value is string => {
-  if (!value) return false;
-  return EMAIL_REGEX.test(value);
 };
 
 const sha256Hex = async (value: string) => {
@@ -103,58 +354,259 @@ const verifyCaptcha = async (params: {
       console.error("[contact-submit] CAPTCHA_VERIFY_HTTP_ERROR", {
         status: response.status,
       });
-      return false;
+      return { ok: false as const, reason: "captcha_http_error" as const };
     }
 
     const result = await response.json() as {
       success?: boolean;
+      hostname?: string;
       "error-codes"?: string[];
     };
+    const hostname = normalizeHostname(asNonEmptyString(result.hostname) ?? "");
 
     if (result.success !== true) {
       console.warn("[contact-submit] CAPTCHA_VERIFY_FAILED", {
         errors: result["error-codes"] ?? [],
       });
-      return false;
+      return { ok: false as const, reason: "captcha_verify_failed" as const, hostname };
     }
 
-    return true;
+    if (!hostname || !ALLOWED_CAPTCHA_HOSTNAMES.has(hostname)) {
+      console.warn("[contact-submit] CAPTCHA_HOSTNAME_REJECTED", {
+        hostname,
+        allowed: [...ALLOWED_CAPTCHA_HOSTNAMES],
+      });
+      return { ok: false as const, reason: "captcha_hostname_rejected" as const, hostname };
+    }
+
+    return { ok: true as const, hostname };
   } catch (error) {
     console.error("[contact-submit] CAPTCHA_VERIFY_UNEXPECTED_ERROR", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return false;
+    return { ok: false as const, reason: "captcha_unexpected_error" as const };
   }
 };
 
-const enforceDbRateLimit = async (
-  supabase: any,
-  ipHash: string,
-) => {
-  const { data, error } = await supabase.rpc(CONTACT_SUBMIT_RATE_LIMIT_RPC, {
-    p_ip_hash: ipHash,
+const parseSubmissionStartMs = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    if (/^\d+$/.test(trimmed)) {
+      const parsedNumber = Number(trimmed);
+      if (Number.isFinite(parsedNumber)) {
+        return parsedNumber;
+      }
+    }
+
+    const parsedDate = Date.parse(trimmed);
+    if (Number.isFinite(parsedDate)) {
+      return parsedDate;
+    }
+  }
+
+  return null;
+};
+
+const extractCaptchaToken = (req: Request, payload: JsonObject | null) => {
+  const candidates: unknown[] = [
+    req.headers.get("x-hcaptcha-token"),
+    payload?.captcha_token,
+    payload?.hcaptcha_token,
+    payload?.hcaptchaToken,
+    payload?.captchaToken,
+  ];
+
+  for (const candidate of candidates) {
+    const token = asNonEmptyString(candidate);
+    if (token) return token;
+  }
+
+  return null;
+};
+
+const hasFilledHoneypot = (payload: JsonObject | null) => {
+  if (!payload) return false;
+
+  const honeypotKeys = ["honeypot", "website", "company", "hp"];
+  return honeypotKeys.some((key) => {
+    const value = payload[key];
+    return asNonEmptyString(value) !== null;
   });
+};
+
+const isLikelyPlaceholder = (value: string) => {
+  return PLACEHOLDER_VALUES.has(normalizeForFingerprint(value));
+};
+
+const insertContactSubmitLog = async (
+  supabase: SupabaseAdminClient,
+  row: ContactSubmitLogRow,
+) => {
+  const { error } = await supabase
+    .from(CONTACT_SUBMIT_LOG_TABLE)
+    .insert(row as never);
 
   if (error) {
-    const message = asNonEmptyString(error.message) ?? "";
-    const code = asNonEmptyString((error as { code?: unknown })?.code) ?? "";
-    const isRateLimit = message.includes("rate_limit_exceeded") || code === "P0001";
+    throw new Error(`contact_submit_log_insert_failed:${error.message}`);
+  }
+};
+
+const insertRejectedLogBestEffort = async (
+  supabase: SupabaseAdminClient,
+  row: Omit<ContactSubmitLogRow, "status">,
+) => {
+  try {
+    await insertContactSubmitLog(supabase, {
+      ...row,
+      status: "rejected",
+    });
+  } catch (error) {
+    console.error("[contact-submit] CONTACT_LOG_REJECTED_INSERT_FAILED", {
+      reason: row.reason,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
+const countContactSubmitLogs = async (
+  supabase: SupabaseAdminClient,
+  params: {
+    sinceIso: string;
+    status?: ContactLogStatus;
+    ipAddress?: string;
+    emailHash?: string;
+    submissionHash?: string;
+  },
+) => {
+  let query = supabase
+    .from(CONTACT_SUBMIT_LOG_TABLE)
+    .select("id", { count: "exact", head: true })
+    .gte("created_at", params.sinceIso);
+
+  if (params.status) {
+    query = query.eq("status", params.status);
+  }
+
+  if (params.ipAddress) {
+    query = query.eq("ip_address", params.ipAddress);
+  }
+
+  if (params.emailHash) {
+    query = query.eq("email_hash", params.emailHash);
+  }
+
+  if (params.submissionHash) {
+    query = query.eq("submission_hash", params.submissionHash);
+  }
+
+  const { count, error } = await query;
+
+  if (error) {
+    throw new Error(`contact_submit_log_count_failed:${error.message}`);
+  }
+
+  return count ?? 0;
+};
+
+const enforceRateLimits = async (
+  supabase: SupabaseAdminClient,
+  params: {
+    ipAddressBucket: string;
+    emailHash: string | null;
+  },
+) => {
+  const nowMs = Date.now();
+  const since15MinutesIso = new Date(nowMs - (15 * 60 * 1000)).toISOString();
+  const since24HoursIso = new Date(nowMs - (24 * 60 * 60 * 1000)).toISOString();
+
+  const ipCount15m = await countContactSubmitLogs(supabase, {
+    sinceIso: since15MinutesIso,
+    status: "accepted",
+    ipAddress: params.ipAddressBucket,
+  });
+
+  if (ipCount15m >= RATE_LIMIT_IP_MAX_15_MIN) {
     return {
       allowed: false as const,
-      status: isRateLimit ? 429 : 500,
-      error: isRateLimit ? "Too many requests" : "Rate limit unavailable",
+      reason: "ip_15m_limit",
+      error: "Rate limit exceeded",
     };
   }
 
-  if (data !== true) {
+  const ipCount24h = await countContactSubmitLogs(supabase, {
+    sinceIso: since24HoursIso,
+    status: "accepted",
+    ipAddress: params.ipAddressBucket,
+  });
+
+  if (ipCount24h >= RATE_LIMIT_IP_MAX_24_HOURS) {
     return {
       allowed: false as const,
-      status: 429,
-      error: "Too many requests",
+      reason: "ip_24h_limit",
+      error: "Rate limit exceeded",
+    };
+  }
+
+  if (params.emailHash) {
+    const emailCount15m = await countContactSubmitLogs(supabase, {
+      sinceIso: since15MinutesIso,
+      status: "accepted",
+      emailHash: params.emailHash,
+    });
+
+    if (emailCount15m >= RATE_LIMIT_EMAIL_MAX_15_MIN) {
+      return {
+        allowed: false as const,
+        reason: "email_15m_limit",
+        error: "Rate limit exceeded",
+      };
+    }
+  }
+
+  return { allowed: true as const };
+};
+
+const enforceAttemptRateLimit = async (
+  supabase: SupabaseAdminClient,
+  ipAddressBucket: string,
+) => {
+  const since15MinutesIso = new Date(Date.now() - (15 * 60 * 1000)).toISOString();
+
+  const ipAttemptCount15m = await countContactSubmitLogs(supabase, {
+    sinceIso: since15MinutesIso,
+    ipAddress: ipAddressBucket,
+  });
+
+  if (ipAttemptCount15m >= RATE_LIMIT_IP_ATTEMPTS_MAX_15_MIN) {
+    return {
+      allowed: false as const,
+      reason: "ip_attempts_15m_limit",
+      error: "Rate limit exceeded",
     };
   }
 
   return { allowed: true as const };
+};
+
+const hasRecentDuplicateSubmission = async (
+  supabase: SupabaseAdminClient,
+  submissionHash: string,
+) => {
+  const sinceIso = new Date(Date.now() - (DUPLICATE_WINDOW_MINUTES * 60 * 1000)).toISOString();
+
+  const duplicateCount = await countContactSubmitLogs(supabase, {
+    sinceIso,
+    status: "accepted",
+    submissionHash,
+  });
+
+  return duplicateCount > 0;
 };
 
 const sendAdminEmail = async (params: {
@@ -165,6 +617,7 @@ const sendAdminEmail = async (params: {
     submitted_at: string;
     name: string;
     email: string;
+    subject: string;
     message: string;
     ip_hash: string | null;
     user_agent: string | null;
@@ -176,11 +629,13 @@ const sendAdminEmail = async (params: {
   return await resend.emails.send({
     from: params.from,
     to: params.to,
+    replyTo: item.email,
     subject: "[Contact] Nouveau message",
     text: [
       `Submitted at: ${item.submitted_at}`,
       `Name: ${item.name}`,
       `Email: ${item.email}`,
+      `Subject: ${item.subject}`,
       `IP hash: ${item.ip_hash ?? "-"}`,
       `User-Agent: ${item.user_agent ?? "-"}`,
       "",
@@ -189,18 +644,30 @@ const sendAdminEmail = async (params: {
     html: `
       <div lang="fr" style="font-family:Arial,sans-serif;max-width:680px;margin:auto;padding:24px;color:#111">
         <h1 style="margin:0 0 14px;font-size:22px;">Nouveau message de contact</h1>
-        <p style="margin:0 0 6px;"><strong>Soumis le:</strong> ${item.submitted_at}</p>
-        <p style="margin:0 0 6px;"><strong>Nom:</strong> ${item.name}</p>
-        <p style="margin:0 0 6px;"><strong>Email:</strong> ${item.email}</p>
-        <p style="margin:0 0 6px;"><strong>IP hash:</strong> ${item.ip_hash ?? "-"}</p>
-        <p style="margin:0 0 14px;"><strong>User-Agent:</strong> ${item.user_agent ?? "-"}</p>
-        <div style="white-space:pre-wrap;line-height:1.55;background:#f4f4f5;padding:14px;border-radius:8px;">${item.message}</div>
+        <p style="margin:0 0 6px;"><strong>Soumis le:</strong> ${escapeHtml(item.submitted_at)}</p>
+        <p style="margin:0 0 6px;"><strong>Nom:</strong> ${escapeHtml(item.name)}</p>
+        <p style="margin:0 0 6px;"><strong>Email:</strong> ${escapeHtml(item.email)}</p>
+        <p style="margin:0 0 6px;"><strong>Sujet:</strong> ${escapeHtml(item.subject)}</p>
+        <p style="margin:0 0 6px;"><strong>IP hash:</strong> ${escapeHtml(item.ip_hash ?? "-")}</p>
+        <p style="margin:0 0 14px;"><strong>User-Agent:</strong> ${escapeHtml(item.user_agent ?? "-")}</p>
+        <div style="white-space:pre-wrap;line-height:1.55;background:#f4f4f5;padding:14px;border-radius:8px;">${escapeHtml(item.message)}</div>
       </div>
     `,
   });
 };
 
-Deno.serve(async (req: Request) => {
+serveWithErrorHandling("contact-submit", async (req: Request) => {
+  const requestOriginHeader = req.headers.get("origin");
+  const requestOrigin = resolveRequestOrigin(req);
+  const corsHeaders = buildCorsHeaders(requestOrigin);
+
+  if (requestOriginHeader && !requestOrigin) {
+    return new Response(JSON.stringify({ error: "Origin not allowed" }), {
+      status: 403,
+      headers: corsHeaders,
+    });
+  }
+
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -212,12 +679,11 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const userAgent = asNonEmptyString(req.headers.get("user-agent"));
-  const ipAddress = extractIpAddress(req);
-  const ipHash = await sha256Hex(ipAddress ?? "unknown");
+  const supabaseUrl = asNonEmptyString(Deno.env.get("SUPABASE_URL"));
+  const serviceRoleKey = asNonEmptyString(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
+  const captchaSecret = asNonEmptyString(Deno.env.get("HCAPTCHA_SECRET_KEY"))
+    ?? asNonEmptyString(Deno.env.get("HCAPTCHA_SECRET"));
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceRoleKey) {
     return new Response(JSON.stringify({ error: "Server not configured" }), {
       status: 500,
@@ -225,53 +691,24 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  }) as any;
-
-  const rateLimit = await enforceDbRateLimit(supabase, ipHash);
-  if (!rateLimit.allowed) {
-    console.warn("[contact-submit] RATE_LIMIT_BLOCK", {
-      ip_hash: ipHash,
-      userAgent,
+  if (!captchaSecret) {
+    console.error("[contact-submit] CAPTCHA_CONFIG_ERROR", {
+      hasCaptchaSecret: false,
     });
-    return new Response(JSON.stringify({ error: rateLimit.error }), {
-      status: rateLimit.status,
+    return new Response(JSON.stringify({ error: "Captcha configuration error" }), {
+      status: 500,
       headers: corsHeaders,
     });
   }
 
-  const captchaRequired = IS_PRODUCTION || Boolean(HCAPTCHA_SECRET);
-  if (captchaRequired) {
-    const captchaToken = asNonEmptyString(req.headers.get("x-hcaptcha-token"));
-    if (!captchaToken) {
-      console.warn("[contact-submit] CAPTCHA_TOKEN_MISSING", {
-        ip_hash: ipHash,
-        userAgent,
-      });
-      return new Response(JSON.stringify({ error: "Captcha token required" }), {
-        status: 403,
-        headers: corsHeaders,
-      });
-    }
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 
-    const captchaValid = await verifyCaptcha({
-      secret: HCAPTCHA_SECRET as string,
-      token: captchaToken,
-      remoteIp: ipAddress,
-    });
-
-    if (!captchaValid) {
-      console.warn("[contact-submit] CAPTCHA_BLOCK", {
-        ip_hash: ipHash,
-        userAgent,
-      });
-      return new Response(JSON.stringify({ error: "Captcha verification failed" }), {
-        status: 403,
-        headers: corsHeaders,
-      });
-    }
-  }
+  const userAgent = asNonEmptyString(req.headers.get("user-agent"));
+  const ipAddress = extractIpAddress(req);
+  const ipAddressBucket = ipAddress ?? FALLBACK_UNKNOWN_IP_BUCKET;
+  const ipHash = await sha256Hex(ipAddressBucket);
 
   const payload = await req.json().catch(() => null) as JsonObject | null;
   if (!payload || Array.isArray(payload)) {
@@ -283,6 +720,15 @@ Deno.serve(async (req: Request) => {
 
   const unsupportedFields = Object.keys(payload).filter((key) => !ALLOWED_FIELDS.has(key));
   if (unsupportedFields.length > 0) {
+    await insertRejectedLogBestEffort(supabase, {
+      ip_address: ipAddressBucket,
+      email_hash: null,
+      submission_hash: null,
+      user_agent: userAgent,
+      subject: null,
+      reason: "unsupported_fields",
+    });
+
     return new Response(
       JSON.stringify({ error: `Unsupported fields: ${unsupportedFields.join(", ")}` }),
       {
@@ -292,9 +738,137 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  const name = asNonEmptyString(payload.name);
-  const email = asNonEmptyString(payload.email)?.toLowerCase() ?? null;
-  const message = asNonEmptyString(payload.message);
+  if (hasFilledHoneypot(payload)) {
+    await insertRejectedLogBestEffort(supabase, {
+      ip_address: ipAddressBucket,
+      email_hash: null,
+      submission_hash: null,
+      user_agent: userAgent,
+      subject: null,
+      reason: "honeypot_triggered",
+    });
+
+    return new Response(JSON.stringify({ error: "Invalid submission" }), {
+      status: 400,
+      headers: corsHeaders,
+    });
+  }
+
+  const submissionStartedAt = parseSubmissionStartMs(payload.form_started_at ?? payload.started_at);
+  if (submissionStartedAt !== null) {
+    const elapsedMs = Date.now() - submissionStartedAt;
+    if (!Number.isFinite(elapsedMs) || elapsedMs < MIN_HUMAN_SUBMISSION_DELAY_MS) {
+      await insertRejectedLogBestEffort(supabase, {
+        ip_address: ipAddressBucket,
+        email_hash: null,
+        submission_hash: null,
+        user_agent: userAgent,
+        subject: null,
+        reason: "submission_too_fast",
+      });
+
+      return new Response(JSON.stringify({ error: "Submission too fast" }), {
+        status: 400,
+        headers: corsHeaders,
+      });
+    }
+  }
+
+  try {
+    const attemptRateLimit = await enforceAttemptRateLimit(supabase, ipAddressBucket);
+    if (!attemptRateLimit.allowed) {
+      await insertRejectedLogBestEffort(supabase, {
+        ip_address: ipAddressBucket,
+        email_hash: null,
+        submission_hash: null,
+        user_agent: userAgent,
+        subject: null,
+        reason: attemptRateLimit.reason,
+      });
+
+      return new Response(JSON.stringify({ error: attemptRateLimit.error }), {
+        status: 429,
+        headers: corsHeaders,
+      });
+    }
+  } catch (error) {
+    console.error("[contact-submit] ATTEMPT_RATE_LIMIT_ERROR", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    return new Response(JSON.stringify({ error: "Rate limit unavailable" }), {
+      status: 500,
+      headers: corsHeaders,
+    });
+  }
+
+  const captchaToken = extractCaptchaToken(req, payload);
+  if (!captchaToken) {
+    await insertRejectedLogBestEffort(supabase, {
+      ip_address: ipAddressBucket,
+      email_hash: null,
+      submission_hash: null,
+      user_agent: userAgent,
+      subject: null,
+      reason: "captcha_missing",
+    });
+
+    return new Response(JSON.stringify({ error: "Missing captcha token" }), {
+      status: 400,
+      headers: corsHeaders,
+    });
+  }
+
+  const captchaResult = await verifyCaptcha({
+    secret: captchaSecret,
+    token: captchaToken,
+    remoteIp: ipAddress,
+  });
+
+  if (!captchaResult.ok) {
+    await insertRejectedLogBestEffort(supabase, {
+      ip_address: ipAddressBucket,
+      email_hash: null,
+      submission_hash: null,
+      user_agent: userAgent,
+      subject: null,
+      reason: captchaResult.reason,
+    });
+
+    return new Response(JSON.stringify({ error: "Captcha verification failed" }), {
+      status: 403,
+      headers: corsHeaders,
+    });
+  }
+
+  const nameRaw = asNonEmptyString(payload.name);
+  const email = normalizeEmail(payload.email);
+  const subjectRaw = asNonEmptyString(payload.subject) ?? DEFAULT_SUBJECT;
+  const messageRaw = asNonEmptyString(payload.message);
+
+  if (
+    containsHeaderInjectionPattern(nameRaw) ||
+    containsHeaderInjectionPattern(subjectRaw) ||
+    containsHeaderInjectionPattern(email)
+  ) {
+    await insertRejectedLogBestEffort(supabase, {
+      ip_address: ipAddressBucket,
+      email_hash: email ? await sha256Hex(email) : null,
+      submission_hash: null,
+      user_agent: userAgent,
+      subject: subjectRaw ? sanitizeSingleLineField(subjectRaw) : null,
+      reason: "header_injection_pattern",
+    });
+
+    return new Response(JSON.stringify({ error: "Invalid submission content" }), {
+      status: 400,
+      headers: corsHeaders,
+    });
+  }
+
+  const name = nameRaw ? sanitizeSingleLineField(nameRaw) : null;
+  const subject = sanitizeSingleLineField(subjectRaw);
+  const message = messageRaw ? sanitizeMessageField(messageRaw) : null;
 
   if (!name || name.length < MIN_NAME_LENGTH || name.length > MAX_NAME_LENGTH) {
     return new Response(JSON.stringify({
@@ -312,6 +886,15 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  if (subject.length < MIN_SUBJECT_LENGTH || subject.length > MAX_SUBJECT_LENGTH) {
+    return new Response(JSON.stringify({
+      error: `Subject must be between ${MIN_SUBJECT_LENGTH} and ${MAX_SUBJECT_LENGTH} characters`,
+    }), {
+      status: 400,
+      headers: corsHeaders,
+    });
+  }
+
   if (!message || message.length < MIN_MESSAGE_LENGTH || message.length > MAX_MESSAGE_LENGTH) {
     return new Response(JSON.stringify({
       error: `Message must be between ${MIN_MESSAGE_LENGTH} and ${MAX_MESSAGE_LENGTH} characters`,
@@ -321,35 +904,126 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const { error: insertError } = await supabase
-    .from("contact_messages")
-    .insert({
-      user_id: null,
-      name,
-      email,
-      subject: DEFAULT_SUBJECT,
-      category: "support",
-      message,
-      origin_page: "/contact",
+  if (isLikelyPlaceholder(name) || isLikelyPlaceholder(subject) || isLikelyPlaceholder(message)) {
+    await insertRejectedLogBestEffort(supabase, {
+      ip_address: ipAddressBucket,
+      email_hash: await sha256Hex(email),
+      submission_hash: null,
       user_agent: userAgent,
-      ip_address: null,
+      subject,
+      reason: "placeholder_content",
     });
 
-  if (insertError) {
-    console.error("[contact-submit] INSERT_ERROR", { error: insertError.message });
-    return new Response(JSON.stringify({ error: "Unable to submit message" }), {
-      status: 500,
+    return new Response(JSON.stringify({ error: "Invalid message content" }), {
+      status: 400,
       headers: corsHeaders,
     });
   }
 
-  const resendApiKey = asNonEmptyString(Deno.env.get("RESEND_API_KEY"));
-  const contactToEmail = asNonEmptyString(Deno.env.get("CONTACT_TO_EMAIL"));
-  const emailFrom = asNonEmptyString(Deno.env.get("EMAIL_FROM")) || DEFAULT_EMAIL_FROM;
+  const emailHash = await sha256Hex(email);
+  const submissionFingerprintBase = [
+    normalizeForFingerprint(email),
+    normalizeForFingerprint(subject),
+    normalizeForFingerprint(message),
+  ].join("||");
+  const submissionHash = await sha256Hex(submissionFingerprintBase);
 
-  if (resendApiKey && contactToEmail) {
+  try {
+    const rateLimit = await enforceRateLimits(supabase, {
+      ipAddressBucket,
+      emailHash,
+    });
+
+    if (!rateLimit.allowed) {
+      await insertRejectedLogBestEffort(supabase, {
+        ip_address: ipAddressBucket,
+        email_hash: emailHash,
+        submission_hash: submissionHash,
+        user_agent: userAgent,
+        subject,
+        reason: rateLimit.reason,
+      });
+
+      return new Response(JSON.stringify({ error: rateLimit.error }), {
+        status: 429,
+        headers: corsHeaders,
+      });
+    }
+
+    const duplicateDetected = await hasRecentDuplicateSubmission(supabase, submissionHash);
+    if (duplicateDetected) {
+      await insertRejectedLogBestEffort(supabase, {
+        ip_address: ipAddressBucket,
+        email_hash: emailHash,
+        submission_hash: submissionHash,
+        user_agent: userAgent,
+        subject,
+        reason: "duplicate_submission",
+      });
+
+      return new Response(JSON.stringify({ error: "Duplicate submission detected" }), {
+        status: 409,
+        headers: corsHeaders,
+      });
+    }
+
+    const { data: insertedMessage, error: insertError } = await supabase
+      .from("contact_messages")
+      .insert({
+        user_id: null,
+        name,
+        email,
+        subject,
+        category: "support",
+        message,
+        origin_page: "/contact",
+        user_agent: userAgent,
+        ip_address: ipAddress,
+      })
+      .select("id")
+      .single();
+
+    if (insertError || !insertedMessage?.id) {
+      console.error("[contact-submit] INSERT_ERROR", {
+        error: insertError?.message ?? "missing_inserted_message_id",
+      });
+      return new Response(JSON.stringify({ error: "Unable to submit message" }), {
+        status: 500,
+        headers: corsHeaders,
+      });
+    }
+
     try {
-      await sendAdminEmail({
+      await insertContactSubmitLog(supabase, {
+        ip_address: ipAddressBucket,
+        email_hash: emailHash,
+        submission_hash: submissionHash,
+        user_agent: userAgent,
+        subject,
+        status: "accepted",
+        reason: "accepted",
+      });
+    } catch (error) {
+      console.error("[contact-submit] CONTACT_LOG_ACCEPTED_INSERT_FAILED", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    const resendApiKey = asNonEmptyString(Deno.env.get("RESEND_API_KEY"));
+    const contactToEmail = asNonEmptyString(Deno.env.get("CONTACT_TO_EMAIL"));
+    const emailFrom = asNonEmptyString(Deno.env.get("RESEND_FROM_EMAIL")) || DEFAULT_EMAIL_FROM;
+
+    const hasEmailConfigMismatch = (resendApiKey && !contactToEmail) || (!resendApiKey && contactToEmail);
+
+    if (hasEmailConfigMismatch) {
+      console.error("[contact-submit] EMAIL_CONFIG_ERROR", {
+        hasResendApiKey: Boolean(resendApiKey),
+        hasContactToEmail: Boolean(contactToEmail),
+      });
+    }
+
+    if (!hasEmailConfigMismatch && resendApiKey && contactToEmail) {
+      void sendAdminEmail({
         resendApiKey,
         from: emailFrom,
         to: contactToEmail,
@@ -357,21 +1031,30 @@ Deno.serve(async (req: Request) => {
           submitted_at: new Date().toISOString(),
           name,
           email,
+          subject,
           message,
           ip_hash: ipHash,
           user_agent: userAgent,
         },
-      });
-      console.log("[contact-submit] EMAIL_SENT");
-    } catch (error) {
-      console.error("[contact-submit] EMAIL_SEND_ERROR", {
-        error: error instanceof Error ? error.message : String(error),
+      }).catch((error) => {
+        console.error("[contact-submit] EMAIL_SEND_ERROR", {
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
     }
-  }
 
-  return new Response(JSON.stringify({ ok: true }), {
-    status: 200,
-    headers: corsHeaders,
-  });
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: corsHeaders,
+    });
+  } catch (error) {
+    console.error("[contact-submit] SECURITY_CHECK_ERROR", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    return new Response(JSON.stringify({ error: "Rate limit unavailable" }), {
+      status: 500,
+      headers: corsHeaders,
+    });
+  }
 });

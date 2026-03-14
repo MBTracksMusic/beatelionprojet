@@ -33,6 +33,12 @@ export function LoginPage() {
         return;
       }
 
+      if (!result.session) {
+        console.warn('Login completed without session payload, redirect aborted');
+        setError(t('auth.invalidCredentials'));
+        return;
+      }
+
       toast.success(t('auth.loginSuccess'));
       if (from !== '/' && from !== '/login') {
         navigate(from, { replace: true });

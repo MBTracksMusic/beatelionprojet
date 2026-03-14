@@ -1,6 +1,6 @@
 # Beatelion Audio Worker
 
-Worker audio externe pour Render/Docker. Il consomme la queue SQL `audio_processing_jobs`, lit les masters depuis le bucket canonique `beats-masters` avec fallback dev possible vers `beats-audio`, applique le watermark global défini dans `site_audio_settings`, génère des previews MP3 versionnées avec FFmpeg natif, puis les publie dans `beats-watermarked`.
+Worker audio externe pour Render/Docker. Il consomme la queue SQL `audio_processing_jobs`, lit les masters depuis le bucket canonique `beats-masters`, applique le watermark global défini dans `site_audio_settings`, génère des previews MP3 versionnées avec FFmpeg natif, puis les publie dans `beats-watermarked`.
 
 ## Architecture
 
@@ -21,7 +21,6 @@ Obligatoires:
 Compatibles avec le contrat demandé:
 
 - `SUPABASE_AUDIO_BUCKET=beats-masters`
-- `LEGACY_BUCKET=beats-audio`
 - `SUPABASE_WATERMARKED_BUCKET=beats-watermarked`
 - `SUPABASE_WATERMARK_ASSETS_BUCKET=watermark-assets`
 - `WORKER_ID`
@@ -43,7 +42,6 @@ Optionnelles mais utiles:
 Valeurs par défaut:
 
 - `SUPABASE_AUDIO_BUCKET=beats-masters`
-- `LEGACY_BUCKET=beats-audio`
 - `SUPABASE_WATERMARKED_BUCKET=beats-watermarked`
 - `SUPABASE_WATERMARK_ASSETS_BUCKET=watermark-assets`
 - `BATCH_LIMIT=3`
@@ -111,7 +109,6 @@ Variables d'environnement Render:
 SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
 SUPABASE_AUDIO_BUCKET=beats-masters
-LEGACY_BUCKET=beats-audio
 SUPABASE_WATERMARKED_BUCKET=beats-watermarked
 SUPABASE_WATERMARK_ASSETS_BUCKET=watermark-assets
 WORKER_ID=render-audio-worker-1
@@ -132,15 +129,13 @@ Le worker traite les jobs séquentiellement dans un conteneur. Pour scaler:
 
 1. Vérifier qu'un `site_audio_settings` actif existe avec `watermark_audio_path`.
 2. Publier un produit beat avec `master_path` ou `master_url` pointant vers `beats-masters`.
-3. En DEV, si le fichier n'existe pas encore dans `beats-masters` mais existe dans `beats-audio`, le worker loggue `legacy_master_fallback` et continue le traitement.
-4. Vérifier qu'un job `audio_processing_jobs` est en `queued`.
-5. Démarrer le worker.
-6. Vérifier dans les logs:
+3. Vérifier qu'un job `audio_processing_jobs` est en `queued`.
+4. Démarrer le worker.
+5. Vérifier dans les logs:
    - `claimed_jobs`
    - `job_started`
-   - `legacy_master_fallback` si applicable
    - `job_succeeded` ou `job_failed`
-7. Vérifier en base que le produit a:
+6. Vérifier en base que le produit a:
    - `watermarked_path=beats-watermarked/<product_id>/preview_vN.mp3`
    - `preview_url`
    - `preview_signature`

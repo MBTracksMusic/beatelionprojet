@@ -4,7 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, apikey, x-supabase-auth, x-forum-agent-secret",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, apikey, x-forum-agent-secret",
 };
 
 export const jsonHeaders = {
@@ -100,22 +100,40 @@ export function createAdminClient(): SupabaseAdminClient {
   }) as SupabaseAdminClient;
 }
 
-export async function requireUser(req: Request) {
-  const jwt =
-    req.headers.get("x-supabase-auth")?.replace(/^Bearer\s+/i, "").trim() ||
-    req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "").trim() ||
-    "";
+export function createUserClient(authorizationHeader: string) {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
 
-  if (!jwt) {
+  if (!supabaseUrl || !anonKey) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_ANON_KEY");
+  }
+
+  return createClient(supabaseUrl, anonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+    global: {
+      headers: {
+        Authorization: authorizationHeader,
+      },
+    },
+  }) as SupabaseAdminClient;
+}
+
+export async function requireUser(req: Request) {
+  const authorizationHeader = asNonEmptyString(req.headers.get("Authorization"));
+  if (!authorizationHeader) {
     return { error: jsonResponse({ error: "Unauthorized", code: "unauthorized" }, 401) };
   }
 
   try {
     const supabaseAdmin = createAdminClient();
+    const supabaseUser = createUserClient(authorizationHeader);
     const {
       data: { user },
       error: authError,
-    } = await supabaseAdmin.auth.getUser(jwt);
+    } = await supabaseUser.auth.getUser();
 
     if (authError || !user) {
       console.error("[forum-agents] requireUser auth failed", authError);

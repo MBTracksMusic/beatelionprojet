@@ -151,7 +151,7 @@ export const de: TranslationSchema = {
     emailConfirmationSpamHint: 'Keine E-Mail erhalten? Pruefen Sie Ihren Spam-Ordner.',
   },
   home: {
-    heroTitle: 'Der Marktplatz, auf dem Beatmaker gegeneinander antreten',
+    heroTitle: 'Die Plattform für die Kreativität von Beatmakern',
     heroSubtitle: 'Veroffentlichen Sie Ihre Beats, nehmen Sie an Battles teil und entdecken Sie originale Produktionen fur Ihre Musikprojekte.',
     searchPlaceholder: 'Beats, Produzenten, Genres suchen...',
     featuredBeats: 'Ausgewahlte Beats',
@@ -1087,6 +1087,8 @@ export const de: TranslationSchema = {
       submitError: 'Senden derzeit nicht moglich.',
       invalidResponse: 'Ungultige Serverantwort.',
       submitSuccess: 'Nachricht gesendet. Unser Team antwortet Ihnen in Kurze.',
+      captchaRequired: 'Bitte captcha abschliessen, bevor Sie senden.',
+      captchaUnavailable: 'Captcha ist derzeit nicht verfugbar. Bitte erneut versuchen.',
     },
   },
   forum: {

@@ -1,6 +1,8 @@
 import dotenv from "dotenv";
 import http from "node:http";
+import { captureWorkerException, initWorkerSentry } from "./sentry.js";
 dotenv.config();
+initWorkerSentry("audio-worker");
 const log = (level, event, meta = {}) => {
     const payload = {
         level,
@@ -10,6 +12,11 @@ const log = (level, event, meta = {}) => {
     };
     const line = JSON.stringify(payload);
     if (level === "error") {
+        captureWorkerException(meta.error ?? new Error(event), {
+            serviceName: "audio-worker",
+            event,
+            ...meta,
+        });
         console.error(line);
         return;
     }

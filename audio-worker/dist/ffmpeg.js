@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { asFfmpegGainDb, generateWatermarkPositions } from "./watermark.js";
 const MAX_LOG_LINES = 200;
+const MAX_CAPTURE_STDOUT_CHARS = 8_192;
 const keepTail = (lines, chunk) => {
     for (const line of chunk.split(/\r?\n/)) {
         if (!line)
@@ -12,33 +13,80 @@ const keepTail = (lines, chunk) => {
         }
     }
 };
-const runCommand = async (command, args) => {
+const toAbortError = (reason, fallbackMessage) => {
+    if (reason instanceof Error) {
+        return reason;
+    }
+    if (typeof reason === "string" && reason.length > 0) {
+        return new Error(reason);
+    }
+    return new Error(fallbackMessage);
+};
+const runCommand = async (command, args, options = {}) => {
+    const { timeoutMs, signal, captureStdout = false, stdoutMaxChars = MAX_CAPTURE_STDOUT_CHARS, } = options;
+    if (signal?.aborted) {
+        throw toAbortError(signal.reason, `${command} aborted before start`);
+    }
     const child = spawn(command, args, {
         stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
-    let stderr = "";
     const tail = [];
+    let timedOut = false;
+    let aborted = false;
     child.stdout?.setEncoding("utf8");
     child.stderr?.setEncoding("utf8");
     child.stdout?.on("data", (chunk) => {
-        stdout += chunk;
+        if (captureStdout) {
+            stdout += chunk;
+            if (stdout.length > stdoutMaxChars) {
+                stdout = stdout.slice(-stdoutMaxChars);
+            }
+        }
         keepTail(tail, chunk);
     });
     child.stderr?.on("data", (chunk) => {
-        stderr += chunk;
         keepTail(tail, chunk);
     });
-    const [exitCode] = (await Promise.race([
-        once(child, "close"),
-        once(child, "error").then(([error]) => {
-            throw error;
-        }),
-    ]));
-    if (exitCode !== 0) {
-        throw new Error(`${command} exited with code ${exitCode ?? "unknown"}: ${tail.slice(-10).join(" | ")}`);
+    const onAbort = () => {
+        aborted = true;
+        child.kill("SIGKILL");
+    };
+    if (signal) {
+        signal.addEventListener("abort", onAbort, { once: true });
     }
-    return { stdout, stderr, tail };
+    const timeoutHandle = timeoutMs && timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            child.kill("SIGKILL");
+        }, timeoutMs)
+        : null;
+    try {
+        const [exitCode] = (await Promise.race([
+            once(child, "close"),
+            once(child, "error").then(([error]) => {
+                throw error;
+            }),
+        ]));
+        if (timedOut) {
+            throw new Error(`${command} timed out after ${timeoutMs}ms: ${tail.slice(-10).join(" | ")}`);
+        }
+        if (aborted) {
+            throw toAbortError(signal?.reason, `${command} aborted`);
+        }
+        if (exitCode !== 0) {
+            throw new Error(`${command} exited with code ${exitCode ?? "unknown"}: ${tail.slice(-10).join(" | ")}`);
+        }
+    }
+    finally {
+        if (timeoutHandle) {
+            clearTimeout(timeoutHandle);
+        }
+        if (signal) {
+            signal.removeEventListener("abort", onAbort);
+        }
+    }
+    return { stdout, tail };
 };
 const buildFilterComplex = (delayPositionsMs, gainDb, durationSec) => {
     const sourceLabels = delayPositionsMs.map((_, index) => `tagsrc${index}`);
@@ -63,7 +111,13 @@ export const assertFfmpegAvailable = async (ffmpegBin, ffprobeBin) => {
     await runCommand(ffmpegBin, ["-version"]);
     await runCommand(ffprobeBin, ["-version"]);
 };
-export const probeAudioDurationSec = async (ffprobeBin, filePath) => {
+export const probeAudioDurationSec = async (ffprobeBin, filePath, options = {}) => {
+    const commandOptions = {
+        captureStdout: true,
+        stdoutMaxChars: 2_048,
+        ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+        ...(options.signal ? { signal: options.signal } : {}),
+    };
     const { stdout } = await runCommand(ffprobeBin, [
         "-v",
         "error",
@@ -72,7 +126,7 @@ export const probeAudioDurationSec = async (ffprobeBin, filePath) => {
         "-of",
         "default=noprint_wrappers=1:nokey=1",
         filePath,
-    ]);
+    ], commandOptions);
     const duration = Number.parseFloat(stdout.trim());
     if (!Number.isFinite(duration) || duration <= 0) {
         throw new Error(`Invalid audio duration for ${filePath}: ${stdout.trim()}`);
@@ -80,7 +134,10 @@ export const probeAudioDurationSec = async (ffprobeBin, filePath) => {
     return duration;
 };
 export const renderWatermarkedPreview = async (params) => {
-    const durationSec = await probeAudioDurationSec(params.ffprobeBin, params.masterFilePath);
+    const durationSec = await probeAudioDurationSec(params.ffprobeBin, params.masterFilePath, {
+        timeoutMs: params.ffmpegTimeoutMs,
+        ...(params.signal ? { signal: params.signal } : {}),
+    });
     const positionsSec = generateWatermarkPositions(durationSec, params.minIntervalSec, params.maxIntervalSec);
     const positionsMs = positionsSec.map((value) => value * 1000);
     const filterComplex = buildFilterComplex(positionsMs, params.gainDb, durationSec);
@@ -105,7 +162,10 @@ export const renderWatermarkedPreview = async (params) => {
         "-b:a",
         params.audioBitrate,
         params.outputFilePath,
-    ]);
+    ], {
+        timeoutMs: params.ffmpegTimeoutMs,
+        ...(params.signal ? { signal: params.signal } : {}),
+    });
     return {
         durationSec: Number(durationSec.toFixed(3)),
         positionsSec,

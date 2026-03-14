@@ -150,7 +150,7 @@ export const fr = {
     emailConfirmationSpamHint: "Vous n'avez pas recu l'email ? Verifiez votre dossier spam.",
   },
   home: {
-    heroTitle: "La marketplace ou les beatmakers s'affrontent",
+    heroTitle: 'La plateforme dédiée à la créativité des beatmakers',
     heroSubtitle: 'Publiez vos beats, participez aux battles et decouvrez des productions originales pretes a etre utilisees dans vos projets musicaux.',
     searchPlaceholder: 'Rechercher des beats, producteurs, genres...',
     featuredBeats: 'Beats en vedette',
@@ -1086,6 +1086,8 @@ export const fr = {
       submitError: 'Envoi impossible pour le moment.',
       invalidResponse: 'Reponse serveur invalide.',
       submitSuccess: 'Message envoye. Notre equipe vous repondra rapidement.',
+      captchaRequired: 'Validez le captcha avant d envoyer votre message.',
+      captchaUnavailable: 'Captcha indisponible. Reessayez dans quelques instants.',
     },
   },
   forum: {

@@ -6,10 +6,10 @@ import { useAuth } from '../lib/auth/hooks';
 import { useTranslation, type TranslateFn } from '../lib/i18n';
 import { useMyReputation } from '../lib/reputation/hooks';
 import { supabase } from '../lib/supabase/client';
+import { invokeProtectedEdgeFunction } from '../lib/supabase/edgeAuth';
 import type { License, ProductWithRelations, Purchase } from '../lib/supabase/types';
 import { fetchPublicProducerProfilesMap, type PublicProducerProfileRow } from '../lib/supabase/publicProfiles';
 import { GENRE_SAFE_COLUMNS, MOOD_SAFE_COLUMNS, PRODUCT_SAFE_COLUMNS } from '../lib/supabase/selects';
-import { buildAudioStoragePathCandidates, extractStoragePathFromCandidate } from '../lib/utils/storage';
 import { formatDate, formatPrice } from '../lib/utils/format';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
@@ -146,12 +146,6 @@ const roleColors: Record<string, string> = {
   producer: 'bg-orange-600',
   admin: 'bg-rose-600',
 };
-
-const MASTER_BUCKET = import.meta.env.VITE_SUPABASE_MASTER_BUCKET || 'beats-masters';
-const LEGACY_MASTER_BUCKET = import.meta.env.VITE_SUPABASE_AUDIO_BUCKET || 'beats-audio';
-const PREVIEW_BUCKET = import.meta.env.VITE_SUPABASE_WATERMARKED_BUCKET || 'beats-watermarked';
-const MASTER_BUCKET_CANDIDATES = [MASTER_BUCKET, 'beats-masters', LEGACY_MASTER_BUCKET, 'beats-audio']
-  .filter((value, index, source) => Boolean(value) && source.indexOf(value) === index);
 
 export function DashboardPage() {
   const { user, profile } = useAuth();
@@ -516,40 +510,6 @@ export function DashboardPage() {
     }
   };
 
-  const isPreviewPathCandidate = (candidate: string) => {
-    const normalized = candidate.trim().toLowerCase();
-    if (!normalized) return true;
-    if (normalized.includes(`${PREVIEW_BUCKET.toLowerCase()}/`) || normalized.includes('beats-watermarked/')) {
-      return true;
-    }
-    return /(^|[/._-])preview([/._-]|$)/i.test(normalized);
-  };
-
-  const getPurchaseFilePath = (purchase: DashboardPurchase) => {
-    const metadata = purchase.metadata as Record<string, unknown> | null;
-    const metadataPathCandidates = [
-      metadata?.master_path,
-      metadata?.master_url,
-      metadata?.file_path,
-      metadata?.track_path,
-      metadata?.storage_path,
-      metadata?.download_path,
-      purchase.audio_path_snapshot,
-    ];
-
-    for (const candidate of metadataPathCandidates) {
-      if (typeof candidate !== 'string' || candidate.trim().length === 0) {
-        continue;
-      }
-      if (isPreviewPathCandidate(candidate)) {
-        continue;
-      }
-      return candidate;
-    }
-
-    return null;
-  };
-
   const forceFileDownload = async (url: string, fallbackName = 'track.mp3') => {
     const link = document.createElement('a');
     const triggerDirectDownload = () => {
@@ -598,54 +558,6 @@ export function DashboardPage() {
     }
   };
 
-  const handleLegacyDownload = async (rawPath: string) => {
-    const filePath = rawPath.trim();
-    if (!filePath) return;
-
-    if (isPreviewPathCandidate(filePath)) {
-      throw new Error('Preview path cannot be used for purchased download');
-    }
-
-    if (filePath.startsWith('http')) {
-      const isMasterUrl = MASTER_BUCKET_CANDIDATES.some((bucket) =>
-        filePath.includes(`/${bucket}/`) || filePath.includes(`${bucket}%2F`)
-      );
-      if (!isMasterUrl) {
-        throw new Error('Non-master URL blocked in legacy download');
-      }
-      const fallbackName = decodeURIComponent(
-        filePath.split('?')[0].split('/').pop() || 'track.mp3'
-      );
-      await forceFileDownload(filePath, fallbackName);
-      return;
-    }
-
-    let lastError: unknown = null;
-
-    for (const bucket of MASTER_BUCKET_CANDIDATES) {
-      const resolvedPath = extractStoragePathFromCandidate(filePath, bucket) || filePath;
-      if (isPreviewPathCandidate(resolvedPath)) {
-        continue;
-      }
-      const fallbackName = decodeURIComponent(resolvedPath.split('/').pop() || 'track.mp3');
-      const pathCandidates = buildAudioStoragePathCandidates(resolvedPath);
-
-      for (const pathCandidate of pathCandidates) {
-        const publicUrl = supabase.storage.from(bucket).getPublicUrl(pathCandidate).data.publicUrl;
-        if (!publicUrl) continue;
-
-        try {
-          await forceFileDownload(publicUrl, fallbackName);
-          return;
-        } catch (downloadError) {
-          lastError = downloadError;
-        }
-      }
-    }
-
-    throw lastError ?? new Error('Legacy download failed');
-  };
-
   const handleDownload = async (purchase: DashboardPurchase) => {
     const productId = purchase.product_id || purchase.product?.id;
 
@@ -654,20 +566,27 @@ export function DashboardPage() {
       return;
     }
 
-    const { data: masterData, error: masterError } = await supabase.functions.invoke<{
+    let masterData: { url: string } | null = null;
+    try {
+      masterData = await invokeProtectedEdgeFunction<{
       url: string;
-      expires_in: number;
-      bucket?: string;
-      path?: string;
-      code?: string;
-    }>('get-master-url', {
-      body: { product_id: productId },
-    });
+      }>('get-master-url', {
+        body: { product_id: productId },
+      });
+    } catch (masterInvokeError) {
+      console.error('Master download invoke error:', {
+        purchaseId: purchase.id,
+        productId,
+        masterInvokeError,
+      });
+      toast.error(t('dashboard.downloadError'));
+      return;
+    }
 
-    if (!masterError && masterData?.url) {
+    if (masterData?.url) {
       try {
         const fallbackName = decodeURIComponent(
-          (masterData.path || masterData.url).split('?')[0].split('/').pop() || 'track.mp3'
+          masterData.url.split('?')[0].split('/').pop() || 'track.mp3'
         );
         await forceFileDownload(masterData.url, fallbackName);
         toast.success(t('dashboard.downloadStarted'));
@@ -678,48 +597,25 @@ export function DashboardPage() {
       return;
     }
 
-    const legacyPath = getPurchaseFilePath(purchase);
-    if (!legacyPath) {
-      console.error('Download error: missing master and legacy path', {
-        purchaseId: purchase.id,
-        productId,
-        masterError,
-        masterData,
-      });
-      toast.error(t('dashboard.downloadError'));
-      return;
-    }
-
-    try {
-      await handleLegacyDownload(legacyPath);
-      toast.success(t('dashboard.downloadStarted'));
-    } catch (legacyError) {
-      console.error('Legacy download error:', {
-        purchaseId: purchase.id,
-        productId,
-        masterError,
-        masterData,
-        legacyError,
-      });
-      toast.error(t('dashboard.downloadError'));
-    }
+    console.error('Master download payload missing URL:', {
+      purchaseId: purchase.id,
+      productId,
+      masterData,
+    });
+    toast.error(t('dashboard.downloadError'));
   };
 
   const handleLicenseDownload = async (purchase: DashboardPurchase) => {
     setLicenseDownloadingPurchaseId(purchase.id);
 
     try {
-      const { data: contractData, error: contractError } = await supabase.functions.invoke<{
+      const contractData = await invokeProtectedEdgeFunction<{
         url: string;
         expires_in: number;
         path?: string;
       }>('get-contract-url', {
         body: { purchase_id: purchase.id },
       });
-
-      if (contractError) {
-        throw contractError;
-      }
 
       if (contractData?.url) {
         window.open(contractData.url, '_blank');

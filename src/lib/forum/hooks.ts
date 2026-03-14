@@ -118,24 +118,16 @@ const invokeForumFunction = async <T,>(
   fallbackMessage: string,
   sessionExpiredMessage: string,
 ): Promise<T> => {
-  const { data: sessionData, error: refreshError } = await supabase.auth.refreshSession();
-  const accessToken = sessionData.session?.access_token;
-
-  if (refreshError || !accessToken) {
-    throw new Error(refreshError?.message || sessionExpiredMessage);
-  }
-
   const { data, error } = await supabase.functions.invoke<T>(functionName, {
     body,
-    headers: {
-      apikey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
-      Authorization: `Bearer ${accessToken}`,
-      'x-supabase-auth': `Bearer ${accessToken}`,
-    },
   });
 
   if (error) {
-    throw await readFunctionError(error, fallbackMessage);
+    const parsedError = await readFunctionError(error, fallbackMessage);
+    if (parsedError.status === 401) {
+      throw new Error(sessionExpiredMessage);
+    }
+    throw parsedError;
   }
 
   return data as T;

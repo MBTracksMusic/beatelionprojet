@@ -1,10 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+const BASE_CORS_HEADERS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, x-supabase-auth",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
 interface CheckoutRequest {
@@ -86,6 +86,59 @@ const resolveAllowedRedirectOrigins = () => {
 };
 
 const ALLOWED_REDIRECT_ORIGINS = resolveAllowedRedirectOrigins();
+
+const DEFAULT_ALLOWED_CORS_ORIGINS = [
+  "https://beatelion.com",
+  "https://www.beatelion.com",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://dev.beatelion.local:5173",
+];
+
+const resolveAllowedCorsOrigins = () => {
+  const allowed = new Set<string>(DEFAULT_ALLOWED_CORS_ORIGINS);
+
+  const csvAllowlist = asNonEmptyString(Deno.env.get("CORS_ALLOWED_ORIGINS"));
+  if (csvAllowlist) {
+    for (const token of csvAllowlist.split(",")) {
+      const origin = normalizeOrigin(token.trim());
+      if (origin) allowed.add(origin);
+    }
+  }
+
+  for (const origin of ALLOWED_REDIRECT_ORIGINS) {
+    allowed.add(origin);
+  }
+
+  for (const envValue of [
+    Deno.env.get("APP_URL"),
+    Deno.env.get("SITE_URL"),
+    Deno.env.get("PUBLIC_SITE_URL"),
+    Deno.env.get("VITE_APP_URL"),
+  ]) {
+    const normalized = envValue ? normalizeOrigin(envValue) : null;
+    if (normalized) allowed.add(normalized);
+  }
+
+  return allowed;
+};
+
+const ALLOWED_CORS_ORIGINS = resolveAllowedCorsOrigins();
+const DEFAULT_CORS_ORIGIN = DEFAULT_ALLOWED_CORS_ORIGINS[0];
+
+const resolveRequestOrigin = (req: Request) => {
+  const rawOrigin = req.headers.get("origin");
+  if (!rawOrigin) return null;
+  const normalized = normalizeOrigin(rawOrigin);
+  if (!normalized) return null;
+  return ALLOWED_CORS_ORIGINS.has(normalized) ? normalized : null;
+};
+
+const buildCorsHeaders = (origin: string | null) => ({
+  ...BASE_CORS_HEADERS,
+  "Access-Control-Allow-Origin": origin ?? DEFAULT_CORS_ORIGIN,
+  "Vary": "Origin",
+});
 
 if (isProduction() && ALLOWED_REDIRECT_ORIGINS.size === 0) {
   throw new Error("Missing checkout redirect allowlist configuration");
@@ -203,7 +256,18 @@ async function resolveCheckoutLicense(
   return (data as LicenseRow | null) ?? null;
 }
 
-Deno.serve(async (req: Request) => {
+serveWithErrorHandling("create-checkout", async (req: Request) => {
+  const requestOriginHeader = req.headers.get("origin");
+  const requestOrigin = resolveRequestOrigin(req);
+  const corsHeaders = buildCorsHeaders(requestOrigin);
+
+  if (requestOriginHeader && !requestOrigin) {
+    return new Response(JSON.stringify({ error: "Origin not allowed" }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -217,24 +281,37 @@ Deno.serve(async (req: Request) => {
 
   try {
     const authorizationHeader = req.headers.get("Authorization");
-    const relayAuthHeader = req.headers.get("x-supabase-auth");
-    const rawJwtHeader = relayAuthHeader || authorizationHeader;
-    const jwt = rawJwtHeader?.replace(/^Bearer\s+/i, "").trim();
-
-    if (!jwt) {
+    if (!authorizationHeader) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL") || "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+
+    if (!supabaseUrl || !supabaseServiceRoleKey || !supabaseAnonKey) {
+      console.error("[create-checkout] Missing Supabase env vars");
+      return new Response(JSON.stringify({ error: "Server not configured" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const supabaseUser = createClient(
+      supabaseUrl,
+      supabaseAnonKey,
       {
         auth: {
           persistSession: false,
           autoRefreshToken: false,
+        },
+        global: {
+          headers: {
+            Authorization: authorizationHeader,
+          },
         },
       },
     );
@@ -242,7 +319,8 @@ Deno.serve(async (req: Request) => {
     const {
       data: { user },
       error: authError,
-    } = await supabaseAdmin.auth.getUser(jwt);
+    } = await supabaseUser.auth.getUser();
+
     if (!user || authError) {
       console.error("JWT verification failed", authError);
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -250,6 +328,17 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    const supabaseAdmin = createClient(
+      supabaseUrl,
+      supabaseServiceRoleKey,
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+      },
+    );
 
     const body: CheckoutRequest = await req.json();
     const {

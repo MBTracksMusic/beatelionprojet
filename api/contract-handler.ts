@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import PDFDocument from "pdfkit";
+import { timingSafeEqual } from "node:crypto";
+import { captureApiException, initApiSentry } from "./_shared/sentry";
 
 const CONTRACT_BUCKET = "contracts";
 const SIGNED_URL_DEFAULT_SECONDS = 60;
@@ -10,6 +12,8 @@ const CONTRACT_SERVICE_SECRET = process.env.CONTRACT_SERVICE_SECRET?.trim();
 if (!CONTRACT_SERVICE_SECRET) {
   throw new Error("Missing CONTRACT_SERVICE_SECRET environment variable");
 }
+
+initApiSentry("api-contract-handler");
 
 interface ApiRequest {
   method?: string;
@@ -395,7 +399,14 @@ const isAuthorized = (
   if (!token) return false;
 
   const bearerToken = asNonEmptyString(token.replace(/^Bearer\s+/i, ""));
-  return token === CONTRACT_SERVICE_SECRET || bearerToken === CONTRACT_SERVICE_SECRET;
+  const safeEquals = (candidate: string): boolean => {
+    const left = Buffer.from(candidate);
+    const right = Buffer.from(CONTRACT_SERVICE_SECRET);
+    if (left.length !== right.length) return false;
+    return timingSafeEqual(left, right);
+  };
+
+  return safeEquals(token) || (bearerToken ? safeEquals(bearerToken) : false);
 };
 
 const readQueryParam = (query: Record<string, unknown> | undefined, key: string): string | null => {
@@ -565,9 +576,7 @@ async function handler(req: ApiRequest, res: ApiResponse) {
 
       const signedUrl = await getContractSignedUrl(supabase, normalizedPath, signedUrlExpiresIn);
       return res.status(200).json({
-        downloadUrl: signedUrl,
-        expiresIn: signedUrlExpiresIn,
-        contractPath: normalizedPath,
+        url: signedUrl,
       });
     }
 
@@ -601,11 +610,7 @@ async function handler(req: ApiRequest, res: ApiResponse) {
       if (seed.declaredStoragePath && await storageObjectExists(supabase, seed.declaredStoragePath)) {
         const signedUrl = await getContractSignedUrl(supabase, seed.declaredStoragePath, signedUrlExpiresIn);
         return res.status(200).json({
-          message: "Contrat déjà généré",
-          purchaseId: purchaseIdFromWebhook,
-          contractPath: seed.declaredStoragePath,
-          downloadUrl: signedUrl,
-          expiresIn: signedUrlExpiresIn,
+          url: signedUrl,
         });
       }
 
@@ -640,11 +645,7 @@ async function handler(req: ApiRequest, res: ApiResponse) {
 
       const signedUrl = await getContractSignedUrl(supabase, storagePath, signedUrlExpiresIn);
       return res.status(200).json({
-        message: "Contrat généré",
-        purchaseId: purchaseIdFromWebhook,
-        contractPath: storagePath,
-        downloadUrl: signedUrl,
-        expiresIn: signedUrlExpiresIn,
+        url: signedUrl,
       });
     }
 
@@ -689,12 +690,14 @@ async function handler(req: ApiRequest, res: ApiResponse) {
     const signedUrl = await getContractSignedUrl(supabase, storagePath, payload.signedUrlExpiresIn);
 
     return res.status(200).json({
-      message: "Contrat généré",
-      contractPath: storagePath,
-      downloadUrl: signedUrl,
-      expiresIn: payload.signedUrlExpiresIn,
+      url: signedUrl,
     });
   } catch (error) {
+    captureApiException(error, {
+      serviceName: "api-contract-handler",
+      method,
+      route: "/api/generate-contract",
+    });
     console.error("[api/contracts] Unexpected error", error);
     return res.status(500).json({ error: "Erreur interne" });
   }

@@ -151,7 +151,7 @@ export const en: TranslationSchema = {
     emailConfirmationSpamHint: "Didn't receive the email? Check your spam folder.",
   },
   home: {
-    heroTitle: 'The marketplace where beatmakers compete',
+    heroTitle: 'The platform dedicated to beatmaker creativity',
     heroSubtitle: 'Publish your beats, join battles, and discover original productions ready to be used in your music projects.',
     searchPlaceholder: 'Search beats, producers, genres...',
     featuredBeats: 'Featured beats',
@@ -1087,6 +1087,8 @@ export const en: TranslationSchema = {
       submitError: 'Unable to send right now.',
       invalidResponse: 'Invalid server response.',
       submitSuccess: 'Message sent. Our team will reply shortly.',
+      captchaRequired: 'Complete the captcha before sending your message.',
+      captchaUnavailable: 'Captcha is unavailable right now. Please try again shortly.',
     },
   },
   forum: {

@@ -25,7 +25,7 @@ if (isServiceRole(supabaseAnonKey)) {
 // Use a dedicated storage key to avoid multiple GoTrueClient instances sharing the same storage bucket
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storageKey: 'sb-levelupmusic-auth',
+    storageKey: 'sb-beatelion-auth',
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,

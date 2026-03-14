@@ -40,7 +40,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setInitialized: (isInitialized) => set({ isInitialized }),
 
   fetchProfile: async () => {
-    const { user } = get();
+    const { user, session } = get();
     if (!user) {
       profileFetchUserId = null;
       profileFetchInFlight = null;
@@ -48,6 +48,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       syncI18nLanguage();
       return;
     }
+
+    const profileUserId = user.id;
+    const profileSessionUserId = session?.user?.id ?? null;
+    const isAuthSnapshotCurrent = () => {
+      const currentState = useAuthStore.getState();
+      const currentUserId = currentState.user?.id ?? null;
+      const currentSessionUserId = currentState.session?.user?.id ?? null;
+
+      if (currentUserId !== profileUserId) {
+        return false;
+      }
+
+      if (profileSessionUserId && currentSessionUserId !== profileSessionUserId) {
+        return false;
+      }
+
+      if (currentSessionUserId && currentSessionUserId !== profileUserId) {
+        return false;
+      }
+
+      return true;
+    };
 
     if (profileFetchInFlight && profileFetchUserId === user.id) {
       await profileFetchInFlight;
@@ -67,22 +89,39 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       if (!data) {
-        set({ profile: null });
+        if (isAuthSnapshotCurrent()) {
+          set({ profile: null });
+        }
         syncI18nLanguage();
         return;
       }
 
       const row = data as Record<string, unknown>;
       const resolvedLanguage = resolveInitialLanguage(row.language);
-      const isDeletedAccount = row.is_deleted === true || typeof row.deleted_at === 'string';
+      const hasDeletedFlag = row.is_deleted === true;
+      const hasDeletedTimestamp = typeof row.deleted_at === 'string';
 
-      if (isDeletedAccount) {
+      if (!hasDeletedFlag && hasDeletedTimestamp) {
+        console.warn('Unexpected deleted_at without is_deleted flag in my_user_profile', {
+          userId: profileUserId,
+          deleted_at: row.deleted_at,
+        });
+      }
+
+      if (hasDeletedFlag) {
+        if (!isAuthSnapshotCurrent()) {
+          return;
+        }
         const { error: signOutError } = await supabase.auth.signOut();
         if (signOutError) {
           console.error('Error signing out deleted account:', signOutError);
         }
         set({ user: null, session: null, profile: null });
         syncI18nLanguage();
+        return;
+      }
+
+      if (!isAuthSnapshotCurrent()) {
         return;
       }
 
@@ -143,7 +182,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         profileFetchInFlight = null;
       }
 
-      if (profileFetchUserId === user.id) {
+      if (profileFetchUserId === profileUserId) {
         profileFetchUserId = null;
       }
     }
@@ -166,7 +205,7 @@ export function initializeAuth() {
   let isDisposed = false;
   const { setUser, setSession, setLoading, setInitialized, fetchProfile } = useAuthStore.getState();
 
-  supabase.auth.getSession().then(({ data: { session } }) => {
+  supabase.auth.getSession().then(async ({ data: { session } }) => {
     if (isDisposed || activeAuthInitId !== initId) {
       return;
     }
@@ -179,10 +218,23 @@ export function initializeAuth() {
     setSession(session);
     setUser(session?.user ?? null);
     if (session?.user && (!isSameSession || !currentState.profile || profileFetchInFlight)) {
-      void fetchProfile();
+      await fetchProfile();
     } else {
       syncI18nLanguage();
     }
+
+    if (isDisposed || activeAuthInitId !== initId) {
+      return;
+    }
+
+    setLoading(false);
+    setInitialized(true);
+  }).catch((error) => {
+    console.error('Error restoring auth session:', error);
+    if (isDisposed || activeAuthInitId !== initId) {
+      return;
+    }
+    syncI18nLanguage();
     setLoading(false);
     setInitialized(true);
   });

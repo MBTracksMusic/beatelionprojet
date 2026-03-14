@@ -33,6 +33,14 @@ export function ProtectedRoute({
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  if ((requireAdmin || requireProducer) && !profile) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <LogoLoader label="Loading profile..." />
+      </div>
+    );
+  }
+
   if (requireAdmin && profile?.role !== 'admin') {
     return <Navigate to="/" replace />;
   }

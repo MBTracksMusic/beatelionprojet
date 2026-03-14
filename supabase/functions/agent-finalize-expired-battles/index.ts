@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,7 +33,7 @@ function logError(event: string, details: Record<string, unknown> = {}) {
   }));
 }
 
-Deno.serve(async (req: Request) => {
+serveWithErrorHandling("agent-finalize-expired-battles", async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }

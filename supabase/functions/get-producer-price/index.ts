@@ -1,9 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, x-supabase-auth",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
 function jsonResponse(payload: unknown, status = 200) {
@@ -28,7 +29,7 @@ type StripePriceResponse = {
   };
 };
 
-Deno.serve(async (req: Request) => {
+serveWithErrorHandling("get-producer-price", async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }

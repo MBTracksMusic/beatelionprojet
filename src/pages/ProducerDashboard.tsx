@@ -4,6 +4,7 @@ import { Music, BarChart3, ShoppingBag, UploadCloud, Trash2 } from 'lucide-react
 import { useTranslation, type TranslateFn } from '../lib/i18n';
 import { useAuth } from '../lib/auth/hooks';
 import { supabase } from '../lib/supabase/client';
+import { invokeProtectedEdgeFunction } from '../lib/supabase/edgeAuth';
 import { PRODUCT_SAFE_COLUMNS } from '../lib/supabase/selects';
 import type { Database, Product, ProducerTier } from '../lib/supabase/types';
 import { formatDate, formatPrice } from '../lib/utils/format';
@@ -458,53 +459,20 @@ export function ProducerDashboardPage() {
     setIsPortalLoading(true);
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token;
-
-      if (!accessToken) {
-        throw new Error(t('producerDashboard.sessionExpired'));
-      }
-
       const returnUrl = `${window.location.origin}/producer`;
-      const { data, error } = await supabase.functions.invoke<{ url?: string; error?: string }>(
+      const data = await invokeProtectedEdgeFunction<{ url?: string; error?: string }>(
         'create-portal-session',
         {
           body: { returnUrl },
-          headers: {
-            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
-            Authorization: `Bearer ${accessToken}`,
-            'x-supabase-auth': `Bearer ${accessToken}`,
-          },
         }
       );
 
-      if (error) {
-        const apiError = (data as { error?: string } | null)?.error;
-        let contextError: string | null = null;
-        const context = (error as { context?: unknown })?.context;
-        if (context instanceof Response) {
-          try {
-            const payload = await context.clone().json() as { error?: string; message?: string };
-            contextError = payload.error || payload.message || null;
-          } catch {
-            try {
-              const rawText = await context.clone().text();
-              contextError = rawText || null;
-            } catch {
-              contextError = null;
-            }
-          }
-        }
-
-        const rawError = apiError || contextError || error.message || t('producerDashboard.portalOpenError');
-        if (rawError.includes('no_stripe_customer')) {
-          setPortalError(t('producerDashboard.noLinkedSubscription'));
-          return;
-        }
-        throw new Error(rawError);
+      if (data?.error?.includes('no_stripe_customer')) {
+        setPortalError(t('producerDashboard.noLinkedSubscription'));
+        return;
       }
 
-      const portalUrl = (data as { url?: string } | null)?.url;
+      const portalUrl = data?.url;
       if (!portalUrl) {
         throw new Error(t('producerDashboard.portalUrlMissing'));
       }
@@ -513,6 +481,10 @@ export function ProducerDashboardPage() {
     } catch (error) {
       console.error('Error opening Stripe billing portal', error);
       const rawMessage = error instanceof Error ? error.message : '';
+      if (rawMessage.includes('no_stripe_customer')) {
+        setPortalError(t('producerDashboard.noLinkedSubscription'));
+        return;
+      }
       const isFunctionNetworkError = rawMessage.includes('Failed to send a request to the Edge Function');
       setPortalError(
         isFunctionNetworkError

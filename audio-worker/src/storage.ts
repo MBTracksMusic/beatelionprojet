@@ -24,7 +24,6 @@ const buildKnownBuckets = (config: WorkerConfig) =>
     "beats-watermarked",
     config.watermarkAssetsBucket,
     "watermark-assets",
-    "beats-audio",
   ].filter((value, index, values) => Boolean(value) && values.indexOf(value) === index);
 
 export const parseStorageReference = (
@@ -105,7 +104,6 @@ export const resolveMasterReference = (
 export interface ResolvedMasterSource {
   canonicalRef: StorageObjectRef;
   downloadRef: StorageObjectRef;
-  usedLegacyFallback: boolean;
 }
 
 export const resolveMasterDownloadSource = async (
@@ -119,28 +117,13 @@ export const resolveMasterDownloadSource = async (
   }
 
   const canonicalExists = await objectExists(supabase, canonicalRef);
-  if (canonicalExists) {
-    return {
-      canonicalRef,
-      downloadRef: canonicalRef,
-      usedLegacyFallback: false,
-    };
-  }
-
-  const legacyRef: StorageObjectRef = {
-    bucket: config.legacyMasterBucket,
-    path: canonicalRef.path,
-  };
-
-  const legacyExists = await objectExists(supabase, legacyRef);
-  if (!legacyExists) {
+  if (!canonicalExists) {
     throw new Error(`master_not_found_in_storage:${storageRefToString(canonicalRef)}`);
   }
 
   return {
     canonicalRef,
-    downloadRef: legacyRef,
-    usedLegacyFallback: true,
+    downloadRef: canonicalRef,
   };
 };
 

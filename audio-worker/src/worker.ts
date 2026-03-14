@@ -19,6 +19,7 @@ import {
   storageRefToString,
   uploadPreviewFile,
 } from "./storage.js";
+import { captureWorkerException } from "./sentry.js";
 import type {
   AudioProcessingJobRow,
   SiteAudioSettingsRow,
@@ -41,6 +42,11 @@ const log = (level: "info" | "warn" | "error", event: string, meta: Record<strin
   const line = JSON.stringify(payload);
 
   if (level === "error") {
+    captureWorkerException(meta.error ?? new Error(event), {
+      serviceName: "audio-worker",
+      event,
+      ...meta,
+    });
     console.error(line);
     return;
   }
@@ -338,13 +344,6 @@ export class AudioWorkerService {
     const masterRef = masterSource.canonicalRef;
     const downloadMasterRef = masterSource.downloadRef;
     throwIfAborted(signal);
-
-    if (masterSource.usedLegacyFallback) {
-      log("info", "legacy_master_fallback", {
-        productId: product.id,
-        path: downloadMasterRef.path,
-      });
-    }
 
     const nextVersion = Math.max(product.preview_version ?? 1, 1);
     const currentVersion = Math.max(product.preview_version ?? 1, 1);

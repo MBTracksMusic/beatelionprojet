@@ -1,10 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, x-supabase-auth",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
 interface EvaluateBattleRequest {
@@ -105,7 +106,7 @@ function evaluateBattleRuleBased(battle: BattleSnapshot) {
   };
 }
 
-Deno.serve(async (req: Request) => {
+serveWithErrorHandling("ai-evaluate-battle", async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -116,14 +117,14 @@ Deno.serve(async (req: Request) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
 
-  if (!supabaseUrl || !serviceRoleKey) {
+  if (!supabaseUrl || !serviceRoleKey || !anonKey) {
     return jsonResponse({ error: "Server not configured" }, 500);
   }
 
-  const authorizationHeader = req.headers.get("Authorization") || req.headers.get("x-supabase-auth");
-  const jwt = authorizationHeader?.replace(/^Bearer\s+/i, "").trim();
-  if (!jwt) {
+  const authorizationHeader = req.headers.get("Authorization");
+  if (!authorizationHeader) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
@@ -131,10 +132,19 @@ Deno.serve(async (req: Request) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  const supabaseUser = createClient(supabaseUrl, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      headers: {
+        Authorization: authorizationHeader,
+      },
+    },
+  });
+
   const {
     data: { user },
     error: authError,
-  } = await supabase.auth.getUser(jwt);
+  } = await supabaseUser.auth.getUser();
 
   if (authError || !user) {
     return jsonResponse({ error: "Unauthorized" }, 401);

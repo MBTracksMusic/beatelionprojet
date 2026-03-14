@@ -4,7 +4,6 @@ export interface WorkerConfig {
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
   masterBucket: string;
-  legacyMasterBucket: string;
   watermarkedBucket: string;
   watermarkAssetsBucket: string;
   workerId: string;

@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 interface PortalRequestBody {
   returnUrl?: string;
@@ -8,7 +9,7 @@ interface PortalRequestBody {
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, apikey, x-supabase-auth",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, apikey",
 };
 
 const jsonResponse = (payload: unknown, status = 200) =>
@@ -23,21 +24,86 @@ const asNonEmptyString = (value: unknown): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
-const normalizeUrl = (value: string | null): string | null => {
+const DEFAULT_ALLOWED_REDIRECT_ORIGINS = [
+  "https://beatelion.com",
+  "https://www.beatelion.com",
+  "http://localhost:5173",
+];
+
+const normalizeOrigin = (value: string): string | null => {
   if (!value) return null;
   try {
-    return new URL(value).toString();
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+};
+
+const resolveAllowedRedirectOrigins = () => {
+  const allowed = new Set<string>(DEFAULT_ALLOWED_REDIRECT_ORIGINS);
+
+  for (const csvAllowlist of [
+    Deno.env.get("PORTAL_REDIRECT_ALLOWLIST"),
+    Deno.env.get("CHECKOUT_REDIRECT_ALLOWLIST"),
+  ]) {
+    if (typeof csvAllowlist !== "string" || csvAllowlist.trim().length === 0) continue;
+
+    for (const token of csvAllowlist.split(",")) {
+      const normalized = normalizeOrigin(token.trim());
+      if (normalized) {
+        allowed.add(normalized);
+      }
+    }
+  }
+
+  for (const envValue of [
+    Deno.env.get("APP_URL"),
+    Deno.env.get("SITE_URL"),
+    Deno.env.get("PUBLIC_SITE_URL"),
+    Deno.env.get("VITE_APP_URL"),
+  ]) {
+    if (typeof envValue !== "string") continue;
+    const normalized = normalizeOrigin(envValue.trim());
+    if (normalized) {
+      allowed.add(normalized);
+    }
+  }
+
+  return allowed;
+};
+
+const ALLOWED_REDIRECT_ORIGINS = resolveAllowedRedirectOrigins();
+
+const validateRedirectUrl = (value: string | null): string | null => {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    if (!["https:", "http:"].includes(parsed.protocol)) {
+      return null;
+    }
+    if (!ALLOWED_REDIRECT_ORIGINS.has(parsed.origin)) {
+      return null;
+    }
+    return parsed.toString();
   } catch {
     return null;
   }
 };
 
 const getDefaultReturnUrl = (req: Request): string | null => {
-  const appUrl = asNonEmptyString(Deno.env.get("APP_URL"));
-  const siteUrl = asNonEmptyString(Deno.env.get("SITE_URL"));
-  const origin = asNonEmptyString(req.headers.get("origin"));
+  for (const candidate of [
+    asNonEmptyString(Deno.env.get("APP_URL")),
+    asNonEmptyString(Deno.env.get("SITE_URL")),
+    asNonEmptyString(req.headers.get("origin")),
+    DEFAULT_ALLOWED_REDIRECT_ORIGINS[0],
+  ]) {
+    const validated = validateRedirectUrl(candidate);
+    if (validated) {
+      return validated;
+    }
+  }
 
-  return normalizeUrl(appUrl) || normalizeUrl(siteUrl) || normalizeUrl(origin);
+  return null;
 };
 
 const truncateUserId = (userId: string) => {
@@ -45,7 +111,7 @@ const truncateUserId = (userId: string) => {
   return `${userId.slice(0, 8)}...`;
 };
 
-Deno.serve(async (req: Request) => {
+serveWithErrorHandling("create-portal-session", async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -57,26 +123,53 @@ Deno.serve(async (req: Request) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const stripeSecret = Deno.env.get("STRIPE_SECRET_KEY");
 
-    if (!supabaseUrl || !supabaseServiceRoleKey || !stripeSecret) {
+    if (!supabaseUrl || !supabaseServiceRoleKey || !supabaseAnonKey || !stripeSecret) {
       console.error("ENV_ERROR", {
         function: "create-portal-session",
         hasSupabaseUrl: Boolean(supabaseUrl),
         hasSupabaseServiceRoleKey: Boolean(supabaseServiceRoleKey),
+        hasSupabaseAnonKey: Boolean(supabaseAnonKey),
         hasStripeSecretKey: Boolean(stripeSecret),
       });
       return jsonResponse({ error: "Server not configured" }, 500);
     }
 
-    const authHeader =
-      req.headers.get("x-supabase-auth") ||
-      req.headers.get("Authorization") ||
-      "";
-    const jwt = authHeader.replace(/^Bearer\s+/i, "").trim();
-
-    if (!jwt) {
+    const authorizationHeader = req.headers.get("Authorization");
+    if (!authorizationHeader) {
       return jsonResponse({ error: "Unauthorized" }, 401);
+    }
+
+    const supabaseUser = createClient(
+      supabaseUrl,
+      supabaseAnonKey,
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+        global: {
+          headers: {
+            Authorization: authorizationHeader,
+          },
+        },
+      },
+    );
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabaseUser.auth.getUser();
+
+    if (!user || authError) {
+      console.error("AUTH_ERROR", {
+        function: "create-portal-session",
+        hasAuthorizationHeader: Boolean(authorizationHeader),
+        message: authError?.message ?? null,
+      });
+      return jsonResponse({ error: authError?.message || "Unauthorized" }, 401);
     }
 
     const supabaseAdmin = createClient(
@@ -89,15 +182,6 @@ Deno.serve(async (req: Request) => {
         },
       },
     );
-
-    const {
-      data: { user },
-      error: authError,
-    } = await supabaseAdmin.auth.getUser(jwt);
-
-    if (!user || authError) {
-      return jsonResponse({ error: authError?.message || "Unauthorized" }, 401);
-    }
 
     let body: PortalRequestBody = {};
     try {
@@ -116,7 +200,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const requestedReturnUrl = asNonEmptyString(body.returnUrl);
-    const returnUrl = requestedReturnUrl ? normalizeUrl(requestedReturnUrl) : fallbackReturnUrl;
+    const returnUrl = requestedReturnUrl ? validateRedirectUrl(requestedReturnUrl) : fallbackReturnUrl;
 
     if (!returnUrl) {
       return jsonResponse({ error: "invalid_return_url" }, 400);

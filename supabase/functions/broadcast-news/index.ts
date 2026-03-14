@@ -1,17 +1,19 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { Resend } from "npm:resend";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, apikey, x-supabase-auth",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, apikey",
   "Content-Type": "application/json",
 };
 
 const MAX_RECIPIENTS_PER_RUN = 500;
 const DEFAULT_RATE_LIMIT_SECONDS = 15 * 60;
-const DEFAULT_EMAIL_FROM = "onboarding@resend.dev";
+const DEFAULT_EMAIL_FROM = "BeatElion <noreply@beatelion.com>";
+const DEFAULT_SOCIAL_REPLY_TO = "social@beatelion.com";
 const BROADCAST_CATEGORY = "news_broadcast";
 const BROADCAST_RECIPIENT_SCOPE = "ALL_SUBSCRIBERS";
 
@@ -21,6 +23,24 @@ const asNonEmptyString = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+};
+
+const escapeHtml = (value: string) =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+
+const isValidHttpUrl = (value: string | null) => {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
 };
 
 const toLowercaseEmail = (value: unknown) => {
@@ -146,6 +166,7 @@ async function sendBroadcastEmail(
   resend: Resend,
   params: {
     from: string;
+    replyTo: string;
     recipient: string;
     news: {
       title: string;
@@ -156,29 +177,62 @@ async function sendBroadcastEmail(
     appUrl: string;
   },
 ) {
-  const { from, recipient, news, appUrl } = params;
+  const { from, replyTo, recipient, news, appUrl } = params;
   const safeTitle = news.title;
   const safeDescription = news.description ?? "Nouvelle annonce vidéo disponible.";
-  const homeUrl = `${appUrl.replace(/\/$/, "")}/`;
+  const safeAppUrl = appUrl.replace(/\/$/, "");
+  const homeUrl = `${safeAppUrl}/`;
+  const logoUrl = `${safeAppUrl}/beatelion-logo.png`;
+  const safeVideoUrl = isValidHttpUrl(news.videoUrl) ? news.videoUrl : homeUrl;
+  const safeThumbnailUrl = isValidHttpUrl(news.thumbnailUrl) ? news.thumbnailUrl : null;
+  const safeTitleHtml = escapeHtml(safeTitle);
+  const safeDescriptionHtml = escapeHtml(safeDescription);
 
   return await resend.emails.send({
     from,
+    replyTo,
     to: recipient,
     subject: `Nouvelle annonce vidéo: ${safeTitle}`,
-    text: `${safeTitle}\n\n${safeDescription}\n\nVoir la vidéo: ${news.videoUrl}\nAccueil: ${homeUrl}`,
+    text: [
+      "BeatElion",
+      "",
+      safeTitle,
+      "",
+      safeDescription,
+      "",
+      `Voir la vidéo: ${safeVideoUrl}`,
+      `Accueil: ${homeUrl}`,
+    ].join("\n"),
     html: `
-      <div lang="fr" style="font-family:Arial,sans-serif;max-width:620px;margin:auto;padding:24px;color:#111">
-        <h1 style="margin:0 0 10px;font-size:22px;">${safeTitle}</h1>
-        <p style="margin:0 0 14px;line-height:1.5;color:#333;">${safeDescription}</p>
-        ${news.thumbnailUrl ? `<img src="${news.thumbnailUrl}" alt="${safeTitle}" style="max-width:100%;border-radius:8px;margin:0 0 14px;" />` : ""}
-        <p style="margin:0 0 10px;"><a href="${news.videoUrl}" target="_blank" rel="noopener noreferrer">Voir la vidéo</a></p>
-        <p style="margin:0;"><a href="${homeUrl}" target="_blank" rel="noopener noreferrer">Ouvrir l'accueil Beatelion</a></p>
+      <div lang="fr" style="margin:0;padding:20px 12px;background:#f4f4f5;">
+        <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #e4e4e7;border-radius:12px;overflow:hidden;">
+          <div style="padding:20px 24px 8px;background:#111827;text-align:center;">
+            <a href="${escapeHtml(homeUrl)}" style="display:inline-block;text-decoration:none;">
+              <img
+                src="${escapeHtml(logoUrl)}"
+                alt="BeatElion logo"
+                width="164"
+                style="display:block;border:0;outline:none;text-decoration:none;width:164px;max-width:100%;height:auto;margin:0 auto;"
+              />
+            </a>
+          </div>
+          <div style="padding:24px;color:#111827;">
+            <h1 style="margin:0 0 12px;font-size:24px;line-height:1.25;">${safeTitleHtml}</h1>
+            <p style="margin:0 0 14px;line-height:1.55;color:#111827;">${safeDescriptionHtml}</p>
+            ${safeThumbnailUrl ? `<img src="${escapeHtml(safeThumbnailUrl)}" alt="${safeTitleHtml}" width="560" style="display:block;width:100%;max-width:560px;height:auto;border:0;border-radius:8px;margin:0 0 14px;" />` : ""}
+            <p style="margin:0 0 10px;"><a href="${escapeHtml(safeVideoUrl)}" target="_blank" rel="noopener noreferrer">Voir la vidéo</a></p>
+            <p style="margin:0;"><a href="${escapeHtml(homeUrl)}" target="_blank" rel="noopener noreferrer">Ouvrir l'accueil BeatElion</a></p>
+          </div>
+          <div style="padding:14px 24px;border-top:1px solid #e4e4e7;color:#6b7280;font-size:12px;line-height:1.5;">
+            BeatElion • ${escapeHtml(homeUrl)}
+          </div>
+        </div>
       </div>
     `,
   });
 }
 
-Deno.serve(async (req: Request) => {
+serveWithErrorHandling("broadcast-news", async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -192,12 +246,14 @@ Deno.serve(async (req: Request) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const resendApiKey = Deno.env.get("RESEND_API_KEY");
 
-  if (!supabaseUrl || !serviceRoleKey || !resendApiKey) {
+  if (!supabaseUrl || !serviceRoleKey || !anonKey || !resendApiKey) {
     console.error("[broadcast-news] ENV_ERROR", {
       hasSupabaseUrl: Boolean(supabaseUrl),
       hasServiceRoleKey: Boolean(serviceRoleKey),
+      hasAnonKey: Boolean(anonKey),
       hasResendApiKey: Boolean(resendApiKey),
     });
     return new Response(JSON.stringify({ error: "Server not configured" }), {
@@ -206,12 +262,8 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const authHeader =
-    req.headers.get("x-supabase-auth") ||
-    req.headers.get("Authorization") ||
-    "";
-  const jwt = authHeader.replace(/^Bearer\s+/i, "").trim();
-  if (!jwt) {
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: corsHeaders,
@@ -225,7 +277,19 @@ Deno.serve(async (req: Request) => {
     },
   }) as any;
 
-  const { data: authData, error: authError } = await supabase.auth.getUser(jwt);
+  const supabaseUser = createClient(supabaseUrl, anonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+    global: {
+      headers: {
+        Authorization: authHeader,
+      },
+    },
+  });
+
+  const { data: authData, error: authError } = await supabaseUser.auth.getUser();
   const actor = authData.user;
   if (authError || !actor) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -329,7 +393,8 @@ Deno.serve(async (req: Request) => {
     const cappedRecipients = recipients.slice(0, MAX_RECIPIENTS_PER_RUN);
     const hasOverflow = recipients.length > MAX_RECIPIENTS_PER_RUN;
     const resend = new Resend(resendApiKey);
-    const from = asNonEmptyString(Deno.env.get("EMAIL_FROM")) || DEFAULT_EMAIL_FROM;
+    const from = asNonEmptyString(Deno.env.get("RESEND_FROM_EMAIL")) || DEFAULT_EMAIL_FROM;
+    const replyTo = asNonEmptyString(Deno.env.get("SOCIAL_EMAIL")) || DEFAULT_SOCIAL_REPLY_TO;
     const appUrl = asNonEmptyString(Deno.env.get("APP_BASE_URL"))
       || req.headers.get("origin")
       || "https://beatelion.com";
@@ -341,6 +406,7 @@ Deno.serve(async (req: Request) => {
       try {
         await sendBroadcastEmail(resend, {
           from,
+          replyTo,
           recipient,
           appUrl,
           news: {

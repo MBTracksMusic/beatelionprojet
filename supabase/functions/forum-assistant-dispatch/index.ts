@@ -9,6 +9,7 @@ import {
   loadForumSettings,
   requireInternalAgent,
 } from "../_shared/forumAgents.ts";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 interface DispatchBody {
   topicId?: string;
@@ -16,7 +17,7 @@ interface DispatchBody {
   triggerType?: "mention" | "no_reply_cron";
 }
 
-Deno.serve(async (req: Request): Promise<Response> => {
+serveWithErrorHandling("forum-assistant-dispatch", async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }

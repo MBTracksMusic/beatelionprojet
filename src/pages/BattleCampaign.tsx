@@ -46,7 +46,7 @@ export function BattleCampaignPage() {
       setIsLoading(true);
 
       const { data, error: campaignError } = await supabase
-        .from('admin_battle_campaigns' as any)
+        .from('admin_battle_campaigns_public' as any)
         .select(`
           id,
           title,

@@ -19,6 +19,51 @@ const MAX_SOCIAL_LINK_LENGTH = 255;
 
 type SocialLinkKey = 'instagram' | 'youtube' | 'soundcloud' | 'tiktok' | 'spotify';
 
+type DeleteAccountRpcResult = {
+  success?: unknown;
+  status?: unknown;
+  message?: unknown;
+};
+
+const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const formatDeleteAccountError = (error: unknown, fallbackMessage: string): string => {
+  if (!isObjectRecord(error)) {
+    if (error instanceof Error && error.message.trim().length > 0) {
+      return error.message.trim();
+    }
+    return fallbackMessage;
+  }
+
+  const message =
+    typeof error.message === 'string' && error.message.trim().length > 0
+      ? error.message.trim()
+      : fallbackMessage;
+
+  const details = typeof error.details === 'string' && error.details.trim().length > 0
+    ? error.details.trim()
+    : null;
+  const hint = typeof error.hint === 'string' && error.hint.trim().length > 0
+    ? error.hint.trim()
+    : null;
+  const code = typeof error.code === 'string' && error.code.trim().length > 0
+    ? error.code.trim()
+    : null;
+
+  const metaParts = [
+    details,
+    hint ? `hint: ${hint}` : null,
+    code ? `code: ${code}` : null,
+  ].filter((part): part is string => typeof part === 'string' && part.length > 0);
+
+  if (metaParts.length === 0) {
+    return message;
+  }
+
+  return `${message} (${metaParts.join(' | ')})`;
+};
+
 export function SettingsPage() {
   const navigate = useNavigate();
   const { profile, refreshProfile, signOut } = useAuth();
@@ -310,33 +355,42 @@ export function SettingsPage() {
 
     try {
       const reason = deleteAccountReason.trim();
-      const { data, error } = await supabase.rpc('delete_my_account', {
+      const rpcResponse = await supabase.rpc('delete_my_account', {
         p_reason: reason.length > 0 ? reason : null,
       });
+      console.info('delete_my_account response:', rpcResponse);
+
+      const { data, error } = rpcResponse;
 
       if (error) {
         throw error;
       }
 
-      const rpcResult = Array.isArray(data) ? data[0] : data;
-      if (rpcResult && typeof rpcResult === 'object' && 'success' in rpcResult) {
-        const success = (rpcResult as { success?: unknown }).success === true;
-        if (!success) {
-          throw new Error(
-            typeof (rpcResult as { message?: unknown }).message === 'string'
-              ? ((rpcResult as { message: string }).message)
-              : t('settings.deleteAccountError')
-          );
-        }
+      const rpcResult = (Array.isArray(data) ? data[0] : data) as DeleteAccountRpcResult | undefined;
+      if (!isObjectRecord(rpcResult)) {
+        throw new Error('delete_my_account returned an invalid payload');
       }
 
-      toast.success(t('settings.deleteAccountSuccess'));
+      if (rpcResult.success !== true) {
+        const failureMessage =
+          typeof rpcResult.message === 'string' && rpcResult.message.trim().length > 0
+            ? rpcResult.message.trim()
+            : t('settings.deleteAccountError');
+        throw new Error(failureMessage);
+      }
+
+      const successMessage =
+        typeof rpcResult.message === 'string' && rpcResult.message.trim().length > 0
+          ? rpcResult.message.trim()
+          : t('settings.deleteAccountSuccess');
+
+      toast.success(successMessage);
       setIsDeleteAccountModalOpen(false);
       await signOut();
       navigate('/login', { replace: true });
     } catch (error) {
-      console.error('Error deleting account:', error);
-      toast.error(error instanceof Error ? error.message : t('settings.deleteAccountError'));
+      console.error('delete_my_account error:', error);
+      toast.error(formatDeleteAccountError(error, t('settings.deleteAccountError')));
     } finally {
       setIsDeletingAccount(false);
       setDeleteAccountReason('');
@@ -663,7 +717,7 @@ export function SettingsPage() {
                 variant="danger"
                 onClick={() => void handleDeleteMyAccount()}
                 isLoading={isDeletingAccount}
-                disabled={deleteAccountConfirmInput.trim().toUpperCase() !== 'SUPPRIMER'}
+                disabled={isDeletingAccount || deleteAccountConfirmInput.trim().toUpperCase() !== 'SUPPRIMER'}
               >
                 {t('settings.deleteAccountConfirmFinal')}
               </Button>

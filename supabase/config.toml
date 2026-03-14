@@ -1,0 +1,92 @@
+# Supabase local/deploy configuration.
+# Keep function auth mode explicit to reduce deploy drift.
+
+[functions.get-producer-plans]
+verify_jwt = false
+
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.create-checkout]
+verify_jwt = true
+
+[functions.producer-checkout]
+verify_jwt = true
+
+[functions.create-portal-session]
+verify_jwt = true
+
+[functions.admin-upload-watermark]
+verify_jwt = true
+
+[functions.contact-submit]
+verify_jwt = false
+
+[functions.agent-finalize-expired-battles]
+verify_jwt = true
+
+[functions.ai-evaluate-battle]
+verify_jwt = true
+
+[functions.ai-moderate-comment]
+verify_jwt = true
+
+[functions.broadcast-news]
+verify_jwt = true
+
+[functions.collect-pipeline-metrics]
+verify_jwt = false
+
+[functions.enqueue-preview-reprocess]
+verify_jwt = true
+
+[functions.forum-assistant-dispatch]
+verify_jwt = true
+
+[functions.forum-assistant-worker]
+verify_jwt = true
+
+[functions.forum-create-post]
+verify_jwt = true
+
+[functions.forum-create-topic]
+verify_jwt = true
+
+[functions.get-contract-url]
+verify_jwt = true
+
+[functions.get-master-url]
+verify_jwt = true
+
+[functions.get-producer-price]
+verify_jwt = true
+
+[functions.pipeline-health]
+verify_jwt = false
+
+[functions.pipeline-metrics]
+verify_jwt = false
+
+[functions.preview-audio]
+verify_jwt = true
+
+[functions.process-audio-jobs]
+verify_jwt = true
+
+[functions.process-contract-jobs]
+verify_jwt = true
+
+[functions.process-email-queue]
+verify_jwt = false
+
+[functions.process-events]
+verify_jwt = false
+
+[functions.process-outbox]
+verify_jwt = false
+
+[functions.repair-email-delivery]
+verify_jwt = false
+
+[functions.replay-events]
+verify_jwt = false

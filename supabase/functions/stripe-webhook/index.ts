@@ -1,8 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { Resend } from "npm:resend";
 import Stripe from "npm:stripe@17";
 import { invokeContractGeneration, resolveContractGenerateEndpoint } from "../_shared/contract-generation.js";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const jsonHeaders = {
   "Content-Type": "application/json",
@@ -60,6 +60,29 @@ const extractSubscriptionPriceIds = (subscription: Stripe.Subscription | null | 
     .filter((id): id is string => Boolean(id));
 
   return [...new Set(ids)];
+};
+
+const resolveSubscriptionCurrentPeriodEnd = (
+  subscription: Stripe.Subscription | null | undefined,
+): number | null => {
+  const topLevelPeriodEnd = subscription?.current_period_end;
+  if (typeof topLevelPeriodEnd === "number" && Number.isFinite(topLevelPeriodEnd) && topLevelPeriodEnd > 0) {
+    return topLevelPeriodEnd;
+  }
+
+  const itemPeriodEnds = (subscription?.items?.data || [])
+    .map((item) => {
+      const itemRecord = item as Record<string, unknown>;
+      const itemPeriodEnd = itemRecord.current_period_end;
+      if (typeof itemPeriodEnd === "number" && Number.isFinite(itemPeriodEnd) && itemPeriodEnd > 0) {
+        return itemPeriodEnd;
+      }
+      return null;
+    })
+    .filter((value): value is number => typeof value === "number");
+
+  if (itemPeriodEnds.length === 0) return null;
+  return Math.max(...itemPeriodEnds);
 };
 
 const producerTierRank = (tier: ProducerTier) => {
@@ -140,105 +163,6 @@ const resolveProducerTierFromSubscription = async (
   });
   return { tier: fallbackTier, matchedPriceId: null, source: "current_tier_fallback" };
 };
-
-const DEFAULT_EMAIL_RATE_LIMIT_SECONDS = 15 * 60;
-
-const getEmailRateLimitSeconds = () => {
-  const raw = asNonEmptyString(Deno.env.get("NOTIFICATION_EMAIL_RATE_LIMIT_SECONDS"));
-  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
-  return Number.isFinite(parsed) && parsed > 0
-    ? parsed
-    : DEFAULT_EMAIL_RATE_LIMIT_SECONDS;
-};
-
-interface EmailClaimDecision {
-  allowed: boolean;
-  reason: string;
-}
-
-async function sendPurchaseEmail(email: string) {
-  const resendApiKey = Deno.env.get("RESEND_API_KEY");
-  if (!resendApiKey) {
-    throw new Error("Missing RESEND_API_KEY");
-  }
-
-  const resend = new Resend(resendApiKey);
-
-  return await resend.emails.send({
-    from: "onboarding@resend.dev",
-    to: email,
-    subject: "Votre achat Beatelion est confirmé",
-    text: "Merci pour votre achat. Votre commande a bien été validée.",
-    html: `
-      <div lang="fr" style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#111">
-        <h1 style="margin:0 0 12px;">Merci pour votre achat</h1>
-        <p style="margin:0 0 16px;">Votre commande a bien été validée.</p>
-        <p style="margin:0;">Besoin d’aide ? Répondez à cet email.</p>
-      </div>
-    `,
-  });
-}
-
-async function claimNotificationEmailSend(
-  supabase: ReturnType<typeof createClient>,
-  params: {
-    category: string;
-    recipientEmail: string;
-    dedupeKey: string;
-    metadata?: Record<string, unknown>;
-    rateLimitSeconds: number;
-  },
-): Promise<EmailClaimDecision> {
-  const {
-    category,
-    recipientEmail,
-    dedupeKey,
-    metadata = {},
-    rateLimitSeconds,
-  } = params;
-
-  const { data, error } = await supabase.rpc("claim_notification_email_send", {
-    p_category: category,
-    p_recipient_email: recipientEmail,
-    p_dedupe_key: dedupeKey,
-    p_rate_limit_seconds: rateLimitSeconds,
-    p_metadata: metadata,
-  });
-
-  if (error) {
-    console.error("EMAIL_CLAIM_ERROR", {
-      category,
-      recipientEmail,
-      dedupeKey,
-      rateLimitSeconds,
-      error,
-    });
-    return { allowed: false, reason: "claim_error" };
-  }
-
-  const decision = data && typeof data === "object"
-    ? data as { allowed?: unknown; reason?: unknown }
-    : null;
-
-  return {
-    allowed: decision?.allowed === true,
-    reason: typeof decision?.reason === "string" ? decision.reason : "unknown",
-  };
-}
-
-async function releaseNotificationEmailClaim(
-  supabase: ReturnType<typeof createClient>,
-  dedupeKey: string,
-) {
-  const { error } = await supabase
-    .from("notification_email_log")
-    .delete()
-    .eq("dedupe_key", dedupeKey);
-
-  if (error) {
-    console.error("EMAIL_CLAIM_RELEASE_ERROR", { dedupeKey, error });
-  }
-}
 
 const DEFAULT_EVENT_PROCESSING_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -736,7 +660,7 @@ async function claimStripeEventProcessingLock(
   return staleClaim;
 }
 
-Deno.serve(async (req: Request) => {
+serveWithErrorHandling("stripe-webhook", async (req: Request) => {
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
@@ -882,9 +806,10 @@ Deno.serve(async (req: Request) => {
           await handleSubscriptionDeleted(supabase, event.data.object);
           break;
         }
-        case "invoice.payment_succeeded": {
+        case "invoice.payment_succeeded":
+        case "invoice.paid": {
           if (!isInvoice(event.data.object)) {
-            throw new WebhookError("Invalid payload for invoice.payment_succeeded", 400, true);
+            throw new WebhookError(`Invalid payload for ${event.type}`, 400, true);
           }
           await handlePaymentSucceeded(supabase, event.data.object);
           break;
@@ -981,51 +906,13 @@ async function handleCheckoutCompleted(
     typeof session.subscription === "string"
       ? session.subscription
       : session.subscription?.id ?? null;
-  const email =
-    asNonEmptyString(session.customer_details?.email) ||
-    asNonEmptyString(session.customer_email);
   const metadata = session.metadata ?? {};
-  const emailRateLimitSeconds = getEmailRateLimitSeconds();
 
   if (mode === "subscription") {
     if (!subscriptionId) {
       throw new WebhookError("Subscription checkout completed without subscription id", 400, true);
     }
     await upsertProducerSubscriptionFromStripe(supabase, stripe, subscriptionId);
-    if (email) {
-      const dedupeKey = `subscription_checkout:${subscriptionId}:${email.toLowerCase()}`;
-      const claim = await claimNotificationEmailSend(supabase, {
-        category: "subscription_checkout_completed",
-        recipientEmail: email,
-        dedupeKey,
-        rateLimitSeconds: emailRateLimitSeconds,
-        metadata: {
-          event_id: eventId,
-          session_id: sessionId,
-          subscription_id: subscriptionId,
-          mode,
-        },
-      });
-
-      if (!claim.allowed) {
-        console.log("EMAIL_SKIPPED", {
-          email,
-          purchaseId: null,
-          dedupeKey,
-          reason: claim.reason,
-        });
-      } else {
-        try {
-          await sendPurchaseEmail(email);
-          console.log("EMAIL_SENT", { email, purchaseId: null });
-        } catch (error) {
-          await releaseNotificationEmailClaim(supabase, dedupeKey);
-          console.error("EMAIL_ERROR", { error, purchaseId: null, dedupeKey });
-        }
-      }
-    } else {
-      console.error("EMAIL_ERROR", { error: "Missing customer email", purchaseId: null });
-    }
     return;
   }
 
@@ -1104,52 +991,6 @@ async function handleCheckoutCompleted(
     throw new Error(`Missing purchase id after checkout completion (session ${sessionId})`);
   }
 
-  if (email) {
-    const { data: purchaseRow, error: purchaseReadError } = await supabase
-      .from("purchases")
-      .select("contract_email_sent_at")
-      .eq("id", purchaseId)
-      .maybeSingle();
-
-    if (purchaseReadError) {
-      console.error("EMAIL_ERROR", { error: purchaseReadError, purchaseId });
-    } else if (!purchaseRow?.contract_email_sent_at) {
-      const dedupeKey = `purchase_contract:${purchaseId}:${email.toLowerCase()}`;
-      const claim = await claimNotificationEmailSend(supabase, {
-        category: "purchase_checkout_completed",
-        recipientEmail: email,
-        dedupeKey,
-        rateLimitSeconds: emailRateLimitSeconds,
-        metadata: {
-          event_id: eventId,
-          session_id: sessionId,
-          purchase_id: purchaseId,
-          product_id: productId,
-          user_id: userId,
-        },
-      });
-
-      if (!claim.allowed) {
-        console.log("EMAIL_SKIPPED", {
-          email,
-          purchaseId,
-          dedupeKey,
-          reason: claim.reason,
-        });
-      } else {
-        try {
-          await sendPurchaseEmail(email);
-          console.log("EMAIL_SENT", { email, purchaseId });
-        } catch (error) {
-          await releaseNotificationEmailClaim(supabase, dedupeKey);
-          console.error("EMAIL_ERROR", { error, purchaseId, dedupeKey });
-        }
-      }
-    }
-  } else {
-    console.error("EMAIL_ERROR", { error: "Missing customer email", purchaseId });
-  }
-
   await enqueueContractGenerationJob(supabase, purchaseId);
   const contractTrigger = await notifyContractService(purchaseId);
 
@@ -1186,9 +1027,9 @@ async function handleSubscriptionUpdate(
     customerId,
     subscriptionId,
     status: subscription.status,
-    currentPeriodEnd: subscription.current_period_end,
+    currentPeriodEnd: resolveSubscriptionCurrentPeriodEnd(subscription) ?? undefined,
     cancelAtPeriodEnd: subscription.cancel_at_period_end,
-    userId: asNonEmptyString(subscription.metadata?.user_id),
+    userId: asNonEmptyString(subscription.metadata?.user_id) ?? undefined,
     priceIds: extractSubscriptionPriceIds(subscription),
   });
 }
@@ -1315,9 +1156,9 @@ async function upsertProducerSubscriptionFromStripe(
     customerId,
     subscriptionId,
     status: sub.status,
-    currentPeriodEnd: sub.current_period_end,
+    currentPeriodEnd: resolveSubscriptionCurrentPeriodEnd(sub) ?? undefined,
     cancelAtPeriodEnd: sub.cancel_at_period_end,
-    userId: asNonEmptyString(sub.metadata?.user_id),
+    userId: asNonEmptyString(sub.metadata?.user_id) ?? undefined,
     priceIds: extractSubscriptionPriceIds(sub),
   });
 }
@@ -1405,11 +1246,29 @@ async function upsertProducerSubscription(
     throw new Error(`No user found for customer ${customerId} / subscription ${subscriptionId}`);
   }
 
-  const periodEndTs = typeof currentPeriodEnd === "string"
-    ? Number.parseInt(currentPeriodEnd, 10)
-    : currentPeriodEnd;
-
-  const periodEndMs = Number.isFinite(periodEndTs) ? (periodEndTs as number) * 1000 : undefined;
+  let periodEndMs: number | undefined;
+  if (typeof currentPeriodEnd === "number" && Number.isFinite(currentPeriodEnd)) {
+    periodEndMs = Math.abs(currentPeriodEnd) < 1_000_000_000_000
+      ? currentPeriodEnd * 1000
+      : currentPeriodEnd;
+  } else if (typeof currentPeriodEnd === "string") {
+    const trimmedPeriodEnd = currentPeriodEnd.trim();
+    if (trimmedPeriodEnd.length > 0) {
+      if (/^-?\d+$/.test(trimmedPeriodEnd)) {
+        const numericTs = Number.parseInt(trimmedPeriodEnd, 10);
+        if (Number.isFinite(numericTs)) {
+          periodEndMs = Math.abs(numericTs) < 1_000_000_000_000
+            ? numericTs * 1000
+            : numericTs;
+        }
+      } else {
+        const parsedMs = Date.parse(trimmedPeriodEnd);
+        if (Number.isFinite(parsedMs)) {
+          periodEndMs = parsedMs;
+        }
+      }
+    }
+  }
 
   let currentEndIso: string | null = periodEndMs ? new Date(periodEndMs).toISOString() : null;
   if (!currentEndIso) {
@@ -1467,6 +1326,7 @@ async function upsertProducerSubscription(
 
   if (profileUpdateErr) {
     console.error("[upsertProducerSubscription] Failed to sync user profile identifiers", profileUpdateErr);
+    throw new Error(`Failed to update user profile: ${profileUpdateErr.message}`);
   }
 
   console.log("TIER_SYNC", {

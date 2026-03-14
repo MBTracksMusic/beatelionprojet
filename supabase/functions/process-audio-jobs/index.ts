@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { FFmpeg } from "npm:@ffmpeg/ffmpeg@0.12.6";
 import { fetchFile, toBlobURL } from "npm:@ffmpeg/util@0.12.1";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const INTERNAL_SECRET_HEADER = "x-audio-worker-secret";
 
@@ -734,7 +735,7 @@ const processJob = async (
   }
 };
 
-Deno.serve(async (req: Request): Promise<Response> => {
+serveWithErrorHandling("process-audio-jobs", async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }

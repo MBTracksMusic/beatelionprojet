@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 interface CheckoutBody {
   tier?: string;
@@ -10,6 +11,18 @@ interface CheckoutBody {
 type CheckoutTier = "producteur" | "elite";
 const CHECKOUT_TIERS = new Set<CheckoutTier>(["producteur", "elite"]);
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
+const KNOWN_PLACEHOLDER_PRICE_IDS = new Set([
+  "price_xxxxxxxx",
+  "price_yyyyyyyy",
+  "price_producer_monthly",
+  "price_elite_monthly",
+  "price_xxx",
+  "price_replace_me",
+]);
+
+const isKnownPlaceholderPriceId = (value: string) => {
+  return KNOWN_PLACEHOLDER_PRICE_IDS.has(value.trim().toLowerCase());
+};
 
 const isFutureTimestamp = (value: string | null | undefined) => {
   if (!value) return false;
@@ -27,19 +40,95 @@ const normalizeTier = (value: unknown): CheckoutTier | null => {
   return null;
 };
 
-const isTruthy = (value: string | null | undefined) => {
-  if (!value) return false;
-  const normalized = value.trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+const DEFAULT_ALLOWED_REDIRECT_ORIGINS = [
+  "https://beatelion.com",
+  "https://www.beatelion.com",
+  "http://localhost:5173",
+];
+
+const normalizeOrigin = (value: string): string | null => {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+};
+
+const resolveAllowedRedirectOrigins = () => {
+  const allowed = new Set<string>(DEFAULT_ALLOWED_REDIRECT_ORIGINS);
+  const csvAllowlist = Deno.env.get("CHECKOUT_REDIRECT_ALLOWLIST");
+
+  if (typeof csvAllowlist === "string" && csvAllowlist.trim().length > 0) {
+    for (const token of csvAllowlist.split(",")) {
+      const normalized = normalizeOrigin(token.trim());
+      if (normalized) {
+        allowed.add(normalized);
+      }
+    }
+  }
+
+  for (const envValue of [
+    Deno.env.get("APP_URL"),
+    Deno.env.get("SITE_URL"),
+    Deno.env.get("PUBLIC_SITE_URL"),
+    Deno.env.get("VITE_APP_URL"),
+  ]) {
+    if (typeof envValue !== "string") continue;
+    const normalized = normalizeOrigin(envValue.trim());
+    if (normalized) {
+      allowed.add(normalized);
+    }
+  }
+
+  return allowed;
+};
+
+const ALLOWED_REDIRECT_ORIGINS = resolveAllowedRedirectOrigins();
+
+const validateRedirectUrl = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+    if (!["https:", "http:"].includes(parsed.protocol)) {
+      return null;
+    }
+    if (!ALLOWED_REDIRECT_ORIGINS.has(parsed.origin)) {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+};
+
+const resolveDefaultRedirectOrigin = (req: Request): string => {
+  for (const candidate of [
+    req.headers.get("origin"),
+    Deno.env.get("APP_URL"),
+    Deno.env.get("SITE_URL"),
+    Deno.env.get("PUBLIC_SITE_URL"),
+    Deno.env.get("VITE_APP_URL"),
+  ]) {
+    if (typeof candidate !== "string") continue;
+    const normalized = normalizeOrigin(candidate.trim());
+    if (normalized && ALLOWED_REDIRECT_ORIGINS.has(normalized)) {
+      return normalized;
+    }
+  }
+
+  return DEFAULT_ALLOWED_REDIRECT_ORIGINS[0];
 };
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, apikey, x-supabase-auth",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, apikey",
 };
 
-Deno.serve(async (req: Request) => {
+serveWithErrorHandling("producer-checkout", async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -54,13 +143,15 @@ Deno.serve(async (req: Request) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const stripeSecret = Deno.env.get("STRIPE_SECRET_KEY");
 
-    if (!supabaseUrl || !supabaseServiceRoleKey) {
+    if (!supabaseUrl || !supabaseServiceRoleKey || !supabaseAnonKey) {
       console.error("ENV_ERROR", {
         function: "producer-checkout",
         hasSupabaseUrl: Boolean(supabaseUrl),
         hasSupabaseServiceRoleKey: Boolean(supabaseServiceRoleKey),
+        hasSupabaseAnonKey: Boolean(supabaseAnonKey),
       });
       return new Response(JSON.stringify({
         error: "Supabase not configured (SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing)",
@@ -81,31 +172,49 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const authHeader =
-      req.headers.get("x-supabase-auth") ||
-      req.headers.get("Authorization") ||
-      "";
-    const jwt = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const authorizationHeader = req.headers.get("Authorization");
 
     const supabaseAdmin = createClient(
       supabaseUrl,
       supabaseServiceRoleKey,
     );
 
-    if (!jwt) {
+    if (!authorizationHeader) {
       return new Response(JSON.stringify({ error: "Unauthorized: missing bearer token" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(jwt);
+    const supabaseUser = createClient(
+      supabaseUrl,
+      supabaseAnonKey,
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+        global: {
+          headers: {
+            Authorization: authorizationHeader,
+          },
+        },
+      },
+    );
+
+    const { data: { user }, error: authError } = await supabaseUser.auth.getUser();
     if (authError || !user) {
+      console.error("AUTH_ERROR", {
+        function: "producer-checkout",
+        hasAuthorizationHeader: Boolean(authorizationHeader),
+        message: authError?.message ?? null,
+      });
       return new Response(JSON.stringify({ error: authError?.message || "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    console.log("JWT_USER", user?.id);
 
     const { data: profile, error: profileError } = await supabaseAdmin
       .from("user_profiles")
@@ -173,8 +282,12 @@ Deno.serve(async (req: Request) => {
     const body: CheckoutBody = await req.json();
     const parsedTier = body.tier === undefined ? "producteur" : normalizeTier(body.tier);
     const requestedTier = parsedTier;
-    const successUrl = body.success_url || `${req.headers.get("origin")}/pricing?status=success`;
-    const cancelUrl = body.cancel_url || `${req.headers.get("origin")}/pricing?status=cancel`;
+    console.log("CHECKOUT_TIER", requestedTier);
+    const defaultRedirectOrigin = resolveDefaultRedirectOrigin(req);
+    const successUrlInput = body.success_url || `${defaultRedirectOrigin}/pricing?status=success`;
+    const cancelUrlInput = body.cancel_url || `${defaultRedirectOrigin}/pricing?status=cancel`;
+    const successUrl = validateRedirectUrl(successUrlInput);
+    const cancelUrl = validateRedirectUrl(cancelUrlInput);
 
     if (!requestedTier) {
       return new Response(JSON.stringify({ error: "invalid_tier" }), {
@@ -202,60 +315,68 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    if (!tierPlan) {
+    if (tierPlan && tierPlan.is_active !== true) {
       return new Response(JSON.stringify({ error: "plan_unavailable" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    if (tierPlan.is_active !== true) {
-      return new Response(JSON.stringify({ error: "plan_unavailable" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const dbPriceId = typeof tierPlan.stripe_price_id === "string" && tierPlan.stripe_price_id.trim().length > 0
+    const envFallbackPriceId =
+      requestedTier === "elite"
+        ? Deno.env.get("STRIPE_PRODUCER_ELITE_PRICE_ID")
+        : (Deno.env.get("STRIPE_PRODUCER_PRICE_ID") ||
+          Deno.env.get("STRIPE_PRICE_PRODUCER"));
+    const normalizedEnvFallbackPriceId =
+      typeof envFallbackPriceId === "string" && envFallbackPriceId.trim().length > 0
+        ? envFallbackPriceId.trim()
+        : null;
+    const rawDbPriceId = typeof tierPlan?.stripe_price_id === "string" && tierPlan.stripe_price_id.trim().length > 0
       ? tierPlan.stripe_price_id.trim()
       : null;
-    let priceId = dbPriceId;
+    const dbPriceId = rawDbPriceId && !isKnownPlaceholderPriceId(rawDbPriceId)
+      ? rawDbPriceId
+      : null;
+    const priceId = dbPriceId || normalizedEnvFallbackPriceId;
 
-    if (!priceId && isTruthy(Deno.env.get("PRODUCER_CHECKOUT_ALLOW_ENV_FALLBACK"))) {
-      const fallbackPriceId = requestedTier === "elite"
-        ? Deno.env.get("STRIPE_PRODUCER_ELITE_PRICE_ID")
-        : Deno.env.get("STRIPE_PRODUCER_PRICE_ID");
-      if (typeof fallbackPriceId === "string" && fallbackPriceId.trim().length > 0) {
-        priceId = fallbackPriceId.trim();
-        console.warn("EMERGENCY_ENV_FALLBACK", {
-          function: "producer-checkout",
-          requestedTier,
-          reason: "missing_db_price_id",
-        });
-      }
+    if (rawDbPriceId && !dbPriceId) {
+      console.warn("DB_PLACEHOLDER_PRICE_IGNORED", {
+        function: "producer-checkout",
+        requestedTier,
+      });
+    }
+
+    if (!dbPriceId && normalizedEnvFallbackPriceId) {
+      console.warn("EMERGENCY_ENV_FALLBACK", {
+        function: "producer-checkout",
+        requestedTier,
+        reason: !tierPlan ? "missing_tier_plan_row" : "missing_db_price_id",
+      });
     }
 
     if (!priceId) {
       console.error("CONFIG_ERROR", {
         function: "producer-checkout",
-        reason: "missing_price_id",
+        reason: "stripe_price_not_configured",
         requestedTier,
       });
-      return new Response(JSON.stringify({ error: "Stripe price ID not configured for tier" }), {
+      return new Response(JSON.stringify({
+        error: "stripe_price_not_configured",
+        message: "Missing Stripe price ID for tier",
+        tier: requestedTier,
+      }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    console.log("STRIPE_PRICE_USED", priceId);
 
-    try {
-      new URL(successUrl);
-      new URL(cancelUrl);
-    } catch {
+    if (!successUrl || !cancelUrl) {
       console.error("CONFIG_ERROR", {
         function: "producer-checkout",
         reason: "invalid_redirect_urls",
-        successUrl,
-        cancelUrl,
+        successUrl: successUrlInput,
+        cancelUrl: cancelUrlInput,
       });
       return new Response(JSON.stringify({ error: "Invalid success_url or cancel_url" }), {
         status: 400,

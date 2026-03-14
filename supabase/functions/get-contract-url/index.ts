@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { PDFDocument, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
 import { invokeContractGeneration, resolveContractGenerateEndpoint } from "../_shared/contract-generation.js";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,7 +13,7 @@ const corsHeaders = {
 const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
 
 const CONTRACT_BUCKET = "contracts";
-const CONTRACT_SIGNED_URL_TTL_SECONDS = 60 * 5;
+const CONTRACT_SIGNED_URL_TTL_SECONDS = 60;
 const CONTRACT_URL_USER_RATE_LIMIT_RPC = "get_contract_url_user";
 
 const asNonEmptyString = (value: unknown) => {
@@ -440,7 +441,7 @@ async function callContractServiceToGenerate(purchaseId: string) {
   return true;
 }
 
-Deno.serve(async (req: Request) => {
+serveWithErrorHandling("get-contract-url", async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -454,8 +455,9 @@ Deno.serve(async (req: Request) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
 
-  if (!supabaseUrl || !serviceRoleKey) {
+  if (!supabaseUrl || !serviceRoleKey || !anonKey) {
     console.error("[get-contract-url] Missing Supabase env vars");
     return new Response(JSON.stringify({ error: "Server not configured" }), {
       status: 500,
@@ -472,17 +474,20 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const jwt = authHeader.replace(/^Bearer\s+/i, "").trim();
-    if (!jwt) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: jsonHeaders,
-      });
-    }
-
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey) as any;
+    const supabaseUser = createClient(supabaseUrl, anonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+      global: {
+        headers: {
+          Authorization: authHeader,
+        },
+      },
+    });
 
-    const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(jwt);
+    const { data: authData, error: authError } = await supabaseUser.auth.getUser();
     if (authError || !authData.user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
@@ -589,8 +594,6 @@ Deno.serve(async (req: Request) => {
       if (!error && data?.signedUrl) {
         return new Response(JSON.stringify({
           url: data.signedUrl,
-          expires_in: CONTRACT_SIGNED_URL_TTL_SECONDS,
-          path: resolvedPath,
         }), {
           status: 200,
           headers: jsonHeaders,

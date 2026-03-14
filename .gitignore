@@ -28,3 +28,9 @@ dist-ssr
 *.sw?
 .env
 supabase/.temp/
+backups/
+/backup*.sql
+*.sql
+!supabase/migrations/*.sql
+!supabase/schema.sql
+!supabase/seed.sql

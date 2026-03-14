@@ -1,13 +1,74 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+const BASE_CORS_HEADERS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, x-supabase-auth",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
+const DEFAULT_ALLOWED_CORS_ORIGINS = [
+  "https://beatelion.com",
+  "https://www.beatelion.com",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://dev.beatelion.local:5173",
+];
+
+const normalizeOrigin = (value: string): string | null => {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+};
+
+const resolveAllowedCorsOrigins = () => {
+  const allowed = new Set<string>(DEFAULT_ALLOWED_CORS_ORIGINS);
+
+  const csv = Deno.env.get("CORS_ALLOWED_ORIGINS");
+  if (typeof csv === "string" && csv.trim().length > 0) {
+    for (const token of csv.split(",")) {
+      const normalized = normalizeOrigin(token.trim());
+      if (normalized) {
+        allowed.add(normalized);
+      }
+    }
+  }
+
+  for (const envValue of [
+    Deno.env.get("APP_URL"),
+    Deno.env.get("SITE_URL"),
+    Deno.env.get("PUBLIC_SITE_URL"),
+    Deno.env.get("VITE_APP_URL"),
+  ]) {
+    if (typeof envValue !== "string") continue;
+    const normalized = normalizeOrigin(envValue.trim());
+    if (normalized) {
+      allowed.add(normalized);
+    }
+  }
+
+  return allowed;
+};
+
+const ALLOWED_CORS_ORIGINS = resolveAllowedCorsOrigins();
+const DEFAULT_CORS_ORIGIN = DEFAULT_ALLOWED_CORS_ORIGINS[0];
+
+const resolveRequestOrigin = (req: Request) => {
+  const rawOrigin = req.headers.get("origin");
+  if (!rawOrigin) return null;
+  const normalized = normalizeOrigin(rawOrigin);
+  if (!normalized) return null;
+  return ALLOWED_CORS_ORIGINS.has(normalized) ? normalized : null;
+};
+
+const buildCorsHeaders = (origin: string | null) => ({
+  ...BASE_CORS_HEADERS,
+  "Access-Control-Allow-Origin": origin ?? DEFAULT_CORS_ORIGIN,
+  "Vary": "Origin",
+});
+
 const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -23,10 +84,9 @@ const FIXED_WATERMARK_PATH = "admin/global-watermark.wav";
 const ALLOWED_TYPES = new Set(["audio/wav", "audio/x-wav", "audio/wave"]);
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
-const requireAdmin = async (req: Request) => {
-  const rawAuthHeader = req.headers.get("x-supabase-auth") || req.headers.get("Authorization");
-  const jwt = rawAuthHeader?.replace(/^Bearer\s+/i, "").trim();
-  if (!jwt) {
+const requireAdmin = async (req: Request, jsonHeaders: Record<string, string>) => {
+  const authorizationHeader = req.headers.get("Authorization");
+  if (!authorizationHeader) {
     return { error: new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: jsonHeaders }) };
   }
 
@@ -43,7 +103,7 @@ const requireAdmin = async (req: Request) => {
     },
     global: {
       headers: {
-        Authorization: rawAuthHeader?.startsWith("Bearer ") ? rawAuthHeader : `Bearer ${jwt}`,
+        Authorization: authorizationHeader,
       },
     },
   });
@@ -102,7 +162,19 @@ const cleanupLegacyWatermarks = async () => {
   }
 };
 
-Deno.serve(async (req: Request): Promise<Response> => {
+serveWithErrorHandling("admin-upload-watermark", async (req: Request): Promise<Response> => {
+  const requestOriginHeader = req.headers.get("origin");
+  const requestOrigin = resolveRequestOrigin(req);
+  const corsHeaders = buildCorsHeaders(requestOrigin);
+  const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
+
+  if (requestOriginHeader && !requestOrigin) {
+    return new Response(JSON.stringify({ error: "Origin not allowed" }), {
+      status: 403,
+      headers: jsonHeaders,
+    });
+  }
+
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -115,7 +187,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   try {
-    const authContext = await requireAdmin(req);
+    const authContext = await requireAdmin(req, jsonHeaders);
     if ("error" in authContext) {
       return authContext.error as Response;
     }

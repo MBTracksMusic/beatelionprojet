@@ -104,7 +104,6 @@ AS $$
 DECLARE
   v_user_id uuid := auth.uid();
   v_profile public.user_profiles%ROWTYPE;
-  v_suffix text;
   v_deleted_username text;
   v_attempt integer := 0;
 BEGIN
@@ -132,8 +131,7 @@ BEGIN
   END IF;
 
   LOOP
-    v_suffix := encode(gen_random_bytes(4), 'hex');
-    v_deleted_username := 'deleted_' || v_suffix;
+    v_deleted_username := 'deleted_' || gen_random_uuid()::text;
 
     EXIT WHEN NOT EXISTS (
       SELECT 1

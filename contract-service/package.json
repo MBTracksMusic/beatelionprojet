@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@sentry/node": "^10.11.0",
     "@supabase/supabase-js": "^2.49.1",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",

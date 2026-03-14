@@ -198,18 +198,24 @@ export function PricingPage() {
         elite: { ...DEFAULT_PLANS.elite },
       };
 
-      const { data, error: fetchError } = await supabase.functions.invoke('get-producer-plans', {
-        body: {},
-      });
+      try {
+        const { data, error: fetchError } = await supabase.functions.invoke('get-producer-plans', {
+          body: {},
+        });
 
-      if (!fetchError) {
-        nextPlans = buildPlansFromPayload((data as { plans?: unknown })?.plans);
-      } else {
+        if (!fetchError) {
+          nextPlans = buildPlansFromPayload((data as { plans?: unknown })?.plans);
+        } else {
+          console.error('get-producer-plans failed', fetchError, data);
+          setError(t('pricing.loadOffersError'));
+        }
+      } catch (fetchPlansError) {
+        console.error('get-producer-plans invoke failed', fetchPlansError);
         setError(t('pricing.loadOffersError'));
+      } finally {
+        setPlans(nextPlans);
+        setIsPlanLoading(false);
       }
-
-      setPlans(nextPlans);
-      setIsPlanLoading(false);
     };
 
     void fetchPlan();
@@ -217,7 +223,7 @@ export function PricingPage() {
 
   const startCheckout = async (tier: CheckoutTier) => {
     if (!user) {
-      navigate('/login', { state: { from: '/pricing' } });
+      navigate('/register', { state: { from: { pathname: '/pricing' } } });
       return;
     }
     const targetPlan = plans[tier];
@@ -227,33 +233,44 @@ export function PricingPage() {
     }
     setError(null);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token;
+      const handleSessionExpired = () => {
+        setError(t('pricing.sessionExpired'));
+      };
 
-      if (!accessToken) {
-        throw new Error(t('pricing.sessionExpired'));
-      }
-
-      const { data, error: fnError } = await supabase.functions.invoke('producer-checkout', {
+      const checkoutPayload = {
+        tier,
+        success_url: `${window.location.origin}/pricing?status=success`,
+        cancel_url: `${window.location.origin}/pricing?status=cancel`,
+      };
+      const invokeCheckout = () => supabase.functions.invoke('producer-checkout', {
         body: {
-          tier,
-          success_url: `${window.location.origin}/pricing?status=success`,
-          cancel_url: `${window.location.origin}/pricing?status=cancel`,
-        },
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
+          ...checkoutPayload,
         },
       });
-
-      if (fnError) {
-        console.error('producer-checkout error', fnError, data);
-        const apiError = (data as { error?: string })?.error;
+      const parseCheckoutError = async (
+        fnErrorValue: { status?: number; message?: string; context?: unknown },
+        dataValue: unknown,
+      ) => {
+        const apiPayload = (dataValue && typeof dataValue === 'object')
+          ? dataValue as Record<string, unknown>
+          : null;
+        const apiError = typeof apiPayload?.error === 'string' ? apiPayload.error : null;
+        const apiMessage = typeof apiPayload?.message === 'string' ? apiPayload.message : null;
+        let contextPayload: Record<string, unknown> | null = null;
         let contextError: string | null = null;
-        const context = (fnError as { context?: unknown })?.context;
+        let contextMessage: string | null = null;
+        let contextCode: string | null = null;
+        const context = fnErrorValue.context;
+
         if (context instanceof Response) {
           try {
-            const payload = await context.clone().json() as { error?: string; message?: string };
-            contextError = payload.error || payload.message || null;
+            const payload = await context.clone().json() as Record<string, unknown>;
+            contextPayload = payload;
+            contextError = typeof payload.error === 'string' ? payload.error : null;
+            contextMessage = typeof payload.message === 'string' ? payload.message : null;
+            contextCode = typeof payload.code === 'string' || typeof payload.code === 'number'
+              ? String(payload.code)
+              : null;
           } catch {
             try {
               const rawText = await context.clone().text();
@@ -263,23 +280,72 @@ export function PricingPage() {
             }
           }
         }
+
+        console.error('producer-checkout error', {
+          error: fnErrorValue,
+          status: fnErrorValue.status ?? null,
+          apiPayload,
+          contextPayload,
+        });
+
         const rawError =
           apiError ||
           contextError ||
-          `${fnError.status ?? ''} ${fnError.message || t('pricing.checkoutUnavailable')}`.trim();
-        if (rawError.includes('already_subscribed')) {
+          apiMessage ||
+          contextMessage ||
+          contextCode ||
+          `${fnErrorValue.status ?? ''} ${fnErrorValue.message || t('pricing.checkoutUnavailable')}`.trim();
+        const normalizedRawError = [
+          rawError,
+          apiError,
+          apiMessage,
+          contextError,
+          contextMessage,
+          contextCode,
+          fnErrorValue.message,
+        ]
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+          .join(' | ')
+          .toLowerCase();
+
+        return { rawError, normalizedRawError };
+      };
+      const isAuthCheckoutError = (normalizedRawError: string) =>
+        normalizedRawError.includes('invalid jwt') ||
+        normalizedRawError.includes('unauthorized') ||
+        normalizedRawError.includes('missing sub claim') ||
+        normalizedRawError.includes('missing sub');
+
+      const { data, error: fnError } = await invokeCheckout();
+
+      if (fnError) {
+        const parsedError = await parseCheckoutError(fnError, data);
+
+        if (isAuthCheckoutError(parsedError.normalizedRawError)) {
+          handleSessionExpired();
+          return;
+        }
+
+        if (
+          parsedError.normalizedRawError.includes('already_subscribed') ||
+          parsedError.normalizedRawError.includes('already subscribed')
+        ) {
           throw new Error(t('pricing.alreadySubscribed'));
         }
-        if (rawError.includes('plan_unavailable')) {
+        if (parsedError.normalizedRawError.includes('plan_unavailable')) {
           throw new Error(t('pricing.planUnavailable'));
         }
-        if (rawError.includes('missing_price_id')) {
+        if (
+          parsedError.normalizedRawError.includes('stripe_price_not_configured') ||
+          parsedError.normalizedRawError.includes('stripe price id not configured') ||
+          parsedError.normalizedRawError.includes('missing_price_id')
+        ) {
           throw new Error(t('pricing.missingPriceId'));
         }
-        if (rawError.includes('invalid_tier')) {
+        if (parsedError.normalizedRawError.includes('invalid_tier')) {
           throw new Error(t('pricing.invalidOffer'));
         }
-        throw new Error(rawError);
+        throw new Error(parsedError.rawError);
       }
 
       const url = (data as { url?: string })?.url;
@@ -290,13 +356,17 @@ export function PricingPage() {
       }
     } catch (err) {
       console.error(err);
-      setError((err as Error).message);
+      const errorMessage = err instanceof Error && err.message
+        ? err.message
+        : t('pricing.checkoutUnavailable');
+      setError(errorMessage);
     }
   };
 
-  const isUserCurrent = currentTier === 'starter';
-  const isProCurrent = currentTier === 'pro';
-  const isEliteCurrent = currentTier === 'elite';
+  const hasActiveProducerSubscription = Boolean(user && profile?.is_producer_active === true);
+  const isUserCurrent = Boolean(user) && !hasActiveProducerSubscription;
+  const isProCurrent = hasActiveProducerSubscription && currentTier === 'pro';
+  const isEliteCurrent = hasActiveProducerSubscription && currentTier === 'elite';
   const proBeatsLimit = typeof proPlan.max_beats_published === 'number' ? proPlan.max_beats_published : 10;
   const proBattlesLimit = typeof proPlan.max_battles_created_per_month === 'number'
     ? proPlan.max_battles_created_per_month
@@ -323,14 +393,7 @@ export function PricingPage() {
     t('subscription.perMonth'),
   );
   const isProCheckoutAvailable =
-    proPlan.is_active &&
-    Boolean(proPlan.stripe_price_id) &&
-    typeof proPlan.amount_cents === 'number' &&
-    Number.isFinite(proPlan.amount_cents);
-  const hasDisplayableProPrice =
-    typeof proPlan.amount_cents === 'number' &&
-    Number.isFinite(proPlan.amount_cents) &&
-    proPlan.amount_cents >= 0;
+    proPlan.is_active;
   const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
   const addToEliteWaitlist = async (rawEmail: string) => {
@@ -482,7 +545,7 @@ export function PricingPage() {
             </ul>
 
             <div className="mt-auto pt-6">
-              {error && !hasDisplayableProPrice && (
+              {error && (
                 <div className="mb-4 text-sm text-red-400 bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">
                   {error}
                 </div>
@@ -492,10 +555,10 @@ export function PricingPage() {
                 className="w-full"
                 variant="primary"
                 size="lg"
-                disabled={isProCurrent || isPlanLoading || !isProCheckoutAvailable}
+                disabled={hasActiveProducerSubscription || isPlanLoading || !isProCheckoutAvailable}
                 onClick={() => void startCheckout('pro')}
               >
-                {isProCurrent ? t('subscription.currentPlan') : t('pricing.becomeProducer')}
+                {hasActiveProducerSubscription ? t('subscription.currentPlan') : t('pricing.becomeProducer')}
               </Button>
             </div>
           </Card>

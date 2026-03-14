@@ -13,6 +13,7 @@ import {
   notifyForumAdmins,
   requireUser,
 } from "../_shared/forumAgents.ts";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 interface CreatePostBody {
   topic_id?: string;
@@ -34,7 +35,7 @@ function mapRpcError(errorMessage: string) {
   }
 }
 
-Deno.serve(async (req: Request): Promise<Response> => {
+serveWithErrorHandling("forum-create-post", async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }

@@ -297,42 +297,13 @@ function toEdgeFunctionErrorMessage(
   return t('admin.battles.edgeUnknownError', { functionName, message: fallbackMessage });
 }
 
-async function invokeEdgeWithFreshJwt(
+async function invokeEdge(
   functionName: 'ai-evaluate-battle' | 'ai-moderate-comment',
   body: Record<string, unknown>
 ) {
-  const sessionRes = await supabase.auth.getSession();
-  const initialToken = sessionRes.data.session?.access_token;
-
-  let result = await supabase.functions.invoke(functionName, {
+  return await supabase.functions.invoke(functionName, {
     body,
-    headers: initialToken ? { Authorization: `Bearer ${initialToken}` } : undefined,
   });
-
-  if (!result.error) {
-    return result;
-  }
-
-  const status = getEdgeFunctionHttpStatus(result.error);
-  const message = result.error instanceof Error ? result.error.message.toLowerCase() : '';
-  const shouldRetryAfterRefresh = status === 401 && message.includes('invalid jwt');
-
-  if (!shouldRetryAfterRefresh) {
-    return result;
-  }
-
-  const refreshRes = await supabase.auth.refreshSession();
-  const refreshedToken = refreshRes.data.session?.access_token;
-  if (refreshRes.error || !refreshedToken) {
-    return result;
-  }
-
-  result = await supabase.functions.invoke(functionName, {
-    body,
-    headers: { Authorization: `Bearer ${refreshedToken}` },
-  });
-
-  return result;
 }
 
 function getProjectRef() {
@@ -1088,7 +1059,7 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
     setError(null);
     setEvaluatingBattleId(battleId);
 
-    const { error: fnError } = await invokeEdgeWithFreshJwt('ai-evaluate-battle', { battleId });
+    const { error: fnError } = await invokeEdge('ai-evaluate-battle', { battleId });
 
     if (fnError) {
       console.error('Edge Function ai-evaluate-battle failed:', fnError);
@@ -1107,7 +1078,7 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
     setError(null);
     setEvaluatingCommentId(commentId);
 
-    const { error: fnError } = await invokeEdgeWithFreshJwt('ai-moderate-comment', { commentId });
+    const { error: fnError } = await invokeEdge('ai-moderate-comment', { commentId });
 
     if (fnError) {
       console.error('Edge Function ai-moderate-comment failed:', fnError);

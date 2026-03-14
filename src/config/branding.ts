@@ -1,7 +1,6 @@
 export const BRAND = {
-  name: 'Beatelion',
+  name: 'BeatElion',
   domain: 'beatelion.com',
   supportEmail: 'support@beatelion.com',
-  legalName: 'Beatelion',
+  legalName: 'BeatElion',
 } as const;
-

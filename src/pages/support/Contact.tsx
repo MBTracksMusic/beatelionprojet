@@ -1,3 +1,4 @@
+import HCaptcha from '@hcaptcha/react-hcaptcha';
 import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Button } from '../../components/ui/Button';
@@ -13,26 +14,37 @@ interface ContactSubmitResponse {
   error?: string;
 }
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_MESSAGE_LENGTH = 20;
+
 export function ContactPage() {
   const { t } = useTranslation();
   const { user, profile } = useAuth();
   const isAuthenticated = Boolean(user);
   const defaultName = profile?.username || '';
   const defaultEmail = user?.email || '';
+  const captchaSiteKey = (import.meta.env.VITE_HCAPTCHA_SITE_KEY as string | undefined)?.trim() ?? '';
+  const isCaptchaConfigured = captchaSiteKey.length > 0;
 
   const [message, setMessage] = useState('');
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail);
+  const [honeypot, setHoneypot] = useState('');
+  const [formStartedAt, setFormStartedAt] = useState<number>(() => Date.now());
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaInstanceKey, setCaptchaInstanceKey] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isValid = useMemo(() => {
-    if (!message.trim() || message.trim().length < 10) return false;
+    if (!isCaptchaConfigured || !captchaToken) return false;
+    if (honeypot.trim().length > 0) return false;
+    if (!message.trim() || message.trim().length < MIN_MESSAGE_LENGTH) return false;
     if (!isAuthenticated) {
-      if (!name.trim()) return false;
-      if (!email.trim()) return false;
+      if (!name.trim() || name.trim().length < 2) return false;
+      if (!EMAIL_REGEX.test(email.trim())) return false;
     }
     return true;
-  }, [email, isAuthenticated, message, name]);
+  }, [captchaToken, email, honeypot, isAuthenticated, isCaptchaConfigured, message, name]);
 
   const resetForm = () => {
     setMessage('');
@@ -42,45 +54,77 @@ export function ContactPage() {
     }
   };
 
+  const resetCaptcha = () => {
+    setCaptchaToken(null);
+    setCaptchaInstanceKey((current) => current + 1);
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!isValid || isSubmitting) return;
+    if (!isCaptchaConfigured) {
+      toast.error(t('support.contact.captchaUnavailable'));
+      return;
+    }
+    if (!captchaToken) {
+      toast.error(t('support.contact.captchaRequired'));
+      return;
+    }
 
     setIsSubmitting(true);
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData.session?.access_token;
-    const resolvedEmail = isAuthenticated ? (defaultEmail || email.trim()) : email.trim();
-    const resolvedName = isAuthenticated
-      ? (defaultName || name.trim() || resolvedEmail.split('@')[0] || 'Member')
-      : name.trim();
+    try {
+      const resolvedEmail = isAuthenticated ? (defaultEmail || email.trim()) : email.trim();
+      const resolvedName = isAuthenticated
+        ? (defaultName || name.trim() || resolvedEmail.split('@')[0] || 'Member')
+        : name.trim();
 
-    const payload = {
-      message: message.trim(),
-      name: resolvedName,
-      email: resolvedEmail,
-    };
+      const payload = {
+        message: message.trim(),
+        name: resolvedName,
+        email: resolvedEmail,
+        captchaToken,
+        company: honeypot,
+        form_started_at: formStartedAt,
+      };
 
-    const { data, error } = await supabase.functions.invoke<ContactSubmitResponse>('contact-submit', {
-      body: payload,
-      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-    });
+      const { data, error } = await supabase.functions.invoke<ContactSubmitResponse>('contact-submit', {
+        body: payload,
+      });
 
-    if (error) {
-      const details = (data as ContactSubmitResponse | null)?.error;
-      toast.error(details || error.message || t('support.contact.submitError'));
+      if (error) {
+        const details = (data as ContactSubmitResponse | null)?.error;
+        toast.error(details || error.message || t('support.contact.submitError'));
+        resetCaptcha();
+        return;
+      }
+
+      if (data?.ok !== true) {
+        toast.error(data?.error || t('support.contact.invalidResponse'));
+        resetCaptcha();
+        return;
+      }
+
+      toast.success(t('support.contact.submitSuccess'));
+      resetForm();
+      setHoneypot('');
+      setFormStartedAt(Date.now());
+      resetCaptcha();
+    } finally {
       setIsSubmitting(false);
-      return;
     }
+  };
 
-    if (data?.ok !== true) {
-      toast.error(data?.error || t('support.contact.invalidResponse'));
-      setIsSubmitting(false);
-      return;
-    }
+  const handleCaptchaVerify = (token: string) => {
+    setCaptchaToken(token);
+  };
 
-    toast.success(t('support.contact.submitSuccess'));
-    resetForm();
-    setIsSubmitting(false);
+  const handleCaptchaExpire = () => {
+    setCaptchaToken(null);
+  };
+
+  const handleCaptchaError = () => {
+    setCaptchaToken(null);
+    toast.error(t('support.contact.captchaUnavailable'));
   };
 
   return (
@@ -119,6 +163,19 @@ export function ContactPage() {
               </div>
             )}
 
+            <div className="sr-only" aria-hidden="true">
+              <label htmlFor="contact-company">Company</label>
+              <input
+                id="contact-company"
+                name="company"
+                type="text"
+                autoComplete="off"
+                tabIndex={-1}
+                value={honeypot}
+                onChange={(event) => setHoneypot(event.target.value)}
+              />
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-zinc-300 mb-1.5" htmlFor="contact-message">
                 {t('common.message')}
@@ -132,6 +189,24 @@ export function ContactPage() {
                 required
               />
             </div>
+
+            {!isCaptchaConfigured && (
+              <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+                {t('support.contact.captchaUnavailable')}
+              </div>
+            )}
+
+            {isCaptchaConfigured && (
+              <div className="space-y-1">
+                <HCaptcha
+                  key={captchaInstanceKey}
+                  sitekey={captchaSiteKey}
+                  onVerify={handleCaptchaVerify}
+                  onExpire={handleCaptchaExpire}
+                  onError={handleCaptchaError}
+                />
+              </div>
+            )}
 
             <div className="flex justify-end">
               <Button type="submit" isLoading={isSubmitting} disabled={!isValid}>

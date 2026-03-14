@@ -380,7 +380,7 @@ export function ProducerBattlesPage() {
 
     const [campaignsRes, applicationsRes] = await Promise.all([
       supabase
-        .from('admin_battle_campaigns' as any)
+        .from('admin_battle_campaigns_public' as any)
         .select(`
           id,
           title,

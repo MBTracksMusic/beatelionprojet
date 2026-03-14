@@ -1,4 +1,7 @@
 import path from "node:path";
+import { createReadStream, createWriteStream } from "node:fs";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 const asNonEmptyString = (value) => {
     if (typeof value !== "string")
         return null;
@@ -12,7 +15,6 @@ const buildKnownBuckets = (config) => [
     "beats-watermarked",
     config.watermarkAssetsBucket,
     "watermark-assets",
-    "beats-audio",
 ].filter((value, index, values) => Boolean(value) && values.indexOf(value) === index);
 export const parseStorageReference = (candidate, fallbackBucket, config) => {
     const raw = candidate.trim();
@@ -79,25 +81,12 @@ export const resolveMasterDownloadSource = async (supabase, product, config) => 
         return null;
     }
     const canonicalExists = await objectExists(supabase, canonicalRef);
-    if (canonicalExists) {
-        return {
-            canonicalRef,
-            downloadRef: canonicalRef,
-            usedLegacyFallback: false,
-        };
-    }
-    const legacyRef = {
-        bucket: config.legacyMasterBucket,
-        path: canonicalRef.path,
-    };
-    const legacyExists = await objectExists(supabase, legacyRef);
-    if (!legacyExists) {
+    if (!canonicalExists) {
         throw new Error(`master_not_found_in_storage:${storageRefToString(canonicalRef)}`);
     }
     return {
         canonicalRef,
-        downloadRef: legacyRef,
-        usedLegacyFallback: true,
+        downloadRef: canonicalRef,
     };
 };
 export const resolvePreviewReference = (product, config) => {
@@ -139,6 +128,35 @@ export const downloadObjectBuffer = async (supabase, ref, maxBytes) => {
     }
     return buffer;
 };
+export const downloadObjectToFile = async (supabase, ref, maxBytes, destinationPath, signal) => {
+    const bucketApi = supabase.storage.from(ref.bucket);
+    const downloader = signal
+        ? bucketApi.download(ref.path, {}, { signal })
+        : bucketApi.download(ref.path);
+    const { data, error } = await downloader.asStream();
+    if (error || !data) {
+        throw new Error(`Failed to stream-download ${storageRefToString(ref)}: ${error?.message ?? "unknown"}`);
+    }
+    const nodeStream = Readable.fromWeb(data);
+    const writer = createWriteStream(destinationPath, { flags: "w" });
+    let totalBytes = 0;
+    nodeStream.on("data", (chunk) => {
+        if (typeof chunk === "string") {
+            totalBytes += Buffer.byteLength(chunk);
+        }
+        else if (chunk instanceof Uint8Array) {
+            totalBytes += chunk.byteLength;
+        }
+        else {
+            totalBytes += Buffer.byteLength(String(chunk));
+        }
+        if (totalBytes > maxBytes) {
+            nodeStream.destroy(new Error(`Object too large for processing: ${storageRefToString(ref)} (${totalBytes} bytes > ${maxBytes})`));
+        }
+    });
+    await pipeline(nodeStream, writer);
+    return totalBytes;
+};
 export const loadWatermarkAsset = async (supabase, config, watermarkPath) => {
     const ref = {
         bucket: config.watermarkAssetsBucket,
@@ -147,14 +165,20 @@ export const loadWatermarkAsset = async (supabase, config, watermarkPath) => {
     const buffer = await downloadObjectBuffer(supabase, ref, config.watermarkMaxBytes);
     return { ref, buffer };
 };
-export const uploadPreviewBuffer = async (supabase, ref, buffer) => {
-    const { error } = await supabase.storage.from(ref.bucket).upload(ref.path, buffer, {
-        contentType: "audio/mpeg",
-        cacheControl: "3600",
-        upsert: true,
-    });
-    if (error) {
-        throw new Error(`Failed to upload ${storageRefToString(ref)}: ${error.message}`);
+export const uploadPreviewFile = async (supabase, ref, filePath) => {
+    const stream = createReadStream(filePath);
+    try {
+        const { error } = await supabase.storage.from(ref.bucket).upload(ref.path, stream, {
+            contentType: "audio/mpeg",
+            cacheControl: "3600",
+            upsert: true,
+        });
+        if (error) {
+            throw new Error(`Failed to upload ${storageRefToString(ref)}: ${error.message}`);
+        }
+    }
+    finally {
+        stream.destroy();
     }
 };
 export const getPublicObjectUrl = (supabase, ref) => supabase.storage.from(ref.bucket).getPublicUrl(ref.path).data.publicUrl;

@@ -2,7 +2,6 @@ import os from "node:os";
 import path from "node:path";
 import type { WorkerConfig } from "./types.js";
 
-const DEFAULT_LEGACY_MASTER_BUCKET = "beats-audio";
 const DEFAULT_WATERMARKED_BUCKET = "beats-watermarked";
 const DEFAULT_WATERMARK_ASSETS_BUCKET = "watermark-assets";
 const DEFAULT_BATCH_LIMIT = 3;
@@ -66,7 +65,6 @@ export const config: WorkerConfig = {
   supabaseUrl: requireEnv("SUPABASE_URL"),
   supabaseServiceRoleKey: resolveServiceRoleKey(),
   masterBucket: resolveMasterBucket(),
-  legacyMasterBucket: parseNonEmpty("LEGACY_BUCKET", DEFAULT_LEGACY_MASTER_BUCKET),
   watermarkedBucket: parseNonEmpty("SUPABASE_WATERMARKED_BUCKET", DEFAULT_WATERMARKED_BUCKET),
   watermarkAssetsBucket: parseNonEmpty(
     "SUPABASE_WATERMARK_ASSETS_BUCKET",
@@ -97,7 +95,6 @@ export const config: WorkerConfig = {
 export const publicConfig = {
   supabaseUrl: config.supabaseUrl,
   masterBucket: config.masterBucket,
-  legacyMasterBucket: config.legacyMasterBucket,
   watermarkedBucket: config.watermarkedBucket,
   watermarkAssetsBucket: config.watermarkAssetsBucket,
   workerId: config.workerId,

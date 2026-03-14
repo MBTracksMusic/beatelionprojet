@@ -38,6 +38,11 @@ interface PublicVisibleProducerRow {
   avatar_url: string | null;
 }
 
+interface PublicSoftProducerRow extends PublicVisibleProducerRow {
+  is_deleted?: boolean;
+  is_producer_active?: boolean;
+}
+
 export function HomeTopProducers() {
   const { t } = useTranslation();
   const [producers, setProducers] = useState<RankedProducer[]>([]);
@@ -97,7 +102,8 @@ export function HomeTopProducers() {
           } else {
             const softRpcRes = await supabase.rpc('get_public_producer_profiles_soft' as any);
             if (!softRpcRes.error && Array.isArray(softRpcRes.data)) {
-              ranking = (softRpcRes.data as PublicVisibleProducerRow[])
+              ranking = (softRpcRes.data as PublicSoftProducerRow[])
+                .filter((row) => row.is_deleted !== true && row.is_producer_active === true)
                 .slice(0, 10)
                 .map((row) => ({
                   id: row.user_id,

@@ -1,10 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, x-supabase-auth",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
 const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
@@ -47,14 +48,12 @@ const createUserClient = (authorizationHeader: string) => {
 };
 
 const requireAdmin = async (req: Request) => {
-  const rawAuthHeader = req.headers.get("x-supabase-auth") || req.headers.get("Authorization");
-  const jwt = rawAuthHeader?.replace(/^Bearer\s+/i, "").trim();
-  if (!jwt) {
+  const authorizationHeader = req.headers.get("Authorization");
+  if (!authorizationHeader) {
     return { error: new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: jsonHeaders }) };
   }
 
   const supabaseAdmin = createAdminClient();
-  const authorizationHeader = rawAuthHeader?.startsWith("Bearer ") ? rawAuthHeader : `Bearer ${jwt}`;
   const supabaseUser = createUserClient(authorizationHeader);
   const { data: authData, error: authError } = await supabaseUser.auth.getUser();
   if (authError || !authData.user) {
@@ -80,7 +79,7 @@ const requireAdmin = async (req: Request) => {
   return { supabaseAdmin, userId: authData.user.id };
 };
 
-Deno.serve(async (req: Request): Promise<Response> => {
+serveWithErrorHandling("enqueue-preview-reprocess", async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }

@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -185,7 +186,7 @@ const extractProductId = (url: URL) => {
   return decodeURIComponent(lastSegment);
 };
 
-Deno.serve(async (req: Request) => {
+serveWithErrorHandling("preview-audio", async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -199,6 +200,7 @@ Deno.serve(async (req: Request) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
 
   if (!supabaseUrl || !serviceRoleKey) {
     console.error("[preview-audio] Missing Supabase env vars");
@@ -222,15 +224,27 @@ Deno.serve(async (req: Request) => {
   const authHeader = req.headers.get("Authorization");
   let authenticatedUserId: string | null = null;
   if (authHeader) {
-    const jwt = authHeader.replace(/^Bearer\s+/i, "").trim();
-    if (!jwt) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
+    if (!anonKey) {
+      console.error("[preview-audio] Missing SUPABASE_ANON_KEY for auth validation");
+      return new Response(JSON.stringify({ error: "Server not configured" }), {
+        status: 500,
         headers: jsonHeaders,
       });
     }
 
-    const { data: authData, error: authError } = await supabaseAdmin.auth.getUser(jwt);
+    const supabaseUser = createClient(supabaseUrl, anonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+      global: {
+        headers: {
+          Authorization: authHeader,
+        },
+      },
+    });
+
+    const { data: authData, error: authError } = await supabaseUser.auth.getUser();
     if (authError || !authData.user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
