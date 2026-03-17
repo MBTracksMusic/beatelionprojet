@@ -6,6 +6,7 @@ const BASE_CORS_HEADERS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
+const CREATE_CHECKOUT_RATE_LIMIT_RPC = "create_checkout_user";
 
 interface CheckoutRequest {
   beatId: string;
@@ -55,6 +56,13 @@ const asNonEmptyString = (value: unknown) => {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 };
+
+const extractAuthorizationHeader = (req: Request) =>
+  req.headers.get("authorization") ?? req.headers.get("Authorization");
+
+const isBearerAuthorizationHeader = (value: string | null): value is string => (
+  typeof value === "string" && /^Bearer\s+\S+$/i.test(value.trim())
+);
 
 const TRUSTED_VERCEL_PREVIEW_ORIGIN_REGEX = /^https:\/\/[a-z0-9-]+-mbtracksmusics-projects\.vercel\.app$/i;
 
@@ -266,7 +274,6 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
   console.log("[create-checkout] request diagnostics", {
     origin: req.headers.get("origin"),
     hasAuthorizationHeader: !!req.headers.get("authorization"),
-    authHeaderPreview: req.headers.get("authorization")?.slice(0, 30) ?? null,
   });
 
   const requestOriginHeader = req.headers.get("origin");
@@ -304,21 +311,16 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
       });
     }
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
+    const authHeader = extractAuthorizationHeader(req);
+    if (!isBearerAuthorizationHeader(authHeader)) {
       return new Response(
-        JSON.stringify({ error: "Missing Authorization header" }),
+        JSON.stringify({ error: "Unauthorized" }),
         {
           status: 401,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         },
       );
     }
-
-    console.log("[create-checkout] auth header received", {
-      hasToken: !!authHeader,
-      prefix: authHeader.slice(0, 20),
-    });
 
     const supabaseUser = createClient(
       supabaseUrl,
@@ -350,7 +352,6 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
       console.error("JWT verification failed", authError);
       return new Response(JSON.stringify({
         error: "Unauthorized",
-        debug: authError?.message ?? null,
       }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -367,6 +368,40 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
         },
       },
     );
+
+    const { data: rateLimitAllowed, error: rateLimitError } = await supabaseAdmin.rpc(
+      "check_rpc_rate_limit",
+      {
+        p_user_id: user.id,
+        p_rpc_name: CREATE_CHECKOUT_RATE_LIMIT_RPC,
+      },
+    );
+
+    if (rateLimitError) {
+      console.error("[create-checkout] Rate limit check failed", {
+        userId: user.id,
+        rpc: CREATE_CHECKOUT_RATE_LIMIT_RPC,
+        rateLimitError,
+      });
+      return new Response(JSON.stringify({ error: "Rate limit unavailable" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (rateLimitAllowed !== true) {
+      return new Response(JSON.stringify({
+        error: "Too many requests",
+        code: "rate_limit_exceeded",
+      }), {
+        status: 429,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+          "Retry-After": "60",
+        },
+      });
+    }
 
     const body: CheckoutRequest = await req.json();
     const {

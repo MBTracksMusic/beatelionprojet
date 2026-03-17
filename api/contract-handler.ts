@@ -4,9 +4,6 @@ import { timingSafeEqual } from "node:crypto";
 import { captureApiException, initApiSentry } from "./_shared/sentry";
 
 const CONTRACT_BUCKET = "contracts";
-const SIGNED_URL_DEFAULT_SECONDS = 60;
-const SIGNED_URL_MIN_SECONDS = 30;
-const SIGNED_URL_MAX_SECONDS = 600;
 const CONTRACT_SERVICE_SECRET = process.env.CONTRACT_SERVICE_SECRET?.trim();
 
 if (!CONTRACT_SERVICE_SECRET) {
@@ -39,23 +36,6 @@ interface ContractData {
   maxStreams: string;
   maxSales: string;
   creditRequired: string;
-}
-
-interface GeneratePayload {
-  purchaseId: string | null;
-  signedUrlExpiresIn: number;
-  contractData: ContractData;
-  buyerIdForPath: string;
-  trackIdForPath: string;
-}
-
-interface SupabaseAuthUser {
-  id: string;
-}
-
-interface PurchaseLookupResult {
-  user_id: string;
-  contract_pdf_path: string | null;
 }
 
 interface PurchaseContractSeed {
@@ -122,14 +102,6 @@ const sanitizePathSegment = (value: string | null, fallback: string): string => 
   return normalized.length > 0 ? normalized : fallback;
 };
 
-const normalizeSignedUrlTtl = (value: unknown): number => {
-  const parsed = asPositiveInteger(value);
-  if (parsed === null) return SIGNED_URL_DEFAULT_SECONDS;
-  if (parsed < SIGNED_URL_MIN_SECONDS) return SIGNED_URL_MIN_SECONDS;
-  if (parsed > SIGNED_URL_MAX_SECONDS) return SIGNED_URL_MAX_SECONDS;
-  return parsed;
-};
-
 const firstHeaderValue = (
   headers: Record<string, string | string[] | undefined> | undefined,
   headerName: string,
@@ -139,11 +111,6 @@ const firstHeaderValue = (
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return value[0] ?? null;
   return null;
-};
-
-const getBearerToken = (rawHeader: string | null): string | null => {
-  if (!rawHeader) return null;
-  return asNonEmptyString(rawHeader.replace(/^Bearer\s+/i, ""));
 };
 
 const normalizeStoragePathCandidate = (candidate: string): string | null => {
@@ -289,19 +256,6 @@ const getSupabaseAdmin = () => {
 
 type SupabaseAdminClient = ReturnType<typeof getSupabaseAdmin>;
 
-const buildStoragePath = (payload: GeneratePayload): string => {
-  const timestamp = Date.now();
-
-  if (payload.purchaseId) {
-    const purchaseIdSegment = sanitizePathSegment(payload.purchaseId, `purchase-${Date.now()}`);
-    return `contracts/${purchaseIdSegment}/${timestamp}.pdf`;
-  }
-
-  const buyerSegment = sanitizePathSegment(payload.buyerIdForPath, "buyer");
-  const trackSegment = sanitizePathSegment(payload.trackIdForPath, "track");
-  return `contracts/${buyerSegment}-${trackSegment}-${timestamp}.pdf`;
-};
-
 const buildPurchaseContractPath = (purchaseId: string): string => {
   const purchaseIdSegment = sanitizePathSegment(purchaseId, `purchase-${Date.now()}`);
   return `contracts/${purchaseIdSegment}/${Date.now()}.pdf`;
@@ -321,65 +275,6 @@ const uploadContractToSupabase = async (
 
   if (error) throw error;
   return storagePath;
-};
-
-const getContractSignedUrl = async (
-  supabase: SupabaseAdminClient,
-  contractPath: string,
-  expiresInSeconds: number,
-) => {
-  const { data, error } = await supabase.storage
-    .from(CONTRACT_BUCKET)
-    .createSignedUrl(contractPath, expiresInSeconds, { download: true });
-
-  if (error || !data?.signedUrl) throw error ?? new Error("Failed to create signed URL");
-  return data.signedUrl;
-};
-
-const extractGeneratePayload = (body: Record<string, unknown>): GeneratePayload | null => {
-  const buyer = asRecord(body.buyer);
-  const track = asRecord(body.track);
-  const license = asRecord(body.license);
-
-  if (!buyer || !track || !license) return null;
-
-  const buyerName = asNonEmptyString(buyer.fullName);
-  const producerName = asNonEmptyString(track.producerName);
-  const trackTitle = asNonEmptyString(track.title);
-  const licenseName = asNonEmptyString(license.name);
-  const purchaseDate = asNonEmptyString(body.purchaseDate) ?? new Date().toLocaleDateString("fr-FR");
-
-  if (!buyerName || !producerName || !trackTitle || !licenseName) return null;
-
-  const youtubeMonetization = yesNo(asBoolean(license.youtubeMonetization));
-  const musicVideoAllowed = yesNo(asBoolean(license.musicVideoAllowed));
-  const maxStreams = formatLimit(asPositiveInteger(license.maxStreams));
-  const maxSales = formatLimit(asPositiveInteger(license.maxSales));
-  const creditRequired = yesNo(asBoolean(license.creditRequired));
-
-  const purchaseId = asNonEmptyString(body.purchaseId);
-  const signedUrlExpiresIn = normalizeSignedUrlTtl(body.signedUrlExpiresIn);
-  const buyerIdForPath = asNonEmptyString(buyer.id) ?? buyerName;
-  const trackIdForPath = asNonEmptyString(track.id) ?? trackTitle;
-
-  return {
-    purchaseId,
-    signedUrlExpiresIn,
-    buyerIdForPath,
-    trackIdForPath,
-    contractData: {
-      producerName,
-      buyerName,
-      trackTitle,
-      purchaseDate,
-      licenseName,
-      youtubeMonetization,
-      musicVideoAllowed,
-      maxStreams,
-      maxSales,
-      creditRequired,
-    },
-  };
 };
 
 const isAuthorized = (
@@ -407,49 +302,6 @@ const isAuthorized = (
   };
 
   return safeEquals(token) || (bearerToken ? safeEquals(bearerToken) : false);
-};
-
-const readQueryParam = (query: Record<string, unknown> | undefined, key: string): string | null => {
-  if (!query) return null;
-  const raw = query[key];
-
-  if (typeof raw === "string") return asNonEmptyString(raw);
-  if (Array.isArray(raw)) return asNonEmptyString(raw[0]);
-  return null;
-};
-
-const authenticateUser = async (
-  supabase: SupabaseAdminClient,
-  headers: Record<string, string | string[] | undefined> | undefined,
-): Promise<SupabaseAuthUser | null> => {
-  const authorizationHeader = firstHeaderValue(headers, "authorization");
-  const jwt = getBearerToken(authorizationHeader);
-  if (!jwt) return null;
-
-  const { data, error } = await supabase.auth.getUser(jwt);
-  if (error || !data.user) return null;
-
-  return { id: data.user.id };
-};
-
-const getPurchaseById = async (
-  supabase: SupabaseAdminClient,
-  purchaseId: string,
-): Promise<PurchaseLookupResult | null> => {
-  const { data, error } = await supabase
-    .from("purchases")
-    .select("user_id, contract_pdf_path")
-    .eq("id", purchaseId)
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) return null;
-  const row = data as { user_id: string; contract_pdf_path: string | null };
-
-  return {
-    user_id: row.user_id,
-    contract_pdf_path: row.contract_pdf_path ?? null,
-  };
 };
 
 const getPurchaseContractSeed = async (
@@ -544,39 +396,9 @@ async function handler(req: ApiRequest, res: ApiResponse) {
 
   try {
     if (method === "GET") {
-      const purchaseId = readQueryParam(req.query, "purchaseId");
-      const signedUrlExpiresIn = normalizeSignedUrlTtl(readQueryParam(req.query, "expiresIn"));
-
-      if (!purchaseId) {
-        return res.status(200).json({ ok: "API detected" });
-      }
-
-      const supabase = getSupabaseAdmin();
-      const authUser = await authenticateUser(supabase, req.headers);
-      if (!authUser) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-
-      const purchase = await getPurchaseById(supabase, purchaseId);
-      if (!purchase) {
-        return res.status(404).json({ error: "Purchase not found" });
-      }
-
-      if (purchase.user_id !== authUser.id) {
-        return res.status(403).json({ error: "Forbidden" });
-      }
-
-      const normalizedPath = purchase.contract_pdf_path
-        ? normalizeStoragePathCandidate(purchase.contract_pdf_path)
-        : null;
-
-      if (!normalizedPath) {
-        return res.status(404).json({ error: "Contract not generated yet" });
-      }
-
-      const signedUrl = await getContractSignedUrl(supabase, normalizedPath, signedUrlExpiresIn);
-      return res.status(200).json({
-        url: signedUrl,
+      return res.status(410).json({
+        error: "deprecated_route",
+        message: "Signed URL delivery moved to /functions/v1/get-contract-url",
       });
     }
 
@@ -600,7 +422,6 @@ async function handler(req: ApiRequest, res: ApiResponse) {
 
     const purchaseIdFromWebhook = asNonEmptyString(body.purchase_id);
     if (purchaseIdFromWebhook) {
-      const signedUrlExpiresIn = normalizeSignedUrlTtl(body.signedUrlExpiresIn);
       const seed = await getPurchaseContractSeed(supabase, purchaseIdFromWebhook);
 
       if (!seed) {
@@ -608,9 +429,11 @@ async function handler(req: ApiRequest, res: ApiResponse) {
       }
 
       if (seed.declaredStoragePath && await storageObjectExists(supabase, seed.declaredStoragePath)) {
-        const signedUrl = await getContractSignedUrl(supabase, seed.declaredStoragePath, signedUrlExpiresIn);
         return res.status(200).json({
-          url: signedUrl,
+          ok: true,
+          generated: false,
+          purchaseId: purchaseIdFromWebhook,
+          contractPath: seed.declaredStoragePath,
         });
       }
 
@@ -643,54 +466,17 @@ async function handler(req: ApiRequest, res: ApiResponse) {
         return res.status(500).json({ error: "contract_persistence_failed" });
       }
 
-      const signedUrl = await getContractSignedUrl(supabase, storagePath, signedUrlExpiresIn);
       return res.status(200).json({
-        url: signedUrl,
+        ok: true,
+        generated: true,
+        purchaseId: purchaseIdFromWebhook,
+        contractPath: storagePath,
       });
     }
 
-    const payload = extractGeneratePayload(body);
-    if (!payload) {
-      return res.status(400).json({
-        error:
-          "Payload invalide. Requis: buyer.fullName, track.producerName, track.title, license.name",
-      });
-    }
-
-    const pdfBuffer = await generateContractPDF(payload.contractData);
-    const storagePath = buildStoragePath(payload);
-    await uploadContractToSupabase(supabase, pdfBuffer, storagePath);
-
-    if (payload.purchaseId) {
-      const { error: updateError } = await supabase
-        .from("purchases")
-        .update({ contract_pdf_path: storagePath })
-        .eq("id", payload.purchaseId);
-
-      if (updateError) {
-        console.error("[api/contracts] Failed to update purchases.contract_pdf_path", {
-          purchaseId: payload.purchaseId,
-          storagePath,
-          updateError,
-        });
-        const { error: cleanupError } = await supabase.storage
-          .from(CONTRACT_BUCKET)
-          .remove([storagePath]);
-        if (cleanupError) {
-          console.error("[api/contracts] Failed to cleanup orphaned contract PDF after DB error", {
-            purchaseId: payload.purchaseId,
-            storagePath,
-            cleanupError,
-          });
-        }
-        return res.status(500).json({ error: "contract_persistence_failed" });
-      }
-    }
-
-    const signedUrl = await getContractSignedUrl(supabase, storagePath, payload.signedUrlExpiresIn);
-
-    return res.status(200).json({
-      url: signedUrl,
+    return res.status(410).json({
+      error: "deprecated_route",
+      message: "Legacy payload path removed. Use purchase_id only.",
     });
   } catch (error) {
     captureApiException(error, {

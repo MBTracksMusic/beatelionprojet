@@ -78,8 +78,8 @@ export function CartPage() {
         body: {
           beatId: firstItem.product_id,
           licenseType: selectedLicenseType,
-          successUrl: `${window.location.origin}/checkout/success`,
-          cancelUrl: `${window.location.origin}/checkout/cancel`,
+          successUrl: `${window.location.origin}/cart?status=success`,
+          cancelUrl: `${window.location.origin}/cart`,
         },
       });
 

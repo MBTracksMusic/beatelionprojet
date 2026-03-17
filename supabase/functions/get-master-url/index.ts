@@ -30,6 +30,13 @@ const asNonEmptyString = (value: unknown) => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+const extractAuthorizationHeader = (req: Request) =>
+  req.headers.get("authorization") ?? req.headers.get("Authorization");
+
+const isBearerAuthorizationHeader = (value: string | null): value is string => (
+  typeof value === "string" && /^Bearer\s+\S+$/i.test(value.trim())
+);
+
 const normalizeExpiresIn = (value: unknown) => {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return DEFAULT_EXPIRES_SECONDS;
@@ -271,8 +278,8 @@ serveWithErrorHandling("get-master-url", async (req: Request) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
+    const authHeader = extractAuthorizationHeader(req);
+    if (!isBearerAuthorizationHeader(authHeader)) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: jsonHeaders,
@@ -302,13 +309,19 @@ serveWithErrorHandling("get-master-url", async (req: Request) => {
     }
 
     const body = (await req.json().catch(() => null)) as {
+      beatId?: unknown;
+      beat_id?: unknown;
       product_id?: unknown;
       expires_in?: unknown;
     } | null;
 
-    const productId = asNonEmptyString(body?.product_id);
+    const productId = (
+      asNonEmptyString(body?.beatId) ??
+      asNonEmptyString(body?.beat_id) ??
+      asNonEmptyString(body?.product_id)
+    );
     if (!productId || !isUuid(productId)) {
-      return new Response(JSON.stringify({ error: "Invalid product_id" }), {
+      return new Response(JSON.stringify({ error: "Invalid beatId" }), {
         status: 400,
         headers: jsonHeaders,
       });

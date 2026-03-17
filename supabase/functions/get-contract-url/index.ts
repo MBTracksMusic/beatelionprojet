@@ -15,12 +15,23 @@ const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
 const CONTRACT_BUCKET = "contracts";
 const CONTRACT_SIGNED_URL_TTL_SECONDS = 60;
 const CONTRACT_URL_USER_RATE_LIMIT_RPC = "get_contract_url_user";
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const asNonEmptyString = (value: unknown) => {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 };
+
+const isUuid = (value: string) => UUID_RE.test(value);
+
+const extractAuthorizationHeader = (req: Request) =>
+  req.headers.get("authorization") ?? req.headers.get("Authorization");
+
+const isBearerAuthorizationHeader = (value: string | null): value is string => (
+  typeof value === "string" && /^Bearer\s+\S+$/i.test(value.trim())
+);
 
 type MaybeMany<T> = T | T[] | null | undefined;
 
@@ -466,8 +477,8 @@ serveWithErrorHandling("get-contract-url", async (req: Request) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
+    const authHeader = extractAuthorizationHeader(req);
+    if (!isBearerAuthorizationHeader(authHeader)) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: jsonHeaders,
@@ -495,11 +506,23 @@ serveWithErrorHandling("get-contract-url", async (req: Request) => {
       });
     }
 
-    const body = await req.json().catch(() => null) as { purchase_id?: unknown } | null;
+    const body = await req.json().catch(() => null) as {
+      purchase_id?: unknown;
+      beatId?: unknown;
+      beat_id?: unknown;
+    } | null;
     const purchaseId = asNonEmptyString(body?.purchase_id);
+    const beatId = asNonEmptyString(body?.beatId) ?? asNonEmptyString(body?.beat_id);
 
-    if (!purchaseId) {
-      return new Response(JSON.stringify({ error: "Missing purchase_id" }), {
+    if (!purchaseId || !isUuid(purchaseId)) {
+      return new Response(JSON.stringify({ error: "Invalid purchase_id" }), {
+        status: 400,
+        headers: jsonHeaders,
+      });
+    }
+
+    if (beatId && !isUuid(beatId)) {
+      return new Response(JSON.stringify({ error: "Invalid beatId" }), {
         status: 400,
         headers: jsonHeaders,
       });
@@ -507,7 +530,7 @@ serveWithErrorHandling("get-contract-url", async (req: Request) => {
 
     const { data: purchase, error: purchaseError } = await supabaseAdmin
       .from("purchases")
-      .select("id, user_id, contract_pdf_path")
+      .select("id, user_id, product_id, status, contract_pdf_path")
       .eq("id", purchaseId)
       .maybeSingle();
 
@@ -527,6 +550,20 @@ serveWithErrorHandling("get-contract-url", async (req: Request) => {
     }
 
     if (purchase.user_id !== authData.user.id) {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: jsonHeaders,
+      });
+    }
+
+    if (purchase.status !== "completed") {
+      return new Response(JSON.stringify({ error: "Forbidden" }), {
+        status: 403,
+        headers: jsonHeaders,
+      });
+    }
+
+    if (beatId && purchase.product_id !== beatId) {
       return new Response(JSON.stringify({ error: "Forbidden" }), {
         status: 403,
         headers: jsonHeaders,

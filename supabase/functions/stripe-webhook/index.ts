@@ -922,6 +922,10 @@ async function handleCheckoutCompleted(
   const metadataLicenseId = asNonEmptyString(metadata.license_id);
   const metadataLicenseName = asNonEmptyString(metadata.license_name);
   const licenseType = asNonEmptyString(metadata.license_type) || metadataLicenseName || "standard";
+  const metadataDbPriceRaw = asNonEmptyString(metadata.db_price);
+  const metadataDbPrice = metadataDbPriceRaw && /^\d+$/.test(metadataDbPriceRaw)
+    ? Number.parseInt(metadataDbPriceRaw, 10)
+    : null;
 
   const paymentIntentId =
     typeof session.payment_intent === "string"
@@ -930,8 +934,23 @@ async function handleCheckoutCompleted(
 
   const amountTotal = session.amount_total;
 
-  if (!userId || !productId || !paymentIntentId || amountTotal === null) {
+  if (
+    !userId ||
+    !productId ||
+    !paymentIntentId ||
+    amountTotal === null ||
+    !Number.isSafeInteger(amountTotal) ||
+    amountTotal <= 0
+  ) {
     throw new WebhookError("Missing secure checkout metadata for purchase completion", 400, true);
+  }
+
+  if (metadataDbPrice === null || metadataDbPrice !== amountTotal) {
+    throw new WebhookError(
+      `Checkout amount mismatch (expected ${metadataDbPrice ?? "unknown"}, got ${amountTotal})`,
+      400,
+      true,
+    );
   }
 
   // Primary licensing flow:
