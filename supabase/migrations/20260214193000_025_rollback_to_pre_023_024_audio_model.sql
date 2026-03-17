@@ -101,13 +101,78 @@ $$;
 ALTER TABLE public.products
   ADD COLUMN IF NOT EXISTS master_url text;
 
-UPDATE public.products
-SET master_url = COALESCE(master_url, master_path, watermarked_path, preview_url, exclusive_preview_url)
-WHERE master_url IS NULL;
+DO $$
+DECLARE
+  has_master_path boolean;
+  has_watermarked_path boolean;
+  has_preview_url boolean;
+  has_exclusive_preview_url boolean;
+  master_url_coalesce_args text := 'master_url';
+  preview_url_coalesce_args text := 'preview_url';
+BEGIN
+  SELECT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'products'
+      AND column_name = 'master_path'
+  ) INTO has_master_path;
 
-UPDATE public.products
-SET preview_url = COALESCE(preview_url, watermarked_path, master_url)
-WHERE preview_url IS NULL;
+  SELECT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'products'
+      AND column_name = 'watermarked_path'
+  ) INTO has_watermarked_path;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'products'
+      AND column_name = 'preview_url'
+  ) INTO has_preview_url;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'products'
+      AND column_name = 'exclusive_preview_url'
+  ) INTO has_exclusive_preview_url;
+
+  IF has_master_path THEN
+    master_url_coalesce_args := master_url_coalesce_args || ', master_path';
+  END IF;
+  IF has_watermarked_path THEN
+    master_url_coalesce_args := master_url_coalesce_args || ', watermarked_path';
+  END IF;
+  IF has_preview_url THEN
+    master_url_coalesce_args := master_url_coalesce_args || ', preview_url';
+  END IF;
+  IF has_exclusive_preview_url THEN
+    master_url_coalesce_args := master_url_coalesce_args || ', exclusive_preview_url';
+  END IF;
+
+  EXECUTE format(
+    'UPDATE public.products SET master_url = COALESCE(%s) WHERE master_url IS NULL',
+    master_url_coalesce_args
+  );
+
+  IF has_preview_url THEN
+    IF has_watermarked_path THEN
+      preview_url_coalesce_args := preview_url_coalesce_args || ', watermarked_path';
+    END IF;
+    preview_url_coalesce_args := preview_url_coalesce_args || ', master_url';
+
+    EXECUTE format(
+      'UPDATE public.products SET preview_url = COALESCE(%s) WHERE preview_url IS NULL',
+      preview_url_coalesce_args
+    );
+  END IF;
+END
+$$;
 
 -- If master_path exists and was revoked in 023/024, restore visibility for client roles
 DO $$

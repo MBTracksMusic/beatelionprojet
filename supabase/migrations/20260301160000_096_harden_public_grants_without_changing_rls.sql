@@ -82,8 +82,29 @@ END
 $$;
 
 -- Legacy rollback migration granted these sensitive columns to PUBLIC.
-REVOKE SELECT(master_path) ON TABLE public.products FROM PUBLIC;
-REVOKE SELECT(master_url) ON TABLE public.products FROM PUBLIC;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'products'
+      AND column_name = 'master_path'
+  ) THEN
+    EXECUTE 'REVOKE SELECT(master_path) ON TABLE public.products FROM PUBLIC';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'products'
+      AND column_name = 'master_url'
+  ) THEN
+    EXECUTE 'REVOKE SELECT(master_url) ON TABLE public.products FROM PUBLIC';
+  END IF;
+END
+$$;
 
 -- ---------------------------------------------------------------------------
 -- 2) public_products: safe projection stays readable to client roles, not PUBLIC

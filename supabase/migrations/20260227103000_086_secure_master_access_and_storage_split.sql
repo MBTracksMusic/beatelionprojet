@@ -17,9 +17,21 @@ BEGIN;
 -- ---------------------------------------------------------------------------
 
 -- Explicitly remove direct master column visibility for client roles.
-REVOKE SELECT(master_path) ON TABLE public.products FROM PUBLIC;
-REVOKE SELECT(master_path) ON TABLE public.products FROM anon;
-REVOKE SELECT(master_path) ON TABLE public.products FROM authenticated;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'products'
+      AND column_name = 'master_path'
+  ) THEN
+    EXECUTE 'REVOKE SELECT(master_path) ON TABLE public.products FROM PUBLIC';
+    EXECUTE 'REVOKE SELECT(master_path) ON TABLE public.products FROM anon';
+    EXECUTE 'REVOKE SELECT(master_path) ON TABLE public.products FROM authenticated';
+  END IF;
+END
+$$;
 
 REVOKE SELECT(master_url) ON TABLE public.products FROM PUBLIC;
 REVOKE SELECT(master_url) ON TABLE public.products FROM anon;
@@ -82,40 +94,104 @@ END
 $$;
 
 -- Optional safe projection for future public reads.
-CREATE OR REPLACE VIEW public.public_products
-WITH (security_invoker = true)
-AS
-SELECT
-  id,
-  producer_id,
-  title,
-  slug,
-  description,
-  product_type,
-  genre_id,
-  mood_id,
-  bpm,
-  key_signature,
-  price,
-  watermarked_path,
-  preview_url,
-  exclusive_preview_url,
-  cover_image_url,
-  is_exclusive,
-  is_sold,
-  sold_at,
-  sold_to_user_id,
-  is_published,
-  play_count,
-  tags,
-  duration_seconds,
-  file_format,
-  license_terms,
-  watermark_profile_id,
-  created_at,
-  updated_at,
-  deleted_at
-FROM public.products;
+DO $$
+DECLARE
+  has_watermarked_path boolean;
+  safe_columns text;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'products'
+      AND column_name = 'watermarked_path'
+  ) INTO has_watermarked_path;
+
+  IF has_watermarked_path THEN
+    SELECT string_agg(format('%I', c.column_name), ', ' ORDER BY c.ordinal_position)
+    INTO safe_columns
+    FROM information_schema.columns c
+    WHERE c.table_schema = 'public'
+      AND c.table_name = 'products'
+      AND c.column_name = ANY (ARRAY[
+        'id',
+        'producer_id',
+        'title',
+        'slug',
+        'description',
+        'product_type',
+        'genre_id',
+        'mood_id',
+        'bpm',
+        'key_signature',
+        'price',
+        'watermarked_path',
+        'preview_url',
+        'exclusive_preview_url',
+        'cover_image_url',
+        'is_exclusive',
+        'is_sold',
+        'sold_at',
+        'sold_to_user_id',
+        'is_published',
+        'play_count',
+        'tags',
+        'duration_seconds',
+        'file_format',
+        'license_terms',
+        'watermark_profile_id',
+        'created_at',
+        'updated_at',
+        'deleted_at'
+      ]);
+  ELSE
+    SELECT string_agg(format('%I', c.column_name), ', ' ORDER BY c.ordinal_position)
+    INTO safe_columns
+    FROM information_schema.columns c
+    WHERE c.table_schema = 'public'
+      AND c.table_name = 'products'
+      AND c.column_name = ANY (ARRAY[
+        'id',
+        'producer_id',
+        'title',
+        'slug',
+        'description',
+        'product_type',
+        'genre_id',
+        'mood_id',
+        'bpm',
+        'key_signature',
+        'price',
+        'preview_url',
+        'exclusive_preview_url',
+        'cover_image_url',
+        'is_exclusive',
+        'is_sold',
+        'sold_at',
+        'sold_to_user_id',
+        'is_published',
+        'play_count',
+        'tags',
+        'duration_seconds',
+        'file_format',
+        'license_terms',
+        'watermark_profile_id',
+        'created_at',
+        'updated_at',
+        'deleted_at'
+      ]);
+  END IF;
+
+  IF safe_columns IS NULL THEN
+    RAISE EXCEPTION 'No safe columns found for public.public_products';
+  END IF;
+
+  EXECUTE format(
+    'CREATE OR REPLACE VIEW public.public_products WITH (security_invoker = true) AS SELECT %s FROM public.products',
+    safe_columns
+  );
+END
+$$;
 
 GRANT SELECT ON TABLE public.public_products TO PUBLIC;
 GRANT SELECT ON TABLE public.public_products TO anon;

@@ -160,7 +160,7 @@ DO $$ BEGIN
     AND tablename = 'purchases'
     AND policyname = 'Users can view own purchases'
   ) THEN
-    DROP POLICY IF EXISTS "Users can view own purchases" ON purchases FOR SELECT;
+    DROP POLICY IF EXISTS "Users can view own purchases" ON purchases;
     CREATE POLICY "Users can view own purchases"
       ON purchases FOR SELECT
       TO authenticated
@@ -176,7 +176,7 @@ DO $$ BEGIN
     AND tablename = 'purchases'
     AND policyname = 'Producers can view sales of their products'
   ) THEN
-    DROP POLICY IF EXISTS "Producers can view sales of their products" ON purchases FOR SELECT;
+    DROP POLICY IF EXISTS "Producers can view sales of their products" ON purchases;
     CREATE POLICY "Producers can view sales of their products"
       ON purchases FOR SELECT
       TO authenticated
@@ -194,7 +194,7 @@ DO $$ BEGIN
     AND tablename = 'entitlements'
     AND policyname = 'Users can view own entitlements'
   ) THEN
-    DROP POLICY IF EXISTS "Users can view own entitlements" ON entitlements FOR SELECT;
+    DROP POLICY IF EXISTS "Users can view own entitlements" ON entitlements;
     CREATE POLICY "Users can view own entitlements"
       ON entitlements FOR SELECT
       TO authenticated
@@ -212,7 +212,7 @@ DO $$ BEGIN
     AND tablename = 'exclusive_locks'
     AND policyname = 'Users can view own locks'
   ) THEN
-    DROP POLICY IF EXISTS "Users can view own locks" ON exclusive_locks FOR SELECT;
+    DROP POLICY IF EXISTS "Users can view own locks" ON exclusive_locks;
     CREATE POLICY "Users can view own locks"
       ON exclusive_locks FOR SELECT
       TO authenticated
@@ -230,7 +230,7 @@ DO $$ BEGIN
     AND tablename = 'download_logs'
     AND policyname = 'Users can view own download logs'
   ) THEN
-    DROP POLICY IF EXISTS "Users can view own download logs" ON download_logs FOR SELECT;
+    DROP POLICY IF EXISTS "Users can view own download logs" ON download_logs;
     CREATE POLICY "Users can view own download logs"
       ON download_logs FOR SELECT
       TO authenticated

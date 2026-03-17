@@ -152,15 +152,54 @@ CREATE TRIGGER populate_purchase_snapshots_trigger
   FOR EACH ROW
   EXECUTE FUNCTION public.populate_purchase_snapshots();
 
+DO $$
+DECLARE
+  has_master_path boolean;
+  has_watermarked_path boolean;
+  sql_text text;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'products'
+      AND column_name = 'master_path'
+  ) INTO has_master_path;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'products'
+      AND column_name = 'watermarked_path'
+  ) INTO has_watermarked_path;
+
+  sql_text := $sql$
 UPDATE public.purchases pu
 SET
   beat_title_snapshot = COALESCE(NULLIF(btrim(pu.beat_title_snapshot), ''), p.title),
   beat_slug_snapshot = COALESCE(NULLIF(btrim(pu.beat_slug_snapshot), ''), p.slug),
   audio_path_snapshot = COALESCE(
-    NULLIF(btrim(pu.audio_path_snapshot), ''),
-    NULLIF(btrim(COALESCE(p.master_path, '')), ''),
-    NULLIF(btrim(COALESCE(p.master_url, '')), ''),
-    NULLIF(btrim(COALESCE(p.watermarked_path, '')), ''),
+    NULLIF(btrim(pu.audio_path_snapshot), '')
+$sql$;
+
+  IF has_master_path THEN
+    sql_text := sql_text || $sql$,
+    NULLIF(btrim(COALESCE(p.master_path, '')), '')
+$sql$;
+  END IF;
+
+  sql_text := sql_text || $sql$,
+    NULLIF(btrim(COALESCE(p.master_url, '')), '')
+$sql$;
+
+  IF has_watermarked_path THEN
+    sql_text := sql_text || $sql$,
+    NULLIF(btrim(COALESCE(p.watermarked_path, '')), '')
+$sql$;
+  END IF;
+
+  sql_text := sql_text || $sql$,
     NULLIF(btrim(COALESCE(p.preview_url, '')), '')
   ),
   cover_image_url_snapshot = COALESCE(
@@ -199,7 +238,12 @@ SET
   )
 FROM public.products p
 LEFT JOIN public.user_profiles up ON up.id = p.producer_id
-WHERE p.id = pu.product_id;
+WHERE p.id = pu.product_id
+$sql$;
+
+  EXECUTE sql_text;
+END
+$$;
 
 DROP POLICY IF EXISTS "Anyone can view published products" ON public.products;
 CREATE POLICY "Anyone can view published products"

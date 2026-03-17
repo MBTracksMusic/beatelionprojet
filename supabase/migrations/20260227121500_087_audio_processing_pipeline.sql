@@ -139,26 +139,84 @@ GRANT SELECT (processing_status, processing_error, preview_version, processed_at
 GRANT SELECT (processing_status, processing_error, preview_version, processed_at, watermarked_bucket)
   ON TABLE public.products TO service_role;
 
-UPDATE public.products
-SET
-  processing_status = CASE
-    WHEN coalesce(nullif(btrim(coalesce(watermarked_path, '')), ''), nullif(btrim(coalesce(preview_url, '')), ''), nullif(btrim(coalesce(exclusive_preview_url, '')), '')) IS NOT NULL
-      THEN 'done'
-    ELSE 'pending'
-  END,
-  processing_error = CASE
-    WHEN coalesce(nullif(btrim(coalesce(watermarked_path, '')), ''), nullif(btrim(coalesce(preview_url, '')), ''), nullif(btrim(coalesce(exclusive_preview_url, '')), '')) IS NOT NULL
-      THEN NULL
-    ELSE processing_error
-  END,
-  preview_version = GREATEST(COALESCE(preview_version, 1), 1),
-  processed_at = CASE
-    WHEN processed_at IS NULL
-      AND coalesce(nullif(btrim(coalesce(watermarked_path, '')), ''), nullif(btrim(coalesce(preview_url, '')), ''), nullif(btrim(coalesce(exclusive_preview_url, '')), '')) IS NOT NULL
-      THEN updated_at
-    ELSE processed_at
-  END,
-  watermarked_bucket = COALESCE(NULLIF(btrim(COALESCE(watermarked_bucket, '')), ''), 'beats-watermarked');
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'products'
+      AND column_name = 'watermarked_path'
+  ) THEN
+    EXECUTE $sql$
+      UPDATE public.products
+      SET
+        processing_status = CASE
+          WHEN coalesce(
+            nullif(btrim(coalesce(watermarked_path, '')), ''),
+            nullif(btrim(coalesce(preview_url, '')), ''),
+            nullif(btrim(coalesce(exclusive_preview_url, '')), '')
+          ) IS NOT NULL
+            THEN 'done'
+          ELSE 'pending'
+        END,
+        processing_error = CASE
+          WHEN coalesce(
+            nullif(btrim(coalesce(watermarked_path, '')), ''),
+            nullif(btrim(coalesce(preview_url, '')), ''),
+            nullif(btrim(coalesce(exclusive_preview_url, '')), '')
+          ) IS NOT NULL
+            THEN NULL
+          ELSE processing_error
+        END,
+        preview_version = GREATEST(COALESCE(preview_version, 1), 1),
+        processed_at = CASE
+          WHEN processed_at IS NULL
+            AND coalesce(
+              nullif(btrim(coalesce(watermarked_path, '')), ''),
+              nullif(btrim(coalesce(preview_url, '')), ''),
+              nullif(btrim(coalesce(exclusive_preview_url, '')), '')
+            ) IS NOT NULL
+            THEN updated_at
+          ELSE processed_at
+        END,
+        watermarked_bucket = COALESCE(NULLIF(btrim(COALESCE(watermarked_bucket, '')), ''), 'beats-watermarked')
+    $sql$;
+  ELSE
+    EXECUTE $sql$
+      UPDATE public.products
+      SET
+        processing_status = CASE
+          WHEN coalesce(
+            nullif(btrim(coalesce(preview_url, '')), ''),
+            nullif(btrim(coalesce(exclusive_preview_url, '')), '')
+          ) IS NOT NULL
+            THEN 'done'
+          ELSE 'pending'
+        END,
+        processing_error = CASE
+          WHEN coalesce(
+            nullif(btrim(coalesce(preview_url, '')), ''),
+            nullif(btrim(coalesce(exclusive_preview_url, '')), '')
+          ) IS NOT NULL
+            THEN NULL
+          ELSE processing_error
+        END,
+        preview_version = GREATEST(COALESCE(preview_version, 1), 1),
+        processed_at = CASE
+          WHEN processed_at IS NULL
+            AND coalesce(
+              nullif(btrim(coalesce(preview_url, '')), ''),
+              nullif(btrim(coalesce(exclusive_preview_url, '')), '')
+            ) IS NOT NULL
+            THEN updated_at
+          ELSE processed_at
+        END,
+        watermarked_bucket = COALESCE(NULLIF(btrim(COALESCE(watermarked_bucket, '')), ''), 'beats-watermarked')
+    $sql$;
+  END IF;
+END
+$$;
 
 -- ---------------------------------------------------------------------------
 -- 3) Queue table for preview generation/reprocessing

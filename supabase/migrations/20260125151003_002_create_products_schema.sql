@@ -168,7 +168,7 @@ BEGIN
       AND tablename = 'genres'
       AND policyname = 'Anyone can view active genres'
   ) THEN
-    DROP POLICY IF EXISTS "Anyone can view active genres" ON genres FOR SELECT;
+    DROP POLICY IF EXISTS "Anyone can view active genres" ON genres;
     CREATE POLICY "Anyone can view active genres"
       ON genres FOR SELECT
       USING (is_active = true);
@@ -186,7 +186,7 @@ BEGIN
       AND tablename = 'moods'
       AND policyname = 'Anyone can view active moods'
   ) THEN
-    DROP POLICY IF EXISTS "Anyone can view active moods" ON moods FOR SELECT;
+    DROP POLICY IF EXISTS "Anyone can view active moods" ON moods;
     CREATE POLICY "Anyone can view active moods"
       ON moods FOR SELECT
       USING (is_active = true);
@@ -206,7 +206,7 @@ BEGIN
       AND tablename = 'products'
       AND policyname = 'Anyone can view published products'
   ) THEN
-    DROP POLICY IF EXISTS "Anyone can view published products" ON products FOR SELECT;
+    DROP POLICY IF EXISTS "Anyone can view published products" ON products;
     CREATE POLICY "Anyone can view published products"
       ON products FOR SELECT
       USING (
@@ -227,7 +227,7 @@ BEGIN
       AND tablename = 'products'
       AND policyname = 'Producers can view own products'
   ) THEN
-    DROP POLICY IF EXISTS "Producers can view own products" ON products FOR SELECT;
+    DROP POLICY IF EXISTS "Producers can view own products" ON products;
     CREATE POLICY "Producers can view own products"
       ON products FOR SELECT
       TO authenticated
@@ -246,7 +246,7 @@ BEGIN
       AND tablename = 'products'
       AND policyname = 'Active producers can create products'
   ) THEN
-    DROP POLICY IF EXISTS "Active producers can create products" ON products FOR INSERT;
+    DROP POLICY IF EXISTS "Active producers can create products" ON products;
     CREATE POLICY "Active producers can create products"
       ON products FOR INSERT
       TO authenticated
@@ -272,7 +272,7 @@ BEGIN
       AND tablename = 'products'
       AND policyname = 'Producers can update own unsold products'
   ) THEN
-    DROP POLICY IF EXISTS "Producers can update own unsold products" ON products FOR UPDATE;
+    DROP POLICY IF EXISTS "Producers can update own unsold products" ON products;
     CREATE POLICY "Producers can update own unsold products"
       ON products FOR UPDATE
       TO authenticated
@@ -297,7 +297,7 @@ BEGIN
       AND tablename = 'products'
       AND policyname = 'Producers can delete own unsold products'
   ) THEN
-    DROP POLICY IF EXISTS "Producers can delete own unsold products" ON products FOR DELETE;
+    DROP POLICY IF EXISTS "Producers can delete own unsold products" ON products;
     CREATE POLICY "Producers can delete own unsold products"
       ON products FOR DELETE
       TO authenticated
@@ -321,7 +321,7 @@ BEGIN
       AND tablename = 'product_files'
       AND policyname = 'Producers can view own product files'
   ) THEN
-    DROP POLICY IF EXISTS "Producers can view own product files" ON product_files FOR SELECT;
+    DROP POLICY IF EXISTS "Producers can view own product files" ON product_files;
     CREATE POLICY "Producers can view own product files"
       ON product_files FOR SELECT
       TO authenticated
@@ -346,7 +346,7 @@ BEGIN
       AND tablename = 'product_files'
       AND policyname = 'Active producers can add product files'
   ) THEN
-    DROP POLICY IF EXISTS "Active producers can add product files" ON product_files FOR INSERT;
+    DROP POLICY IF EXISTS "Active producers can add product files" ON product_files;
     CREATE POLICY "Active producers can add product files"
       ON product_files FOR INSERT
       TO authenticated
@@ -373,7 +373,7 @@ BEGIN
       AND tablename = 'product_files'
       AND policyname = 'Producers can delete own product files'
   ) THEN
-    DROP POLICY IF EXISTS "Producers can delete own product files" ON product_files FOR DELETE;
+    DROP POLICY IF EXISTS "Producers can delete own product files" ON product_files;
     CREATE POLICY "Producers can delete own product files"
       ON product_files FOR DELETE
       TO authenticated

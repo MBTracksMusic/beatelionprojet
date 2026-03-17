@@ -166,7 +166,7 @@ DO $$ BEGIN
     AND tablename = 'audit_logs'
     AND policyname = 'Users can view own audit logs'
   ) THEN
-    DROP POLICY IF EXISTS "Users can view own audit logs" ON audit_logs FOR SELECT;
+    DROP POLICY IF EXISTS "Users can view own audit logs" ON audit_logs;
     CREATE POLICY "Users can view own audit logs"
   ON audit_logs FOR SELECT
   TO authenticated
@@ -183,7 +183,7 @@ DO $$ BEGIN
     AND tablename = 'preview_access_logs'
     AND policyname = 'Users can view own preview access logs'
   ) THEN
-    DROP POLICY IF EXISTS "Users can view own preview access logs" ON preview_access_logs FOR SELECT;
+    DROP POLICY IF EXISTS "Users can view own preview access logs" ON preview_access_logs;
     CREATE POLICY "Users can view own preview access logs"
   ON preview_access_logs FOR SELECT
   TO authenticated
@@ -199,7 +199,7 @@ DO $$ BEGIN
     AND tablename = 'cart_items'
     AND policyname = 'Users can view own cart'
   ) THEN
-    DROP POLICY IF EXISTS "Users can view own cart" ON cart_items FOR SELECT;
+    DROP POLICY IF EXISTS "Users can view own cart" ON cart_items;
     CREATE POLICY "Users can view own cart"
   ON cart_items FOR SELECT
   TO authenticated
@@ -214,7 +214,7 @@ DO $$ BEGIN
     AND tablename = 'cart_items'
     AND policyname = 'Users can add to cart'
   ) THEN
-    DROP POLICY IF EXISTS "Users can add to cart" ON cart_items FOR INSERT;
+    DROP POLICY IF EXISTS "Users can add to cart" ON cart_items;
     CREATE POLICY "Users can add to cart"
   ON cart_items FOR INSERT
   TO authenticated
@@ -237,7 +237,7 @@ DO $$ BEGIN
     AND tablename = 'cart_items'
     AND policyname = 'Users can remove from cart'
   ) THEN
-    DROP POLICY IF EXISTS "Users can remove from cart" ON cart_items FOR DELETE;
+    DROP POLICY IF EXISTS "Users can remove from cart" ON cart_items;
     CREATE POLICY "Users can remove from cart"
   ON cart_items FOR DELETE
   TO authenticated
@@ -253,7 +253,7 @@ DO $$ BEGIN
     AND tablename = 'wishlists'
     AND policyname = 'Users can view own wishlist'
   ) THEN
-    DROP POLICY IF EXISTS "Users can view own wishlist" ON wishlists FOR SELECT;
+    DROP POLICY IF EXISTS "Users can view own wishlist" ON wishlists;
     CREATE POLICY "Users can view own wishlist"
   ON wishlists FOR SELECT
   TO authenticated
@@ -268,7 +268,7 @@ DO $$ BEGIN
     AND tablename = 'wishlists'
     AND policyname = 'Users can add to wishlist'
   ) THEN
-    DROP POLICY IF EXISTS "Users can add to wishlist" ON wishlists FOR INSERT;
+    DROP POLICY IF EXISTS "Users can add to wishlist" ON wishlists;
     CREATE POLICY "Users can add to wishlist"
   ON wishlists FOR INSERT
   TO authenticated
@@ -283,7 +283,7 @@ DO $$ BEGIN
     AND tablename = 'wishlists'
     AND policyname = 'Users can remove from wishlist'
   ) THEN
-    DROP POLICY IF EXISTS "Users can remove from wishlist" ON wishlists FOR DELETE;
+    DROP POLICY IF EXISTS "Users can remove from wishlist" ON wishlists;
     CREATE POLICY "Users can remove from wishlist"
   ON wishlists FOR DELETE
   TO authenticated

@@ -37,11 +37,9 @@ CREATE INDEX IF NOT EXISTS idx_user_profiles_engagement_score
   ON public.user_profiles (engagement_score DESC);
 
 CREATE INDEX IF NOT EXISTS idx_battles_status_response_deadline
-  ON public.battles (status, response_deadline)
-  WHERE status = 'pending_acceptance';
+  ON public.battles (status, response_deadline);
 
 CREATE INDEX IF NOT EXISTS idx_battles_status_awaiting_admin
-  ON public.battles (status, created_at DESC)
-  WHERE status = 'awaiting_admin';
+  ON public.battles (status, created_at DESC);
 
 COMMIT;

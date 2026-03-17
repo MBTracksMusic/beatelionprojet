@@ -153,83 +153,62 @@ REVOKE SELECT ON TABLE public.products FROM PUBLIC;
 REVOKE SELECT ON TABLE public.products FROM anon;
 REVOKE SELECT ON TABLE public.products FROM authenticated;
 
-GRANT SELECT (
-  id,
-  producer_id,
-  title,
-  slug,
-  description,
-  product_type,
-  genre_id,
-  mood_id,
-  bpm,
-  key_signature,
-  price,
-  watermarked_path,
-  watermarked_bucket,
-  preview_url,
-  exclusive_preview_url,
-  cover_image_url,
-  is_exclusive,
-  is_sold,
-  sold_at,
-  sold_to_user_id,
-  is_published,
-  play_count,
-  tags,
-  duration_seconds,
-  file_format,
-  license_terms,
-  watermark_profile_id,
-  created_at,
-  updated_at,
-  deleted_at,
-  status,
-  version,
-  original_beat_id,
-  version_number,
-  parent_product_id,
-  archived_at
-) ON TABLE public.products TO anon;
+DO $$
+DECLARE
+  safe_columns text;
+BEGIN
+  SELECT string_agg(format('%I', c.column_name), ', ' ORDER BY c.ordinal_position)
+  INTO safe_columns
+  FROM information_schema.columns c
+  WHERE c.table_schema = 'public'
+    AND c.table_name = 'products'
+    AND c.column_name = ANY (ARRAY[
+      'id',
+      'producer_id',
+      'title',
+      'slug',
+      'description',
+      'product_type',
+      'genre_id',
+      'mood_id',
+      'bpm',
+      'key_signature',
+      'price',
+      'watermarked_path',
+      'watermarked_bucket',
+      'preview_url',
+      'exclusive_preview_url',
+      'cover_image_url',
+      'is_exclusive',
+      'is_sold',
+      'sold_at',
+      'sold_to_user_id',
+      'is_published',
+      'play_count',
+      'tags',
+      'duration_seconds',
+      'file_format',
+      'license_terms',
+      'watermark_profile_id',
+      'created_at',
+      'updated_at',
+      'deleted_at',
+      'status',
+      'version',
+      'original_beat_id',
+      'version_number',
+      'parent_product_id',
+      'archived_at'
+    ]);
 
-GRANT SELECT (
-  id,
-  producer_id,
-  title,
-  slug,
-  description,
-  product_type,
-  genre_id,
-  mood_id,
-  bpm,
-  key_signature,
-  price,
-  watermarked_path,
-  watermarked_bucket,
-  preview_url,
-  exclusive_preview_url,
-  cover_image_url,
-  is_exclusive,
-  is_sold,
-  sold_at,
-  sold_to_user_id,
-  is_published,
-  play_count,
-  tags,
-  duration_seconds,
-  file_format,
-  license_terms,
-  watermark_profile_id,
-  created_at,
-  updated_at,
-  deleted_at,
-  status,
-  version,
-  original_beat_id,
-  version_number,
-  parent_product_id,
-  archived_at
-) ON TABLE public.products TO authenticated;
+  IF safe_columns IS NULL THEN
+    RAISE EXCEPTION 'No grantable columns found for public.products';
+  END IF;
+
+  EXECUTE format('GRANT SELECT (%s) ON TABLE public.products TO anon', safe_columns);
+  EXECUTE format('GRANT SELECT (%s) ON TABLE public.products TO authenticated', safe_columns);
+END
+$$;
 
 DROP POLICY IF EXISTS "Anyone can view published products" ON public.products;
 DROP POLICY IF EXISTS "Public can view active products" ON public.products;

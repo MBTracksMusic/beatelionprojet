@@ -100,7 +100,7 @@ BEGIN
       AND policyname = 'Users can view own profile'
   ) THEN
     EXECUTE $policy$
-      DROP POLICY IF EXISTS "Users can view own profile" ON public.user_profiles FOR SELECT;
+      DROP POLICY IF EXISTS "Users can view own profile" ON public.user_profiles;
       CREATE POLICY "Users can view own profile"
         ON public.user_profiles FOR SELECT
         TO authenticated
@@ -121,7 +121,7 @@ BEGIN
       AND policyname = 'Anyone can view producer profiles'
   ) THEN
     EXECUTE $policy$
-      DROP POLICY IF EXISTS "Anyone can view producer profiles" ON public.user_profiles FOR SELECT;
+      DROP POLICY IF EXISTS "Anyone can view producer profiles" ON public.user_profiles;
       CREATE POLICY "Anyone can view producer profiles"
         ON public.user_profiles FOR SELECT
         TO authenticated
@@ -142,7 +142,7 @@ BEGIN
       AND policyname = 'Users can update own profile limited fields'
   ) THEN
     EXECUTE $policy$
-      DROP POLICY IF EXISTS "Users can update own profile limited fields" ON public.user_profiles FOR UPDATE;
+      DROP POLICY IF EXISTS "Users can update own profile limited fields" ON public.user_profiles;
       CREATE POLICY "Users can update own profile limited fields"
         ON public.user_profiles FOR UPDATE
         TO authenticated

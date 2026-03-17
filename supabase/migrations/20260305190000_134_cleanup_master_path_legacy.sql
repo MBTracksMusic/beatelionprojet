@@ -48,6 +48,7 @@ DECLARE
   v_invalid_strict_count bigint := 0;
   v_locked_condition text;
   v_guard_trigger_disabled boolean := false;
+  v_has_master_path boolean := false;
 BEGIN
   IF to_regclass('public.battle_products') IS NOT NULL THEN
     v_locked_condition := '
@@ -76,23 +77,35 @@ BEGIN
     ';
   END IF;
 
-  EXECUTE '
+  SELECT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'products'
+      AND column_name = 'master_path'
+  ) INTO v_has_master_path;
+
+  IF v_has_master_path THEN
+    EXECUTE '
+      SELECT count(*)
+      FROM public.products p
+      WHERE p.master_path IS NOT NULL
+        AND public.normalize_master_storage_path(p.master_path) LIKE p.producer_id::text || ''/audio/%''
+        AND ' || v_locked_condition
+    INTO v_locked_products;
+
+    RAISE NOTICE 'Skipping % products locked by active battles', v_locked_products;
+
     SELECT count(*)
+    INTO v_legacy_master_path_count
     FROM public.products p
     WHERE p.master_path IS NOT NULL
-      AND public.normalize_master_storage_path(p.master_path) LIKE p.producer_id::text || ''/audio/%''
-      AND ' || v_locked_condition
-  INTO v_locked_products;
+      AND public.normalize_master_storage_path(p.master_path) LIKE p.producer_id::text || '/audio/%';
 
-  RAISE NOTICE 'Skipping % products locked by active battles', v_locked_products;
-
-  SELECT count(*)
-  INTO v_legacy_master_path_count
-  FROM public.products p
-  WHERE p.master_path IS NOT NULL
-    AND public.normalize_master_storage_path(p.master_path) LIKE p.producer_id::text || '/audio/%';
-
-  RAISE NOTICE 'Legacy master_path rows before migration: %', v_legacy_master_path_count;
+    RAISE NOTICE 'Legacy master_path rows before migration: %', v_legacy_master_path_count;
+  ELSE
+    RAISE NOTICE 'products.master_path does not exist; skipping master_path cleanup steps';
+  END IF;
 
   IF EXISTS (
     SELECT 1
@@ -106,26 +119,28 @@ BEGIN
     RAISE NOTICE 'Temporarily disabled trigger guard_product_editability_trigger';
   END IF;
 
-  EXECUTE '
-    WITH legacy_path AS (
-      SELECT
-        p.id,
-        p.producer_id,
-        NULLIF(
-          regexp_replace(public.normalize_master_storage_path(p.master_path), ''^.*/'', ''''),
-          ''''
-        ) AS file_name
-      FROM public.products p
-      WHERE p.master_path IS NOT NULL
-        AND public.normalize_master_storage_path(p.master_path) LIKE p.producer_id::text || ''/audio/%''
-        AND NOT (' || v_locked_condition || ')
-    )
-    UPDATE public.products p
-    SET master_path = legacy_path.producer_id::text || ''/'' || legacy_path.id::text || ''/'' || legacy_path.file_name
-    FROM legacy_path
-    WHERE p.id = legacy_path.id
-      AND legacy_path.file_name IS NOT NULL
-  ';
+  IF v_has_master_path THEN
+    EXECUTE '
+      WITH legacy_path AS (
+        SELECT
+          p.id,
+          p.producer_id,
+          NULLIF(
+            regexp_replace(public.normalize_master_storage_path(p.master_path), ''^.*/'', ''''),
+            ''''
+          ) AS file_name
+        FROM public.products p
+        WHERE p.master_path IS NOT NULL
+          AND public.normalize_master_storage_path(p.master_path) LIKE p.producer_id::text || ''/audio/%''
+          AND NOT (' || v_locked_condition || ')
+      )
+      UPDATE public.products p
+      SET master_path = legacy_path.producer_id::text || ''/'' || legacy_path.id::text || ''/'' || legacy_path.file_name
+      FROM legacy_path
+      WHERE p.id = legacy_path.id
+        AND legacy_path.file_name IS NOT NULL
+    ';
+  END IF;
 
   SELECT count(*)
   INTO v_legacy_master_url_count
@@ -161,40 +176,70 @@ BEGIN
     RAISE NOTICE 'Re-enabled trigger guard_product_editability_trigger';
   END IF;
 
-  EXECUTE '
-    SELECT count(*)
-    FROM public.products p
-    WHERE p.master_path IS NOT NULL
-      AND NOT (
-        public.normalize_master_storage_path(p.master_path)
-        LIKE p.producer_id::text || ''/'' || p.id::text || ''/%''
-      )
-      AND NOT (' || v_locked_condition || ')'
-  INTO v_invalid_strict_count;
+  IF v_has_master_path THEN
+    EXECUTE '
+      SELECT count(*)
+      FROM public.products p
+      WHERE p.master_path IS NOT NULL
+        AND NOT (
+          public.normalize_master_storage_path(p.master_path)
+          LIKE p.producer_id::text || ''/'' || p.id::text || ''/%''
+        )
+        AND NOT (' || v_locked_condition || ')'
+    INTO v_invalid_strict_count;
 
-  IF v_invalid_strict_count > 0 THEN
-    RAISE NOTICE 'Strict invariant still has % non-locked invalid rows after migration', v_invalid_strict_count;
+    IF v_invalid_strict_count > 0 THEN
+      RAISE NOTICE 'Strict invariant still has % non-locked invalid rows after migration', v_invalid_strict_count;
+    END IF;
   END IF;
 END
 $$;
 
-ALTER TABLE public.products
-  DROP CONSTRAINT IF EXISTS products_master_path_invariant;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'products'
+      AND column_name = 'master_path'
+  ) THEN
+    ALTER TABLE public.products
+      DROP CONSTRAINT IF EXISTS products_master_path_invariant;
 
-ALTER TABLE public.products
-  ADD CONSTRAINT products_master_path_invariant
-  CHECK (
-    master_path IS NULL
-    OR public.normalize_master_storage_path(master_path) LIKE producer_id::text || '/' || id::text || '/%'
-  )
-  NOT VALID;
+    ALTER TABLE public.products
+      ADD CONSTRAINT products_master_path_invariant
+      CHECK (
+        master_path IS NULL
+        OR public.normalize_master_storage_path(master_path) LIKE producer_id::text || '/' || id::text || '/%'
+      )
+      NOT VALID;
+  ELSE
+    RAISE NOTICE 'products.master_path does not exist; skipping products_master_path_invariant constraint setup';
+  END IF;
+END
+$$;
 
 DO $$
 DECLARE
   v_locked_legacy_count bigint := 0;
   v_unlocked_invalid_count bigint := 0;
   v_locked_condition text;
+  v_has_master_path boolean := false;
 BEGIN
+  SELECT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'products'
+      AND column_name = 'master_path'
+  ) INTO v_has_master_path;
+
+  IF NOT v_has_master_path THEN
+    RAISE NOTICE 'products.master_path does not exist; skipping products_master_path_invariant validation';
+    RETURN;
+  END IF;
+
   IF to_regclass('public.battle_products') IS NOT NULL THEN
     v_locked_condition := '
       EXISTS (
