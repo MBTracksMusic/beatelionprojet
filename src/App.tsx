@@ -56,6 +56,8 @@ import { AdminMessageDetailPage } from './pages/admin/AdminMessageDetail';
 import { AdminReputationPage } from './pages/admin/AdminReputation';
 import { LogoLoader } from './components/ui/LogoLoader';
 
+const MAINTENANCE = import.meta.env.VITE_MAINTENANCE === 'true';
+
 function AppContent() {
   const { user, isInitialized } = useAuth();
   const fetchCart = useCartStore((state) => state.fetchCart);
@@ -234,6 +236,25 @@ function App() {
     const unsubscribe = initializeAuth();
     return unsubscribe;
   }, []);
+
+  if (MAINTENANCE) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          alignItems: 'center',
+          height: '100vh',
+          fontFamily: 'sans-serif',
+          textAlign: 'center',
+        }}
+      >
+        <h1>🚧 Beatelion en maintenance</h1>
+        <p>Nous revenons très bientôt.</p>
+      </div>
+    );
+  }
 
   return (
     <BrowserRouter>
