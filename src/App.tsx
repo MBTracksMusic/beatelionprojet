@@ -55,8 +55,8 @@ import { AdminMessagesPage } from './pages/admin/AdminMessages';
 import { AdminMessageDetailPage } from './pages/admin/AdminMessageDetail';
 import { AdminReputationPage } from './pages/admin/AdminReputation';
 import { LogoLoader } from './components/ui/LogoLoader';
-
-const MAINTENANCE = import.meta.env.VITE_MAINTENANCE === 'true';
+import { MaintenanceModeProvider } from './lib/supabase/MaintenanceModeContext';
+import { useMaintenanceMode } from './lib/supabase/useMaintenanceMode';
 
 function AppContent() {
   const { user, isInitialized } = useAuth();
@@ -231,51 +231,72 @@ function NotFound() {
   );
 }
 
+function MaintenanceScreen() {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        fontFamily: 'sans-serif',
+        textAlign: 'center',
+      }}
+    >
+      <h1>🚧 Beatelion en maintenance</h1>
+      <p>Retour bientôt</p>
+    </div>
+  );
+}
+
 function App() {
   useEffect(() => {
     const unsubscribe = initializeAuth();
     return unsubscribe;
   }, []);
 
-  if (MAINTENANCE) {
+  const { profile, isInitialized } = useAuth();
+  const maintenanceMode = useMaintenanceMode();
+  const { maintenance, isLoading: isMaintenanceLoading } = maintenanceMode;
+  const isAdmin = profile?.role === 'admin';
+
+  if (isMaintenanceLoading || (maintenance && !isInitialized)) {
     return (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          alignItems: 'center',
-          height: '100vh',
-          fontFamily: 'sans-serif',
-          textAlign: 'center',
-        }}
-      >
-        <h1>🚧 Beatelion en maintenance</h1>
-        <p>Nous revenons très bientôt.</p>
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <LogoLoader label="Initializing Beatelion..." iconClassName="h-14 w-14" />
       </div>
     );
   }
 
+  if (maintenance && !isAdmin) {
+    return (
+      <MaintenanceScreen />
+    );
+  }
+
   return (
-    <BrowserRouter>
-      <AppContent />
-      <Toaster
-        position="bottom-right"
-        toastOptions={{
-          style: {
-            background: '#18181b',
-            color: '#fff',
-            border: '1px solid #27272a',
-          },
-          success: {
-            iconTheme: {
-              primary: '#f43f5e',
-              secondary: '#fff',
+    <MaintenanceModeProvider value={maintenanceMode}>
+      <BrowserRouter>
+        <AppContent />
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            style: {
+              background: '#18181b',
+              color: '#fff',
+              border: '1px solid #27272a',
             },
-          },
-        }}
-      />
-    </BrowserRouter>
+            success: {
+              iconTheme: {
+                primary: '#f43f5e',
+                secondary: '#fff',
+              },
+            },
+          }}
+        />
+      </BrowserRouter>
+    </MaintenanceModeProvider>
   );
 }
 
