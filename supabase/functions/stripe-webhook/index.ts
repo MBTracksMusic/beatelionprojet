@@ -1014,7 +1014,7 @@ serveWithErrorHandling("stripe-webhook", async (req: Request, context: RequestCo
           if (!isInvoice(event.data.object)) {
             throw new WebhookError(`Invalid payload for ${event.type}`, 400, true);
           }
-          await handlePaymentSucceeded(supabase, event.data.object);
+          await handlePaymentSucceeded(supabase, stripe, event.data.object);
           break;
         }
         case "invoice.payment_failed": {
@@ -1383,6 +1383,7 @@ async function handleSubscriptionDeleted(
 
 async function handlePaymentSucceeded(
   supabase: ReturnType<typeof createClient>,
+  stripe: Stripe,
   invoice: Stripe.Invoice,
 ) {
   const customerId = asNonEmptyString(
@@ -1405,7 +1406,39 @@ async function handlePaymentSucceeded(
     return;
   }
 
-  const subscriptionKind = await resolveInvoiceSubscriptionKind(supabase, {
+  const stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const subscriptionCustomerId = asNonEmptyString(
+    typeof stripeSubscription.customer === "string"
+      ? stripeSubscription.customer
+      : stripeSubscription.customer?.id,
+  ) ?? customerId;
+
+  const subscriptionKind = await resolveSubscriptionKind(supabase, {
+    subscriptionId,
+    customerId: subscriptionCustomerId,
+    metadata: {
+      ...(stripeSubscription.metadata ?? {}),
+      ...(resolveInvoiceSubscriptionMetadata(invoice) ?? {}),
+    },
+    priceIds: extractSubscriptionPriceIds(stripeSubscription),
+  });
+
+  console.log("[handlePaymentSucceeded] Stripe subscription sync context", {
+    invoiceId: invoice.id,
+    customerId,
+    subscriptionId,
+    subscriptionKind,
+    stripeSubscriptionStatus: stripeSubscription.status,
+    subscriptionPriceIds: extractSubscriptionPriceIds(stripeSubscription),
+  });
+
+  if (subscriptionKind === "user") {
+    await upsertUserSubscriptionFromStripe(supabase, stripe, subscriptionId, stripeSubscription);
+  } else {
+    await upsertProducerSubscriptionFromStripe(supabase, stripe, subscriptionId, stripeSubscription);
+  }
+
+  const routedSubscriptionKind = await resolveInvoiceSubscriptionKind(supabase, {
     customerId,
     subscriptionId,
     invoice,
@@ -1415,12 +1448,12 @@ async function handlePaymentSucceeded(
     invoiceId: invoice.id,
     customerId,
     subscriptionId,
-    subscriptionKind,
+    subscriptionKind: routedSubscriptionKind,
     invoicePriceIds: extractInvoicePriceIds(invoice),
     hasInvoiceSubscriptionMetadata: Boolean(resolveInvoiceSubscriptionMetadata(invoice)),
   });
 
-  if (subscriptionKind === "user") {
+  if (routedSubscriptionKind === "user") {
     console.log("[handlePaymentSucceeded] CREDITS ALLOCATION START", {
       invoiceId: invoice.id,
       customerId,
@@ -1443,10 +1476,10 @@ async function handlePaymentSucceeded(
   if (profile) {
     await supabase.rpc("log_audit_event", {
       p_user_id: profile.id,
-      p_action: subscriptionKind === "user"
+      p_action: routedSubscriptionKind === "user"
         ? "user_subscription_payment_succeeded"
         : "subscription_payment_succeeded",
-      p_resource_type: subscriptionKind === "user" ? "user_subscription" : "subscription",
+      p_resource_type: routedSubscriptionKind === "user" ? "user_subscription" : "subscription",
       p_metadata: { invoice_id: invoice.id, subscription_id: subscriptionId },
     });
   } else {
