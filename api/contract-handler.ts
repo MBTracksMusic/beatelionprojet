@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import PDFDocument from "pdfkit";
 import { timingSafeEqual } from "node:crypto";
-import { captureApiException, initApiSentry } from "./_shared/sentry";
+import { captureApiException, initApiSentry } from "./_shared/sentry.js";
 
 const CONTRACT_BUCKET = "contracts";
 const CONTRACT_SERVICE_SECRET = process.env.CONTRACT_SERVICE_SECRET?.trim();

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { Layout } from './components/layout/Layout';
 import { HomePage } from './pages/Home';
@@ -59,6 +59,7 @@ import { LogoLoader } from './components/ui/LogoLoader';
 function AppContent() {
   const { user, isInitialized } = useAuth();
   const fetchCart = useCartStore((state) => state.fetchCart);
+  const location = useLocation();
 
   useEffect(() => {
     if (isInitialized && user) {
@@ -66,7 +67,10 @@ function AppContent() {
     }
   }, [user, isInitialized, fetchCart]);
 
-  if (!isInitialized) {
+  const shouldBypassAuthBootstrapLoader =
+    location.pathname === '/reset-password' || location.pathname === '/email-confirmation';
+
+  if (!isInitialized && !shouldBypassAuthBootstrapLoader) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <LogoLoader label="Initializing Beatelion..." iconClassName="h-14 w-14" />

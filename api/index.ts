@@ -1,4 +1,4 @@
-import { initApiSentry } from "./_shared/sentry";
+import { initApiSentry } from "./_shared/sentry.js";
 
 interface ApiRequest {
   method?: string;
