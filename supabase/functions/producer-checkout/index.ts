@@ -24,6 +24,11 @@ const isKnownPlaceholderPriceId = (value: string) => {
   return KNOWN_PLACEHOLDER_PRICE_IDS.has(value.trim().toLowerCase());
 };
 
+const isProduction = () => {
+  const runtimeEnv = (Deno.env.get("ENV") ?? Deno.env.get("NODE_ENV") ?? "").trim().toLowerCase();
+  return runtimeEnv === "production" || runtimeEnv === "prod";
+};
+
 const isFutureTimestamp = (value: string | null | undefined) => {
   if (!value) return false;
   const parsed = Date.parse(value);
@@ -40,10 +45,16 @@ const normalizeTier = (value: unknown): CheckoutTier | null => {
   return null;
 };
 
+const TRUSTED_VERCEL_PREVIEW_ORIGIN_REGEX = /^https:\/\/[a-z0-9-]+-mbtracksmusics-projects\.vercel\.app$/i;
+
+const isTrustedVercelPreviewOrigin = (origin: string) => TRUSTED_VERCEL_PREVIEW_ORIGIN_REGEX.test(origin);
+
 const DEFAULT_ALLOWED_REDIRECT_ORIGINS = [
   "https://beatelion.com",
   "https://www.beatelion.com",
   "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://dev.beatelion.local:5173",
 ];
 
 const normalizeOrigin = (value: string): string | null => {
@@ -80,6 +91,12 @@ const resolveAllowedRedirectOrigins = () => {
     }
   }
 
+  if (!isProduction()) {
+    allowed.add("http://localhost:5173");
+    allowed.add("http://127.0.0.1:5173");
+    allowed.add("http://dev.beatelion.local:5173");
+  }
+
   return allowed;
 };
 
@@ -95,7 +112,7 @@ const validateRedirectUrl = (value: unknown): string | null => {
     if (!["https:", "http:"].includes(parsed.protocol)) {
       return null;
     }
-    if (!ALLOWED_REDIRECT_ORIGINS.has(parsed.origin)) {
+    if (!ALLOWED_REDIRECT_ORIGINS.has(parsed.origin) && !isTrustedVercelPreviewOrigin(parsed.origin)) {
       return null;
     }
     return parsed.toString();
@@ -114,7 +131,7 @@ const resolveDefaultRedirectOrigin = (req: Request): string => {
   ]) {
     if (typeof candidate !== "string") continue;
     const normalized = normalizeOrigin(candidate.trim());
-    if (normalized && ALLOWED_REDIRECT_ORIGINS.has(normalized)) {
+    if (normalized && (ALLOWED_REDIRECT_ORIGINS.has(normalized) || isTrustedVercelPreviewOrigin(normalized))) {
       return normalized;
     }
   }
@@ -126,6 +143,8 @@ const DEFAULT_ALLOWED_CORS_ORIGINS = [
   "https://beatelion.com",
   "https://www.beatelion.com",
   "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://dev.beatelion.local:5173",
 ];
 
 const ALLOWED_CORS_ORIGINS = (() => {
@@ -152,7 +171,10 @@ const resolveRequestCorsOrigin = (req: Request): string | null => {
   const raw = req.headers.get("origin");
   if (!raw) return null;
   const n = normalizeOrigin(raw);
-  return n && ALLOWED_CORS_ORIGINS.has(n) ? n : null;
+  if (!n) return null;
+  if (ALLOWED_CORS_ORIGINS.has(n)) return n;
+  if (isTrustedVercelPreviewOrigin(n)) return n;
+  return null;
 };
 
 serveWithErrorHandling("producer-checkout", async (req: Request) => {

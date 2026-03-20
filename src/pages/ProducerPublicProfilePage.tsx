@@ -32,6 +32,8 @@ interface PublicProducerBeat {
   bpm: number | null;
   key_signature: string | null;
   created_at: string;
+  producer_rank?: number | null;
+  top_10_flag?: boolean;
 }
 
 interface PublicProducerBattle {
@@ -79,7 +81,8 @@ export function ProducerPublicProfilePage() {
   const { t } = useTranslation();
   const { username } = useParams<{ username: string }>();
   const [producer, setProducer] = useState<PublicProducerProfile | null>(null);
-  const [beats, setBeats] = useState<PublicProducerBeat[]>([]);
+  const [topBeats, setTopBeats] = useState<PublicProducerBeat[]>([]);
+  const [allBeats, setAllBeats] = useState<PublicProducerBeat[]>([]);
   const [battles, setBattles] = useState<PublicProducerBattle[]>([]);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [isBeatsLoading, setIsBeatsLoading] = useState(false);
@@ -106,7 +109,8 @@ export function ProducerPublicProfilePage() {
       setBeatsError(null);
       setBattlesError(null);
       setIsDeletedProfile(false);
-      setBeats([]);
+      setTopBeats([]);
+      setAllBeats([]);
       setBattles([]);
 
       try {
@@ -222,7 +226,8 @@ export function ProducerPublicProfilePage() {
 
         if (producerRow.is_deleted === true) {
           if (!isCancelled) {
-            setBeats([]);
+            setTopBeats([]);
+            setAllBeats([]);
             setBattles([]);
           }
           return;
@@ -233,7 +238,10 @@ export function ProducerPublicProfilePage() {
           setIsBattlesLoading(true);
         }
 
-        const [beatsResponse, battlesResponse] = await Promise.all([
+        const [topBeatsResponse, beatsResponse, battlesResponse] = await Promise.all([
+          supabase.rpc('get_producer_top_beats', {
+            p_producer_id: producerRow.user_id,
+          }),
           supabase
             .from('products')
             .select('id, title, slug, cover_image_url, price, bpm, key_signature, created_at')
@@ -252,13 +260,59 @@ export function ProducerPublicProfilePage() {
             .limit(10),
         ]);
 
+        const fallbackAllBeats = ((beatsResponse.data ?? []) as PublicProducerBeat[]).filter(
+          (beat) => typeof beat.id === 'string' && typeof beat.slug === 'string'
+        );
+
         if (beatsResponse.error) {
           if (!isCancelled) {
-            setBeats([]);
+            setTopBeats([]);
+            setAllBeats([]);
             setBeatsError(t('producerProfile.loadBeatsError'));
           }
         } else if (!isCancelled) {
-          setBeats((beatsResponse.data ?? []) as PublicProducerBeat[]);
+          setAllBeats(fallbackAllBeats);
+
+          if (topBeatsResponse.error) {
+            console.error('Error loading producer top beats RPC:', topBeatsResponse.error);
+            setTopBeats(fallbackAllBeats.slice(0, 10));
+          } else {
+            const rpcRows = ((topBeatsResponse.data ?? []) as Array<{
+              id: string;
+              title: string;
+              slug: string;
+              cover_image_url: string | null;
+              price: number;
+              producer_rank: number;
+              top_10_flag: boolean;
+              created_at: string;
+            }>).filter(
+              (row) => typeof row.id === 'string' && typeof row.slug === 'string'
+            );
+
+            if (rpcRows.length === 0) {
+              setTopBeats(fallbackAllBeats.slice(0, 10));
+            } else {
+              const beatMetaById = new Map(fallbackAllBeats.map((beat) => [beat.id, beat]));
+              setTopBeats(
+                rpcRows.map((row) => {
+                  const fallbackBeat = beatMetaById.get(row.id);
+                  return {
+                    id: row.id,
+                    title: row.title,
+                    slug: row.slug,
+                    cover_image_url: row.cover_image_url,
+                    price: row.price,
+                    bpm: fallbackBeat?.bpm ?? null,
+                    key_signature: fallbackBeat?.key_signature ?? null,
+                    created_at: row.created_at,
+                    producer_rank: row.producer_rank,
+                    top_10_flag: row.top_10_flag,
+                  } satisfies PublicProducerBeat;
+                })
+              );
+            }
+          }
         }
 
         if (battlesResponse.error) {
@@ -368,7 +422,7 @@ export function ProducerPublicProfilePage() {
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-5 max-w-xl">
             <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
               <p className="text-[11px] uppercase tracking-wide text-zinc-500">{t('producerProfile.statsBeats')}</p>
-              <p className="text-base font-semibold text-white">{beats.length}</p>
+              <p className="text-base font-semibold text-white">{allBeats.length}</p>
             </div>
             <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
               <p className="text-[11px] uppercase tracking-wide text-zinc-500">{t('producerProfile.statsBattles')}</p>
@@ -421,7 +475,7 @@ export function ProducerPublicProfilePage() {
         )}
 
         <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-          <h2 className="text-lg font-semibold text-white mb-4">{t('producerProfile.publishedBeats')}</h2>
+          <h2 className="text-lg font-semibold text-white mb-4">{t('producerProfile.topBeats')}</h2>
 
           {isBeatsLoading && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -441,13 +495,54 @@ export function ProducerPublicProfilePage() {
             <p className="text-sm text-red-400">{beatsError}</p>
           )}
 
-          {!isBeatsLoading && !beatsError && beats.length === 0 && (
+          {!isBeatsLoading && !beatsError && topBeats.length === 0 && (
             <p className="text-sm text-zinc-400">{t('producerProfile.noPublishedBeats')}</p>
           )}
 
-          {!isBeatsLoading && !beatsError && beats.length > 0 && (
+          {!isBeatsLoading && !beatsError && topBeats.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {beats.map((beat) => (
+              {topBeats.map((beat) => (
+                <Link
+                  key={beat.id}
+                  to={`/beats/${beat.slug}`}
+                  className="rounded-xl border border-zinc-800 bg-zinc-950/50 overflow-hidden transition transform-gpu hover:scale-[1.02] hover:shadow-xl hover:shadow-black/40 hover:border-zinc-600"
+                >
+                  {beat.cover_image_url ? (
+                    <img
+                      src={beat.cover_image_url}
+                      alt={beat.title}
+                      className="aspect-[4/3] w-full object-cover"
+                    />
+                  ) : (
+                    <div className="aspect-[4/3] w-full bg-zinc-800 flex items-center justify-center">
+                      <Users className="w-8 h-8 text-zinc-500" />
+                    </div>
+                  )}
+                  <div className="p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-white truncate">{beat.title}</p>
+                      {typeof beat.producer_rank === 'number' && (
+                        <span className="shrink-0 inline-flex items-center rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-200">
+                          #{beat.producer_rank}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      {beat.bpm ? `${beat.bpm} ${t('products.bpm')}` : '—'} · {beat.key_signature || '—'}
+                    </p>
+                    <p className="text-sm font-bold text-rose-300 mt-2">{formatPrice(beat.price || 0)}</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {!isBeatsLoading && !beatsError && allBeats.length > 0 && (
+          <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mt-4">
+            <h2 className="text-lg font-semibold text-white mb-4">{t('producerProfile.publishedBeats')}</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {allBeats.map((beat) => (
                 <Link
                   key={beat.id}
                   to={`/beats/${beat.slug}`}
@@ -474,8 +569,8 @@ export function ProducerPublicProfilePage() {
                 </Link>
               ))}
             </div>
-          )}
-        </section>
+          </section>
+        )}
 
         <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mt-4">
           <h2 className="text-lg font-semibold text-white mb-4">{t('producerProfile.battlesTitle')}</h2>

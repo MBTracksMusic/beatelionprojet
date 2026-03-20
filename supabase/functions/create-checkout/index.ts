@@ -10,11 +10,16 @@ const BASE_CORS_HEADERS = {
 const CREATE_CHECKOUT_RATE_LIMIT_RPC = "create_checkout_user";
 
 interface CheckoutRequest {
-  beatId: string;
+  beatId?: string;
   productId?: string;
   licenseType?: string;
-  successUrl: string;
-  cancelUrl: string;
+  successUrl?: string;
+  cancelUrl?: string;
+  success_url?: string;
+  cancel_url?: string;
+  price_id?: string;
+  priceId?: string;
+  subscription_kind?: string;
 }
 
 interface ProductRow {
@@ -57,6 +62,32 @@ const asNonEmptyString = (value: unknown) => {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 };
+
+const getConfiguredUserSubscriptionPriceIds = () => {
+  const ids = new Set<string>();
+
+  for (const raw of [
+    asNonEmptyString(Deno.env.get("STRIPE_USER_SUBSCRIPTION_PRICE_ID")),
+    asNonEmptyString(Deno.env.get("STRIPE_USER_MONTHLY_PRICE_ID")),
+  ]) {
+    if (raw) ids.add(raw);
+  }
+
+  for (const csv of [
+    asNonEmptyString(Deno.env.get("STRIPE_USER_SUBSCRIPTION_PRICE_IDS")),
+    asNonEmptyString(Deno.env.get("STRIPE_USER_MONTHLY_PRICE_IDS")),
+  ]) {
+    if (!csv) continue;
+    for (const token of csv.split(",")) {
+      const value = asNonEmptyString(token);
+      if (value) ids.add(value);
+    }
+  }
+
+  return ids;
+};
+
+const USER_SUBSCRIPTION_PRICE_IDS = getConfiguredUserSubscriptionPriceIds();
 
 const TRUSTED_VERCEL_PREVIEW_ORIGIN_REGEX = /^https:\/\/[a-z0-9-]+-mbtracksmusics-projects\.vercel\.app$/i;
 
@@ -336,12 +367,197 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
       beatId,
       productId,
       licenseType: rawLicenseType,
-      successUrl,
-      cancelUrl,
+      successUrl: rawSuccessUrl,
+      cancelUrl: rawCancelUrl,
     } = body;
 
+    const successUrl = asNonEmptyString(rawSuccessUrl) || asNonEmptyString(body.success_url);
+    const cancelUrl = asNonEmptyString(rawCancelUrl) || asNonEmptyString(body.cancel_url);
+    const requestedPriceId = asNonEmptyString(body.price_id) || asNonEmptyString(body.priceId);
+    const subscriptionKind = asNonEmptyString(body.subscription_kind);
     const resolvedBeatId = asNonEmptyString(beatId) || asNonEmptyString(productId);
     const licenseType = asNonEmptyString(rawLicenseType) || "standard";
+
+    if (subscriptionKind === "user") {
+      if (!successUrl || !cancelUrl || !requestedPriceId) {
+        return new Response(JSON.stringify({ error: "Missing required fields" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const validatedSuccessUrl = validateRedirectUrl(successUrl);
+      const validatedCancelUrl = validateRedirectUrl(cancelUrl);
+
+      if (!validatedSuccessUrl || !validatedCancelUrl) {
+        return new Response(JSON.stringify({ error: "invalid_redirect_url" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (USER_SUBSCRIPTION_PRICE_IDS.size === 0) {
+        return new Response(JSON.stringify({ error: "missing_user_subscription_price_id" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (!USER_SUBSCRIPTION_PRICE_IDS.has(requestedPriceId)) {
+        return new Response(JSON.stringify({ error: "invalid_user_subscription_price" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: existingUserSubscription, error: existingUserSubscriptionError } = await supabaseAdmin
+        .from("user_subscriptions")
+        .select("subscription_status")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (existingUserSubscriptionError) {
+        console.error("[create-checkout] Failed to load user subscription", {
+          userId: user.id,
+          message: existingUserSubscriptionError.message,
+        });
+        return new Response(JSON.stringify({ error: "Failed to validate subscription eligibility" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (
+        existingUserSubscription &&
+        ["active", "trialing"].includes(existingUserSubscription.subscription_status)
+      ) {
+        return new Response(JSON.stringify({
+          error: "already_subscribed_user",
+          code: "already_subscribed_user",
+        }), {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: profile, error: profileError } = await supabaseAdmin
+        .from("user_profiles")
+        .select("stripe_customer_id, is_deleted, deleted_at")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        console.error("[create-checkout] Failed to load buyer profile for user subscription", {
+          userId: user.id,
+          message: profileError.message,
+        });
+        return new Response(JSON.stringify({ error: "Failed to validate account status" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (!profile || profile.is_deleted === true || profile.deleted_at !== null) {
+        return new Response(JSON.stringify({ error: "Account deleted" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
+      if (!stripeSecretKey) {
+        return new Response(JSON.stringify({ error: "Stripe not configured" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      let customerId = profile.stripe_customer_id;
+
+      if (!customerId) {
+        const customerResponse = await fetch("https://api.stripe.com/v1/customers", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${stripeSecretKey}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            email: user.email || "",
+            "metadata[user_id]": user.id,
+          }),
+        });
+
+        const customer = await customerResponse.json();
+        if (!customerResponse.ok || !customer?.id) {
+          console.error("[create-checkout] Failed to create Stripe customer for user subscription", {
+            userId: user.id,
+            status: customerResponse.status,
+            error: customer?.error?.message ?? "unknown_customer_creation_error",
+          });
+          return new Response(JSON.stringify({ error: "Impossible de preparer le paiement." }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        customerId = customer.id;
+
+        await supabaseAdmin
+          .from("user_profiles")
+          .update({ stripe_customer_id: customerId })
+          .eq("id", user.id);
+      }
+
+      const sessionParams = new URLSearchParams({
+        mode: "subscription",
+        success_url: validatedSuccessUrl,
+        cancel_url: validatedCancelUrl,
+        "line_items[0][price]": requestedPriceId,
+        "line_items[0][quantity]": "1",
+        "client_reference_id": user.id,
+        "metadata[user_id]": user.id,
+        "metadata[subscription_kind]": "user",
+        "subscription_data[metadata][user_id]": user.id,
+        "subscription_data[metadata][subscription_kind]": "user",
+        "subscription_data[metadata][plan_code]": "user_monthly",
+      });
+
+      if (customerId) {
+        sessionParams.append("customer", customerId);
+      } else {
+        sessionParams.append("customer_creation", "always");
+      }
+
+      const sessionResponse = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeSecretKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: sessionParams,
+      });
+
+      const sessionPayload = await sessionResponse.json();
+
+      if (sessionPayload.error || !sessionPayload?.url) {
+        console.error("[create-checkout] User subscription checkout session creation failed", {
+          userId: user.id,
+          status: sessionResponse.status,
+          error: sessionPayload?.error?.message ?? "unknown_checkout_error",
+        });
+        return new Response(JSON.stringify({
+          error: sessionPayload?.error?.message ?? "Failed to create checkout session",
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify({ url: sessionPayload.url, sessionId: sessionPayload.id }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (!resolvedBeatId || !successUrl || !cancelUrl) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), {

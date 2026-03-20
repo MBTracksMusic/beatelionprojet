@@ -4591,6 +4591,7 @@ export type Database = {
       public_catalog_products: {
         Row: {
           archived_at: string | null
+          battle_wins: number | null
           bpm: number | null
           cover_image_url: string | null
           created_at: string | null
@@ -4618,20 +4619,25 @@ export type Database = {
           original_beat_id: string | null
           parent_product_id: string | null
           play_count: number | null
+          performance_score: number | null
           preview_url: string | null
           price: number | null
           producer_avatar_url: string | null
           producer_id: string | null
           producer_is_active: boolean | null
+          producer_rank: number | null
           producer_raw_username: string | null
           producer_username: string | null
           product_type: Database["public"]["Enums"]["product_type"] | null
+          recency_bonus: number | null
+          sales_count: number | null
           slug: string | null
           sold_at: string | null
           sold_to_user_id: string | null
           status: string | null
           tags: string[] | null
           title: string | null
+          top_10_flag: boolean | null
           updated_at: string | null
           version: number | null
           version_number: number | null
@@ -4641,6 +4647,7 @@ export type Database = {
         }
         Insert: {
           archived_at?: string | null
+          battle_wins?: number | null
           bpm?: number | null
           cover_image_url?: string | null
           created_at?: string | null
@@ -4668,20 +4675,25 @@ export type Database = {
           original_beat_id?: string | null
           parent_product_id?: string | null
           play_count?: number | null
+          performance_score?: number | null
           preview_url?: string | null
           price?: number | null
           producer_avatar_url?: string | null
           producer_id?: string | null
           producer_is_active?: boolean | null
+          producer_rank?: number | null
           producer_raw_username?: string | null
           producer_username?: string | null
           product_type?: Database["public"]["Enums"]["product_type"] | null
+          recency_bonus?: number | null
+          sales_count?: number | null
           slug?: string | null
           sold_at?: string | null
           sold_to_user_id?: string | null
           status?: string | null
           tags?: string[] | null
           title?: string | null
+          top_10_flag?: boolean | null
           updated_at?: string | null
           version?: number | null
           version_number?: number | null
@@ -4691,6 +4703,7 @@ export type Database = {
         }
         Update: {
           archived_at?: string | null
+          battle_wins?: number | null
           bpm?: number | null
           cover_image_url?: string | null
           created_at?: string | null
@@ -4718,20 +4731,25 @@ export type Database = {
           original_beat_id?: string | null
           parent_product_id?: string | null
           play_count?: number | null
+          performance_score?: number | null
           preview_url?: string | null
           price?: number | null
           producer_avatar_url?: string | null
           producer_id?: string | null
           producer_is_active?: boolean | null
+          producer_rank?: number | null
           producer_raw_username?: string | null
           producer_username?: string | null
           product_type?: Database["public"]["Enums"]["product_type"] | null
+          recency_bonus?: number | null
+          sales_count?: number | null
           slug?: string | null
           sold_at?: string | null
           sold_to_user_id?: string | null
           status?: string | null
           tags?: string[] | null
           title?: string | null
+          top_10_flag?: boolean | null
           updated_at?: string | null
           version?: number | null
           version_number?: number | null
@@ -5444,6 +5462,25 @@ export type Database = {
           used_this_month: number
         }[]
       }
+      get_beats_with_priority: {
+        Args: never
+        Returns: {
+          battle_wins: number
+          cover_image_url: string
+          created_at: string
+          id: string
+          performance_score: number
+          play_count: number
+          price: number
+          priority_bucket: number
+          producer_id: string
+          producer_rank: number
+          sales_count: number
+          slug: string
+          title: string
+          top_10_flag: boolean
+        }[]
+      }
       get_forum_public_profiles: {
         Args: never
         Returns: {
@@ -5466,6 +5503,25 @@ export type Database = {
           beats_published: number
           show_homepage_stats: boolean
         }
+      }
+      get_producer_top_beats: {
+        Args: { p_producer_id: string }
+        Returns: {
+          battle_wins: number
+          cover_image_url: string
+          created_at: string
+          id: string
+          performance_score: number
+          play_count: number
+          price: number
+          producer_id: string
+          producer_rank: number
+          recency_bonus: number
+          sales_count: number
+          slug: string
+          title: string
+          top_10_flag: boolean
+        }[]
       }
       get_leaderboard_producers: {
         Args: never
@@ -5495,6 +5551,41 @@ export type Database = {
           producer_tier: Database["public"]["Enums"]["producer_tier_type"]
           user_id: string
           username: string
+        }[]
+      }
+      get_my_credit_balance: { Args: never; Returns: number }
+      get_my_credit_history: {
+        Args: never
+        Returns: {
+          balance_delta: number
+          billing_period_end: string | null
+          billing_period_start: string | null
+          created_at: string
+          credits_amount: number
+          direction: string
+          entry_type: string
+          id: string
+          metadata: Json
+          purchase_id: string | null
+          reason: string
+          running_balance: number | null
+          stripe_invoice_id: string | null
+          subscription_id: string | null
+        }[]
+      }
+      get_my_user_subscription_status: {
+        Args: never
+        Returns: {
+          cancel_at_period_end: boolean
+          canceled_at: string | null
+          created_at: string
+          current_period_end: string | null
+          current_period_start: string | null
+          id: string
+          plan_code: string
+          stripe_price_id: string
+          subscription_status: Database["public"]["Enums"]["subscription_status"]
+          updated_at: string
         }[]
       }
       get_plan_limits: {
@@ -5644,6 +5735,19 @@ export type Database = {
       producer_publish_battle: {
         Args: { p_battle_id: string }
         Returns: boolean
+      }
+      purchase_beat_with_credits: {
+        Args: { p_license_id?: string | null; p_product_id: string }
+        Returns: {
+          balance_after: number
+          balance_before: number
+          credits_spent: number
+          entitlement_id: string
+          license_id: string
+          product_id: string
+          purchase_id: string
+          status: string
+        }[]
       }
       producer_start_battle_voting: {
         Args: { p_battle_id: string; p_voting_duration_hours?: number }

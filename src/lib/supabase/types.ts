@@ -7,6 +7,7 @@ export type ProductLifecycleStatus = 'active' | 'archived';
 export type ProducerTier = 'starter' | 'pro' | 'elite';
 export type ReputationRankTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond';
 export type PurchaseStatus = 'pending' | 'completed' | 'failed' | 'refunded';
+export type PurchaseSource = 'stripe_checkout' | 'credits';
 export type EntitlementType = 'purchase' | 'subscription' | 'promo' | 'admin_grant';
 export type BattleStatus =
   | 'pending'
@@ -175,9 +176,50 @@ export interface Purchase {
   producer_display_name_snapshot: string | null;
   license_type_snapshot: string | null;
   license_name_snapshot: string | null;
+  purchase_source: PurchaseSource;
+  credits_spent: number | null;
+  credit_unit_value_cents_snapshot: number | null;
+  gross_reference_amount_cents: number | null;
+  producer_share_cents_snapshot: number | null;
+  platform_share_cents_snapshot: number | null;
   metadata: Record<string, unknown>;
   created_at: string;
   completed_at: string | null;
+}
+
+export interface UserSubscription {
+  id: string;
+  user_id: string;
+  plan_code: string;
+  stripe_customer_id: string;
+  stripe_subscription_id: string;
+  stripe_price_id: string;
+  subscription_status: SubscriptionStatus;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  canceled_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserCreditLedgerEntry {
+  id: string;
+  user_id: string;
+  subscription_id: string | null;
+  purchase_id: string | null;
+  entry_type: 'monthly_allocation' | 'purchase_debit' | 'reversal' | 'admin_adjustment' | 'migration_adjustment';
+  direction: 'credit' | 'debit';
+  credits_amount: number;
+  balance_delta: number;
+  running_balance: number | null;
+  reason: string;
+  stripe_invoice_id: string | null;
+  billing_period_start: string | null;
+  billing_period_end: string | null;
+  idempotency_key: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
 }
 
 export interface PurchaseWithRelations extends Purchase {

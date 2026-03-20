@@ -36,3 +36,5 @@ backups/
 !supabase/migrations/*.sql
 !supabase/schema.sql
 !supabase/seed.sql
+.vercel
+.env*.local

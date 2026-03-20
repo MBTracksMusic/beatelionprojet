@@ -43,11 +43,18 @@ const asNonEmptyString = (value: unknown): string | null => {
 };
 
 type ProducerTier = "user" | "producteur" | "elite";
+type SubscriptionKind = "producer" | "user";
 
 const asProducerTier = (value: unknown): ProducerTier | null => {
   if (value === "user" || value === "producteur" || value === "elite") return value;
   if (value === "starter") return "user";
   if (value === "pro") return "producteur";
+  return null;
+};
+
+const asSubscriptionKind = (value: unknown): SubscriptionKind | null => {
+  if (value === "producer") return "producer";
+  if (value === "user") return "user";
   return null;
 };
 
@@ -86,6 +93,94 @@ const resolveSubscriptionCurrentPeriodEnd = (
   return Math.max(...itemPeriodEnds);
 };
 
+const normalizeStripeTimestampToIso = (value: number | string | null | undefined): string | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const timestampMs = Math.abs(value) < 1_000_000_000_000 ? value * 1000 : value;
+    return new Date(timestampMs).toISOString();
+  }
+
+  if (typeof value === "string") {
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return null;
+
+    if (/^-?\d+$/.test(trimmedValue)) {
+      const parsed = Number.parseInt(trimmedValue, 10);
+      if (Number.isFinite(parsed)) {
+        const timestampMs = Math.abs(parsed) < 1_000_000_000_000 ? parsed * 1000 : parsed;
+        return new Date(timestampMs).toISOString();
+      }
+      return null;
+    }
+
+    const parsedMs = Date.parse(trimmedValue);
+    if (Number.isFinite(parsedMs)) {
+      return new Date(parsedMs).toISOString();
+    }
+  }
+
+  return null;
+};
+
+const toIsoFromUnixSeconds = (value: number | null | undefined): string | null => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
+  return new Date(value * 1000).toISOString();
+};
+
+const resolveInvoiceBillingPeriod = (invoice: Stripe.Invoice) => {
+  const linePeriods = (invoice.lines?.data || [])
+    .map((line) => line.period)
+    .filter((period): period is { start: number; end: number } =>
+      Boolean(period)
+      && typeof period.start === "number"
+      && Number.isFinite(period.start)
+      && period.start > 0
+      && typeof period.end === "number"
+      && Number.isFinite(period.end)
+      && period.end > period.start
+    );
+
+  if (linePeriods.length === 0) {
+    return {
+      periodStart: null,
+      periodEnd: null,
+    };
+  }
+
+  const start = Math.min(...linePeriods.map((period) => period.start));
+  const end = Math.max(...linePeriods.map((period) => period.end));
+
+  return {
+    periodStart: toIsoFromUnixSeconds(start),
+    periodEnd: toIsoFromUnixSeconds(end),
+  };
+};
+
+const getConfiguredUserSubscriptionPriceIds = () => {
+  const ids = new Set<string>();
+
+  for (const raw of [
+    asNonEmptyString(Deno.env.get("STRIPE_USER_SUBSCRIPTION_PRICE_ID")),
+    asNonEmptyString(Deno.env.get("STRIPE_USER_MONTHLY_PRICE_ID")),
+  ]) {
+    if (raw) ids.add(raw);
+  }
+
+  for (const csv of [
+    asNonEmptyString(Deno.env.get("STRIPE_USER_SUBSCRIPTION_PRICE_IDS")),
+    asNonEmptyString(Deno.env.get("STRIPE_USER_MONTHLY_PRICE_IDS")),
+  ]) {
+    if (!csv) continue;
+    for (const token of csv.split(",")) {
+      const value = asNonEmptyString(token);
+      if (value) ids.add(value);
+    }
+  }
+
+  return ids;
+};
+
+const USER_SUBSCRIPTION_PRICE_IDS = getConfiguredUserSubscriptionPriceIds();
+
 const producerTierRank = (tier: ProducerTier) => {
   if (tier === "elite") return 3;
   if (tier === "producteur") return 2;
@@ -121,6 +216,66 @@ const resolveProducerTierFromDbPlans = async (
     .sort((a, b) => producerTierRank(b.tier) - producerTierRank(a.tier));
 
   return candidates[0] ?? null;
+};
+
+const resolveSubscriptionKind = async (
+  supabase: ReturnType<typeof createClient>,
+  params: {
+    subscriptionId: string;
+    customerId?: string | null;
+    metadata?: Record<string, unknown> | null;
+    priceIds?: string[];
+  },
+): Promise<SubscriptionKind> => {
+  const { subscriptionId, customerId = null, metadata = null, priceIds = [] } = params;
+
+  const explicitKind = asSubscriptionKind(metadata?.subscription_kind);
+  if (explicitKind) {
+    return explicitKind;
+  }
+
+  const { data: existingUserSubscription } = await supabase
+    .from("user_subscriptions")
+    .select("id")
+    .eq("stripe_subscription_id", subscriptionId)
+    .maybeSingle();
+
+  if (existingUserSubscription) {
+    return "user";
+  }
+
+  const { data: existingProducerSubscription } = await supabase
+    .from("producer_subscriptions")
+    .select("id")
+    .eq("stripe_subscription_id", subscriptionId)
+    .maybeSingle();
+
+  if (existingProducerSubscription) {
+    return "producer";
+  }
+
+  if (customerId) {
+    const { data: customerUserSubscription } = await supabase
+      .from("user_subscriptions")
+      .select("id")
+      .eq("stripe_customer_id", customerId)
+      .maybeSingle();
+
+    if (customerUserSubscription) {
+      return "user";
+    }
+  }
+
+  const producerPlanMatch = await resolveProducerTierFromDbPlans(supabase, priceIds);
+  if (producerPlanMatch) {
+    return "producer";
+  }
+
+  if (priceIds.some((priceId) => USER_SUBSCRIPTION_PRICE_IDS.has(priceId))) {
+    return "user";
+  }
+
+  return "producer";
 };
 
 const resolveProducerTierFromSubscription = async (
@@ -915,7 +1070,27 @@ async function handleCheckoutCompleted(
     if (!subscriptionId) {
       throw new WebhookError("Subscription checkout completed without subscription id", 400, true);
     }
-    await upsertProducerSubscriptionFromStripe(supabase, stripe, subscriptionId);
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    const customerId = asNonEmptyString(
+      typeof subscription.customer === "string"
+        ? subscription.customer
+        : subscription.customer?.id,
+    );
+    const subscriptionKind = await resolveSubscriptionKind(supabase, {
+      subscriptionId,
+      customerId,
+      metadata: {
+        ...(subscription.metadata ?? {}),
+        ...(session.metadata ?? {}),
+      },
+      priceIds: extractSubscriptionPriceIds(subscription),
+    });
+
+    if (subscriptionKind === "user") {
+      await upsertUserSubscriptionFromStripe(supabase, stripe, subscriptionId, subscription);
+    } else {
+      await upsertProducerSubscriptionFromStripe(supabase, stripe, subscriptionId, subscription);
+    }
     return;
   }
 
@@ -1076,15 +1251,38 @@ async function handleSubscriptionUpdate(
     throw new WebhookError("Invalid subscription update payload", 400, true);
   }
 
-  await upsertProducerSubscription(supabase, {
-    customerId,
+  const priceIds = extractSubscriptionPriceIds(subscription);
+  const subscriptionKind = await resolveSubscriptionKind(supabase, {
     subscriptionId,
-    status: subscription.status,
-    currentPeriodEnd: resolveSubscriptionCurrentPeriodEnd(subscription) ?? undefined,
-    cancelAtPeriodEnd: subscription.cancel_at_period_end,
-    userId: asNonEmptyString(subscription.metadata?.user_id) ?? undefined,
-    priceIds: extractSubscriptionPriceIds(subscription),
+    customerId,
+    metadata: subscription.metadata ?? {},
+    priceIds,
   });
+
+  if (subscriptionKind === "user") {
+    await upsertUserSubscription(supabase, {
+      customerId,
+      subscriptionId,
+      status: subscription.status,
+      currentPeriodStart: subscription.current_period_start ?? undefined,
+      currentPeriodEnd: resolveSubscriptionCurrentPeriodEnd(subscription) ?? undefined,
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      canceledAt: subscription.canceled_at ?? undefined,
+      userId: asNonEmptyString(subscription.metadata?.user_id) ?? undefined,
+      planCode: asNonEmptyString(subscription.metadata?.plan_code) ?? undefined,
+      priceIds,
+    });
+  } else {
+    await upsertProducerSubscription(supabase, {
+      customerId,
+      subscriptionId,
+      status: subscription.status,
+      currentPeriodEnd: resolveSubscriptionCurrentPeriodEnd(subscription) ?? undefined,
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      userId: asNonEmptyString(subscription.metadata?.user_id) ?? undefined,
+      priceIds,
+    });
+  }
 }
 
 async function handleSubscriptionDeleted(
@@ -1102,15 +1300,38 @@ async function handleSubscriptionDeleted(
     throw new WebhookError("Invalid subscription deleted payload", 400, true);
   }
 
-  await upsertProducerSubscription(supabase, {
-    customerId,
+  const priceIds = extractSubscriptionPriceIds(subscription);
+  const subscriptionKind = await resolveSubscriptionKind(supabase, {
     subscriptionId,
-    status: "canceled",
-    currentPeriodEnd: 0,
-    cancelAtPeriodEnd: true,
-    userId: asNonEmptyString(subscription.metadata?.user_id),
-    priceIds: extractSubscriptionPriceIds(subscription),
+    customerId,
+    metadata: subscription.metadata ?? {},
+    priceIds,
   });
+
+  if (subscriptionKind === "user") {
+    await upsertUserSubscription(supabase, {
+      customerId,
+      subscriptionId,
+      status: "canceled",
+      currentPeriodStart: subscription.current_period_start ?? undefined,
+      currentPeriodEnd: 0,
+      cancelAtPeriodEnd: true,
+      canceledAt: subscription.canceled_at ?? undefined,
+      userId: asNonEmptyString(subscription.metadata?.user_id) ?? undefined,
+      planCode: asNonEmptyString(subscription.metadata?.plan_code) ?? undefined,
+      priceIds,
+    });
+  } else {
+    await upsertProducerSubscription(supabase, {
+      customerId,
+      subscriptionId,
+      status: "canceled",
+      currentPeriodEnd: 0,
+      cancelAtPeriodEnd: true,
+      userId: asNonEmptyString(subscription.metadata?.user_id) ?? undefined,
+      priceIds,
+    });
+  }
 }
 
 async function handlePaymentSucceeded(
@@ -1137,6 +1358,20 @@ async function handlePaymentSucceeded(
     return;
   }
 
+  const subscriptionKind = await resolveInvoiceSubscriptionKind(supabase, {
+    customerId,
+    subscriptionId,
+  });
+
+  if (subscriptionKind === "user") {
+    await allocateMonthlyCredits(supabase, {
+      customerId,
+      subscriptionId,
+      invoiceId: asNonEmptyString(invoice.id),
+      invoice,
+    });
+  }
+
   const { data: profile } = await supabase
     .from("user_profiles")
     .select("id")
@@ -1146,13 +1381,113 @@ async function handlePaymentSucceeded(
   if (profile) {
     await supabase.rpc("log_audit_event", {
       p_user_id: profile.id,
-      p_action: "subscription_payment_succeeded",
-      p_resource_type: "subscription",
+      p_action: subscriptionKind === "user"
+        ? "user_subscription_payment_succeeded"
+        : "subscription_payment_succeeded",
+      p_resource_type: subscriptionKind === "user" ? "user_subscription" : "subscription",
       p_metadata: { invoice_id: invoice.id, subscription_id: subscriptionId },
     });
   } else {
     console.warn("[handlePaymentSucceeded] No profile found for customer", { customerId });
   }
+}
+
+async function allocateMonthlyCredits(
+  supabase: ReturnType<typeof createClient>,
+  params: {
+    customerId: string;
+    subscriptionId: string;
+    invoiceId: string | null;
+    invoice: Stripe.Invoice;
+  },
+) {
+  const { customerId, subscriptionId, invoiceId, invoice } = params;
+
+  if (!invoiceId) {
+    console.warn("[allocateMonthlyCredits] Missing invoice id", {
+      customerId,
+      subscriptionId,
+    });
+    return;
+  }
+
+  const { periodStart, periodEnd } = resolveInvoiceBillingPeriod(invoice);
+
+  if (!periodStart || !periodEnd) {
+    console.warn("[allocateMonthlyCredits] Missing invoice billing period", {
+      invoiceId,
+      customerId,
+      subscriptionId,
+    });
+    return;
+  }
+
+  const { data, error } = await supabase.rpc("allocate_monthly_user_credits_for_invoice", {
+    p_stripe_invoice_id: invoiceId,
+    p_stripe_subscription_id: subscriptionId,
+    p_billing_period_start: periodStart,
+    p_billing_period_end: periodEnd,
+    p_metadata: {
+      source: "stripe_webhook",
+      stripe_event_source: "invoice_payment_succeeded",
+      stripe_customer_id: customerId,
+      stripe_subscription_id: subscriptionId,
+    },
+  });
+
+  if (error) {
+    throw new Error(`allocate_monthly_user_credits_for_invoice failed: ${error.message}`);
+  }
+
+  const payload = (data ?? {}) as {
+    status?: string;
+    allocated_credits?: number;
+    previous_balance?: number;
+    new_balance?: number;
+  };
+
+  if (payload.status === "processed") {
+    console.log("[allocateMonthlyCredits] Allocation succeeded", {
+      invoiceId,
+      subscriptionId,
+      allocatedCredits: payload.allocated_credits ?? 0,
+      previousBalance: payload.previous_balance ?? null,
+      newBalance: payload.new_balance ?? null,
+    });
+    return;
+  }
+
+  if (payload.status === "skipped_max_balance") {
+    console.log("[allocateMonthlyCredits] Allocation skipped at max balance", {
+      invoiceId,
+      subscriptionId,
+      previousBalance: payload.previous_balance ?? null,
+      newBalance: payload.new_balance ?? null,
+    });
+    return;
+  }
+
+  if (payload.status === "duplicate") {
+    console.log("[allocateMonthlyCredits] Allocation ignored duplicate invoice", {
+      invoiceId,
+      subscriptionId,
+    });
+    return;
+  }
+
+  if (payload.status === "skipped_inactive_subscription") {
+    console.log("[allocateMonthlyCredits] Allocation skipped inactive subscription", {
+      invoiceId,
+      subscriptionId,
+    });
+    return;
+  }
+
+  console.log("[allocateMonthlyCredits] Allocation returned unexpected status", {
+    invoiceId,
+    subscriptionId,
+    payload,
+  });
 }
 
 async function handlePaymentFailed(
@@ -1172,6 +1507,11 @@ async function handlePaymentFailed(
 
   if (!customerId || !subscriptionId) return;
 
+  const subscriptionKind = await resolveInvoiceSubscriptionKind(supabase, {
+    customerId,
+    subscriptionId,
+  });
+
   const { data: profile } = await supabase
     .from("user_profiles")
     .select("id")
@@ -1181,19 +1521,58 @@ async function handlePaymentFailed(
   if (profile) {
     await supabase.rpc("log_audit_event", {
       p_user_id: profile.id,
-      p_action: "subscription_payment_failed",
-      p_resource_type: "subscription",
+      p_action: subscriptionKind === "user"
+        ? "user_subscription_payment_failed"
+        : "subscription_payment_failed",
+      p_resource_type: subscriptionKind === "user" ? "user_subscription" : "subscription",
       p_metadata: { invoice_id: invoice.id, subscription_id: subscriptionId },
     });
   }
+}
+
+async function resolveInvoiceSubscriptionKind(
+  supabase: ReturnType<typeof createClient>,
+  params: {
+    customerId: string;
+    subscriptionId: string;
+  },
+) {
+  const { customerId, subscriptionId } = params;
+
+  const { data: userSubscription } = await supabase
+    .from("user_subscriptions")
+    .select("id")
+    .eq("stripe_subscription_id", subscriptionId)
+    .maybeSingle();
+
+  if (userSubscription) return "user" as SubscriptionKind;
+
+  const { data: producerSubscription } = await supabase
+    .from("producer_subscriptions")
+    .select("id")
+    .eq("stripe_subscription_id", subscriptionId)
+    .maybeSingle();
+
+  if (producerSubscription) return "producer" as SubscriptionKind;
+
+  const { data: userByCustomer } = await supabase
+    .from("user_subscriptions")
+    .select("id")
+    .eq("stripe_customer_id", customerId)
+    .maybeSingle();
+
+  if (userByCustomer) return "user" as SubscriptionKind;
+
+  return "producer" as SubscriptionKind;
 }
 
 async function upsertProducerSubscriptionFromStripe(
   supabase: ReturnType<typeof createClient>,
   stripe: Stripe,
   subscriptionId: string,
+  existingSubscription?: Stripe.Subscription,
 ) {
-  const sub = await stripe.subscriptions.retrieve(subscriptionId);
+  const sub = existingSubscription ?? await stripe.subscriptions.retrieve(subscriptionId);
 
   const customerId = asNonEmptyString(
     typeof sub.customer === "string"
@@ -1214,6 +1593,155 @@ async function upsertProducerSubscriptionFromStripe(
     userId: asNonEmptyString(sub.metadata?.user_id) ?? undefined,
     priceIds: extractSubscriptionPriceIds(sub),
   });
+}
+
+async function upsertUserSubscriptionFromStripe(
+  supabase: ReturnType<typeof createClient>,
+  stripe: Stripe,
+  subscriptionId: string,
+  existingSubscription?: Stripe.Subscription,
+) {
+  const sub = existingSubscription ?? await stripe.subscriptions.retrieve(subscriptionId);
+
+  const customerId = asNonEmptyString(
+    typeof sub.customer === "string"
+      ? sub.customer
+      : sub.customer?.id,
+  );
+
+  if (!customerId) {
+    throw new Error(`User subscription ${subscriptionId} is missing customer id`);
+  }
+
+  await upsertUserSubscription(supabase, {
+    customerId,
+    subscriptionId,
+    status: sub.status,
+    currentPeriodStart: sub.current_period_start ?? undefined,
+    currentPeriodEnd: resolveSubscriptionCurrentPeriodEnd(sub) ?? undefined,
+    cancelAtPeriodEnd: sub.cancel_at_period_end,
+    canceledAt: sub.canceled_at ?? undefined,
+    userId: asNonEmptyString(sub.metadata?.user_id) ?? undefined,
+    planCode: asNonEmptyString(sub.metadata?.plan_code) ?? undefined,
+    priceIds: extractSubscriptionPriceIds(sub),
+  });
+}
+
+async function upsertUserSubscription(
+  supabase: ReturnType<typeof createClient>,
+  params: {
+    customerId: string;
+    subscriptionId: string;
+    status: string;
+    currentPeriodStart?: number | string;
+    currentPeriodEnd?: number | string;
+    cancelAtPeriodEnd?: boolean;
+    canceledAt?: number | string | null;
+    userId?: string;
+    planCode?: string;
+    priceIds?: string[];
+  },
+) {
+  const {
+    customerId,
+    subscriptionId,
+    status,
+    currentPeriodStart,
+    currentPeriodEnd,
+    cancelAtPeriodEnd,
+    canceledAt,
+    userId,
+    planCode,
+    priceIds = [],
+  } = params;
+
+  let { data: profile } = await supabase
+    .from("user_profiles")
+    .select("id, stripe_customer_id")
+    .eq("stripe_customer_id", customerId)
+    .maybeSingle();
+
+  if (!profile && userId) {
+    const { data: profileById } = await supabase
+      .from("user_profiles")
+      .select("id, stripe_customer_id")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (profileById) {
+      profile = profileById;
+
+      if (!profileById.stripe_customer_id) {
+        const { error: linkErr } = await supabase
+          .from("user_profiles")
+          .update({ stripe_customer_id: customerId })
+          .eq("id", profileById.id);
+
+        if (linkErr) {
+          console.error("[upsertUserSubscription] Failed to link stripe_customer_id", linkErr);
+        }
+      }
+    }
+  }
+
+  if (!profile) {
+    const { data: existingSub } = await supabase
+      .from("user_subscriptions")
+      .select("user_id")
+      .eq("stripe_subscription_id", subscriptionId)
+      .maybeSingle();
+
+    if (existingSub) {
+      profile = {
+        id: existingSub.user_id,
+        stripe_customer_id: null,
+      } as { id: string; stripe_customer_id: string | null };
+    }
+  }
+
+  if (!profile) {
+    throw new Error(`No user found for customer ${customerId} / subscription ${subscriptionId}`);
+  }
+
+  const currentStartIso = normalizeStripeTimestampToIso(currentPeriodStart);
+  let currentEndIso = normalizeStripeTimestampToIso(currentPeriodEnd);
+
+  if (!currentEndIso) {
+    const { data: existingPeriod } = await supabase
+      .from("user_subscriptions")
+      .select("current_period_end")
+      .eq("stripe_subscription_id", subscriptionId)
+      .maybeSingle();
+
+    currentEndIso = existingPeriod?.current_period_end || null;
+  }
+
+  const canceledAtIso = normalizeStripeTimestampToIso(canceledAt);
+  const resolvedPlanCode = planCode ?? "user_monthly";
+  const resolvedPriceId = priceIds[0] ?? asNonEmptyString(Deno.env.get("STRIPE_USER_SUBSCRIPTION_PRICE_ID"));
+
+  if (!resolvedPriceId) {
+    throw new Error(`User subscription ${subscriptionId} is missing a resolved Stripe price id`);
+  }
+
+  const { error } = await supabase
+    .from("user_subscriptions")
+    .upsert({
+      user_id: profile.id,
+      plan_code: resolvedPlanCode,
+      stripe_customer_id: customerId,
+      stripe_subscription_id: subscriptionId,
+      stripe_price_id: resolvedPriceId,
+      subscription_status: status,
+      current_period_start: currentStartIso,
+      current_period_end: currentEndIso,
+      cancel_at_period_end: cancelAtPeriodEnd ?? false,
+      canceled_at: canceledAtIso,
+    }, { onConflict: "user_id" });
+
+  if (error) {
+    throw new Error(`Failed to upsert user_subscriptions: ${error.message}`);
+  }
 }
 
 async function upsertProducerSubscription(

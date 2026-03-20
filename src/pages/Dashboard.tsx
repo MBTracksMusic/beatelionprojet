@@ -13,10 +13,13 @@ import { GENRE_SAFE_COLUMNS, MOOD_SAFE_COLUMNS, PRODUCT_SAFE_COLUMNS } from '../
 import { formatDate, formatPrice } from '../lib/utils/format';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
+import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { ReputationBadge } from '../components/reputation/ReputationBadge';
 import { ProductCard } from '../components/products/ProductCard';
 import { useWishlistStore } from '../lib/stores/wishlist';
+import { useCreditBalance } from '../lib/credits/useCreditBalance';
+import { useUserSubscriptionStatus } from '../lib/subscriptions/useUserSubscriptionStatus';
 
 interface DashboardPurchase extends Purchase {
   product: ProductWithRelations | null;
@@ -164,6 +167,8 @@ export function DashboardPage() {
   const [producerSubscription, setProducerSubscription] = useState<ProducerSubscriptionSummary | null>(null);
   const [isProducerSubscriptionLoading, setIsProducerSubscriptionLoading] = useState(false);
   const [licenseDownloadingPurchaseId, setLicenseDownloadingPurchaseId] = useState<string | null>(null);
+  const { balance: creditBalance, isLoading: isCreditBalanceLoading, error: creditBalanceError } = useCreditBalance(user?.id);
+  const { subscription: userSubscription, isActive: hasActiveUserSubscription } = useUserSubscriptionStatus(user?.id);
 
   useEffect(() => {
     let isCancelled = false;
@@ -727,6 +732,66 @@ export function DashboardPage() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-white mb-2">{t('dashboard.creditsTitle')}</h2>
+                <p className="text-sm text-zinc-400">{t('dashboard.creditsSubtitle')}</p>
+              </div>
+              <Badge className="bg-emerald-900/50 text-emerald-300 border border-emerald-800">
+                {isCreditBalanceLoading
+                  ? t('common.loading')
+                  : typeof creditBalance === 'number'
+                    ? `${creditBalance} ${t('dashboard.creditsUnit')}`
+                    : '—'}
+              </Badge>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              <div className="flex items-center justify-between py-2 border-b border-zinc-800">
+                <span className="text-zinc-400">{t('dashboard.creditBalance')}</span>
+                <span className="text-white font-medium">
+                  {isCreditBalanceLoading
+                    ? t('common.loading')
+                    : typeof creditBalance === 'number'
+                      ? creditBalance
+                      : '—'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-2 border-b border-zinc-800">
+                <span className="text-zinc-400">{t('dashboard.userSubscriptionStatus')}</span>
+                <span className="text-white font-medium">
+                  {hasActiveUserSubscription
+                    ? t('dashboard.userSubscriptionActive')
+                    : t('dashboard.userSubscriptionInactive')}
+                </span>
+              </div>
+              {hasActiveUserSubscription && (
+                <div className="flex items-center justify-between py-2 border-b border-zinc-800">
+                  <span className="text-zinc-400">{t('dashboard.userSubscriptionRenewalLabel')}</span>
+                  <span className="text-white font-medium">
+                    {userSubscription?.current_period_end
+                      ? formatDate(userSubscription.current_period_end)
+                      : t('common.notAvailable')}
+                  </span>
+                </div>
+              )}
+              {creditBalanceError && (
+                <p className="text-xs text-zinc-500">{t('dashboard.creditBalanceLoadError')}</p>
+              )}
+            </div>
+
+            <div className="mt-6">
+              <Button
+                className="w-full sm:w-auto"
+                variant={hasActiveUserSubscription ? 'secondary' : 'primary'}
+                onClick={() => navigate('/pricing')}
+              >
+                {t('pricing.getCredits')}
+              </Button>
+            </div>
+          </Card>
+
           <Card className="p-6">
             <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
               <User className="w-5 h-5 text-rose-400" />

@@ -27,6 +27,7 @@ import { useTranslation, languageNames } from '../../lib/i18n';
 import { useCartStore } from '../../lib/stores/cart';
 import { BRAND } from '../../config/branding';
 import beatelionIcon from '../../assets/beatelion-icon.svg';
+import { CreditBadge } from '../credits/CreditBadge';
 
 export function Header() {
   const { t, language, updateLanguage, languages } = useTranslation();
@@ -157,6 +158,7 @@ export function Header() {
 
             {user && (
               <>
+                <CreditBadge />
                 <Link
                   to="/wishlist"
                   className="p-2 text-zinc-400 hover:text-white transition-colors"

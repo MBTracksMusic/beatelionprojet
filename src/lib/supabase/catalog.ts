@@ -80,6 +80,12 @@ const CATALOG_SELECT_COLUMNS = [
   'producer_raw_username',
   'producer_avatar_url',
   'producer_is_active',
+  'sales_count',
+  'battle_wins',
+  'recency_bonus',
+  'performance_score',
+  'producer_rank',
+  'top_10_flag',
 ].join(', ');
 
 const DEFAULT_TIMESTAMP = new Date(0).toISOString();
@@ -404,15 +410,23 @@ export async function fetchCatalogProducts({
     query = query.or(`title.ilike.%${escaped}%,producer_username.ilike.%${escaped}%,tags.cs.{${escaped}}`);
   }
 
+  if (mode === 'beats') {
+    query = query.order('top_10_flag', { ascending: false });
+    query = query.order('performance_score', { ascending: false });
+  }
+
   switch (filters.sort) {
     case 'popular':
       query = query.order('play_count', { ascending: false });
+      query = query.order('created_at', { ascending: false });
       break;
     case 'price_asc':
       query = query.order('price', { ascending: true });
+      query = query.order('created_at', { ascending: false });
       break;
     case 'price_desc':
       query = query.order('price', { ascending: false });
+      query = query.order('created_at', { ascending: false });
       break;
     default:
       query = query.order('created_at', { ascending: false });

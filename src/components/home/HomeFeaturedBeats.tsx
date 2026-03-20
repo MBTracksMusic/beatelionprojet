@@ -38,6 +38,18 @@ interface HomeFeaturedBeatRpcRow {
   producer_username: string | null;
 }
 
+interface HomeFeaturedBeatViewRow {
+  id: string | null;
+  title: string | null;
+  slug: string | null;
+  price: number | null;
+  play_count: number | null;
+  cover_image_url: string | null;
+  is_sold: boolean | null;
+  producer_id: string | null;
+  producer_username: string | null;
+}
+
 export function HomeFeaturedBeats() {
   const { t } = useTranslation();
   const { isAuthenticated } = useAuth();
@@ -74,7 +86,7 @@ export function HomeFeaturedBeats() {
 
       if (featuredBeats.length === 0) {
         const { data, error } = await supabase
-          .from('products')
+          .from('public_catalog_products')
           .select(`
             id,
             title,
@@ -83,11 +95,13 @@ export function HomeFeaturedBeats() {
             play_count,
             cover_image_url,
             is_sold,
-            producer_id
+            producer_id,
+            producer_username
           `)
           .eq('product_type', 'beat')
           .eq('is_published', true)
-          .is('deleted_at', null)
+          .order('top_10_flag', { ascending: false })
+          .order('performance_score', { ascending: false })
           .order('play_count', { ascending: false })
           .limit(10);
 
@@ -103,20 +117,35 @@ export function HomeFeaturedBeats() {
           return;
         }
 
-        const rows = ((data as HomeBeatRow[] | null) ?? []);
-        const producerProfilesMap = await fetchPublicProducerProfilesMap(
-          rows.map((row) => row.producer_id)
+        const rows = ((data as HomeFeaturedBeatViewRow[] | null) ?? []).filter(
+          (row): row is HomeFeaturedBeatViewRow & { id: string; title: string; slug: string; price: number; producer_id: string } =>
+            typeof row.id === 'string' &&
+            typeof row.title === 'string' &&
+            typeof row.slug === 'string' &&
+            typeof row.price === 'number' &&
+            typeof row.producer_id === 'string'
         );
+        const producerProfilesMap = await fetchPublicProducerProfilesMap(rows.map((row) => row.producer_id));
         featuredBeats = rows.map((row) => {
           const producer = producerProfilesMap.get(row.producer_id);
           return {
-            ...row,
+            id: row.id,
+            title: row.title,
+            slug: row.slug,
+            price: row.price,
+            play_count: typeof row.play_count === 'number' ? row.play_count : 0,
+            cover_image_url: row.cover_image_url,
+            is_sold: row.is_sold === true,
+            producer_id: row.producer_id,
             producer: producer
               ? {
                   id: producer.user_id,
                   username: producer.username,
                 }
-              : undefined,
+              : {
+                  id: row.producer_id,
+                  username: row.producer_username,
+                },
           };
         });
       }

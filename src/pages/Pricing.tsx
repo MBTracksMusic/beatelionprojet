@@ -4,7 +4,6 @@ import {
   BarChart3,
   BadgeCheck,
   Check,
-  Coins,
   Flame,
   Globe2,
   Music2,
@@ -17,12 +16,14 @@ import { Badge } from '../components/ui/Badge';
 import { useAuth } from '../lib/auth/hooks';
 import { useTranslation } from '../lib/i18n';
 import { supabase } from '@/lib/supabase/client';
+import { invokeProtectedEdgeFunction } from '../lib/supabase/edgeAuth';
 import { Card } from '../components/ui/Card';
 import { Modal } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
 import toast from 'react-hot-toast';
 import type { Database } from '../lib/supabase/types';
-import { formatPrice } from '../lib/utils/format';
+import { formatDate, formatPrice } from '../lib/utils/format';
+import { useUserSubscriptionStatus } from '../lib/subscriptions/useUserSubscriptionStatus';
 
 type ProducerTier = 'starter' | 'pro' | 'elite';
 type CheckoutTier = 'pro' | 'elite';
@@ -61,8 +62,8 @@ const DEFAULT_PLANS: Record<ProducerTier, ProducerPlan> = {
   },
   pro: {
     tier: 'pro',
-    max_beats_published: 10,
-    max_battles_created_per_month: 3,
+    max_beats_published: null,
+    max_battles_created_per_month: 5,
     commission_rate: 0.05,
     stripe_price_id: null,
     is_active: true,
@@ -171,7 +172,7 @@ const toProducerTier = (value: unknown): ProducerTier => {
 
 export function PricingPage() {
   const { t } = useTranslation();
-  const { user, profile } = useAuth();
+  const { user, session, profile } = useAuth();
   const navigate = useNavigate();
   const [isPlanLoading, setIsPlanLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -183,10 +184,22 @@ export function PricingPage() {
   const [isEliteModalOpen, setIsEliteModalOpen] = useState(false);
   const [eliteEmail, setEliteEmail] = useState('');
   const [isEliteSubmitting, setIsEliteSubmitting] = useState(false);
+  const [isUserCheckoutLoading, setIsUserCheckoutLoading] = useState(false);
+  const {
+    subscription: userSubscription,
+    isActive: hasActiveUserSubscription,
+    isLoading: isUserSubscriptionLoading,
+  } = useUserSubscriptionStatus(user?.id);
   const currentTier = user
     ? toProducerTier((profile as unknown as ProfileWithTier | null)?.producer_tier)
     : null;
   const proPlan = plans.pro;
+  const userSubscriptionPriceId = (
+    import.meta.env.VITE_STRIPE_USER_SUBSCRIPTION_PRICE_ID ||
+    import.meta.env.VITE_STRIPE_USER_MONTHLY_PRICE_ID ||
+    import.meta.env.VITE_STRIPE_USER_PRICE_ID ||
+    ''
+  ).trim();
 
   useEffect(() => {
     const fetchPlan = async () => {
@@ -226,6 +239,10 @@ export function PricingPage() {
       navigate('/register', { state: { from: { pathname: '/pricing' } } });
       return;
     }
+    if (!session?.access_token) {
+      setError(t('pricing.sessionExpired'));
+      return;
+    }
     const targetPlan = plans[tier];
     if (!targetPlan?.is_active) {
       setError(t('pricing.planUnavailable'));
@@ -242,113 +259,49 @@ export function PricingPage() {
         success_url: `${window.location.origin}/pricing?status=success`,
         cancel_url: `${window.location.origin}/pricing?status=cancel`,
       };
-      const invokeCheckout = () => supabase.functions.invoke('producer-checkout', {
-        body: {
-          ...checkoutPayload,
-        },
-      });
-      const parseCheckoutError = async (
-        fnErrorValue: { status?: number; message?: string; context?: unknown },
-        dataValue: unknown,
-      ) => {
-        const apiPayload = (dataValue && typeof dataValue === 'object')
-          ? dataValue as Record<string, unknown>
-          : null;
-        const apiError = typeof apiPayload?.error === 'string' ? apiPayload.error : null;
-        const apiMessage = typeof apiPayload?.message === 'string' ? apiPayload.message : null;
-        let contextPayload: Record<string, unknown> | null = null;
-        let contextError: string | null = null;
-        let contextMessage: string | null = null;
-        let contextCode: string | null = null;
-        const context = fnErrorValue.context;
-
-        if (context instanceof Response) {
-          try {
-            const payload = await context.clone().json() as Record<string, unknown>;
-            contextPayload = payload;
-            contextError = typeof payload.error === 'string' ? payload.error : null;
-            contextMessage = typeof payload.message === 'string' ? payload.message : null;
-            contextCode = typeof payload.code === 'string' || typeof payload.code === 'number'
-              ? String(payload.code)
-              : null;
-          } catch {
-            try {
-              const rawText = await context.clone().text();
-              contextError = rawText || null;
-            } catch {
-              contextError = null;
-            }
-          }
-        }
-
-        console.error('producer-checkout error', {
-          error: fnErrorValue,
-          status: fnErrorValue.status ?? null,
-          apiPayload,
-          contextPayload,
-        });
-
-        const rawError =
-          apiError ||
-          contextError ||
-          apiMessage ||
-          contextMessage ||
-          contextCode ||
-          `${fnErrorValue.status ?? ''} ${fnErrorValue.message || t('pricing.checkoutUnavailable')}`.trim();
-        const normalizedRawError = [
-          rawError,
-          apiError,
-          apiMessage,
-          contextError,
-          contextMessage,
-          contextCode,
-          fnErrorValue.message,
-        ]
-          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-          .join(' | ')
-          .toLowerCase();
-
-        return { rawError, normalizedRawError };
-      };
       const isAuthCheckoutError = (normalizedRawError: string) =>
         normalizedRawError.includes('invalid jwt') ||
         normalizedRawError.includes('unauthorized') ||
         normalizedRawError.includes('missing sub claim') ||
         normalizedRawError.includes('missing sub');
 
-      const { data, error: fnError } = await invokeCheckout();
+      let data: { url?: string } | null = null;
+      try {
+        data = await invokeProtectedEdgeFunction<{ url?: string }>('producer-checkout', {
+          body: checkoutPayload,
+        });
+      } catch (invokeError) {
+        const rawError = invokeError instanceof Error ? invokeError.message : t('pricing.checkoutUnavailable');
+        const normalizedRawError = rawError.toLowerCase();
 
-      if (fnError) {
-        const parsedError = await parseCheckoutError(fnError, data);
-
-        if (isAuthCheckoutError(parsedError.normalizedRawError)) {
+        if (isAuthCheckoutError(normalizedRawError)) {
           handleSessionExpired();
           return;
         }
 
         if (
-          parsedError.normalizedRawError.includes('already_subscribed') ||
-          parsedError.normalizedRawError.includes('already subscribed')
+          normalizedRawError.includes('already_subscribed') ||
+          normalizedRawError.includes('already subscribed')
         ) {
           throw new Error(t('pricing.alreadySubscribed'));
         }
-        if (parsedError.normalizedRawError.includes('plan_unavailable')) {
+        if (normalizedRawError.includes('plan_unavailable')) {
           throw new Error(t('pricing.planUnavailable'));
         }
         if (
-          parsedError.normalizedRawError.includes('stripe_price_not_configured') ||
-          parsedError.normalizedRawError.includes('stripe price id not configured') ||
-          parsedError.normalizedRawError.includes('missing_price_id')
+          normalizedRawError.includes('stripe_price_not_configured') ||
+          normalizedRawError.includes('stripe price id not configured') ||
+          normalizedRawError.includes('missing_price_id')
         ) {
           throw new Error(t('pricing.missingPriceId'));
         }
-        if (parsedError.normalizedRawError.includes('invalid_tier')) {
+        if (normalizedRawError.includes('invalid_tier')) {
           throw new Error(t('pricing.invalidOffer'));
         }
-        throw new Error(parsedError.rawError);
+        throw invokeError;
       }
 
-      const url = (data as { url?: string })?.url;
+      const url = data?.url;
       if (url) {
         window.location.href = url;
       } else {
@@ -363,28 +316,101 @@ export function PricingPage() {
     }
   };
 
+  const startUserSubscriptionCheckout = async () => {
+    if (!user) {
+      navigate('/register', { state: { from: { pathname: '/pricing' } } });
+      return;
+    }
+
+    if (hasActiveUserSubscription || isUserCheckoutLoading) {
+      return;
+    }
+
+    if (!session?.access_token) {
+      setError(t('pricing.sessionExpired'));
+      return;
+    }
+
+    if (!userSubscriptionPriceId) {
+      setError(t('pricing.userMissingPriceId'));
+      return;
+    }
+
+    setError(null);
+    setIsUserCheckoutLoading(true);
+
+    try {
+      const data = await invokeProtectedEdgeFunction<{ url?: string }>('create-checkout', {
+        body: {
+          price_id: userSubscriptionPriceId,
+          subscription_kind: 'user',
+          successUrl: `${window.location.origin}/pricing?user_subscription=success`,
+          cancelUrl: `${window.location.origin}/pricing?user_subscription=cancel`,
+        },
+      });
+
+      if (!data?.url) {
+        throw new Error(t('pricing.missingCheckoutUrl'));
+      }
+
+      window.location.href = data.url;
+    } catch (checkoutError) {
+      console.error('User subscription checkout failed', checkoutError);
+      const rawMessage = checkoutError instanceof Error ? checkoutError.message.toLowerCase() : '';
+
+      if (
+        rawMessage.includes('already_subscribed_user') ||
+        rawMessage.includes('already subscribed')
+      ) {
+        setError(t('pricing.userSubscriptionActive'));
+      } else if (
+        rawMessage.includes('missing_user_subscription_price_id') ||
+        rawMessage.includes('invalid_user_subscription_price') ||
+        rawMessage.includes('missing_price_id')
+      ) {
+        setError(t('pricing.userMissingPriceId'));
+      } else if (
+        rawMessage.includes('invalid jwt') ||
+        rawMessage.includes('unauthorized') ||
+        rawMessage.includes('missing sub claim')
+      ) {
+        setError(t('pricing.sessionExpired'));
+      } else {
+        setError(t('pricing.userCheckoutUnavailable'));
+      }
+    } finally {
+      setIsUserCheckoutLoading(false);
+    }
+  };
+
   const hasActiveProducerSubscription = Boolean(user && profile?.is_producer_active === true);
-  const isUserCurrent = Boolean(user) && !hasActiveProducerSubscription;
+  const isUserCurrent = Boolean(user) && !hasActiveProducerSubscription && !hasActiveUserSubscription;
   const isProCurrent = hasActiveProducerSubscription && currentTier === 'pro';
   const isEliteCurrent = hasActiveProducerSubscription && currentTier === 'elite';
-  const proBeatsLimit = typeof proPlan.max_beats_published === 'number' ? proPlan.max_beats_published : 10;
   const proBattlesLimit = typeof proPlan.max_battles_created_per_month === 'number'
     ? proPlan.max_battles_created_per_month
-    : 3;
+    : 5;
   const starterPlanItems: PlanItem[] = [
     { icon: Music2, text: t('pricing.userItemBuyBeats') },
     { icon: Users, text: t('pricing.userItemVoteComment') },
     { icon: Flame, text: t('pricing.userItemBattleVote') },
     { icon: Globe2, text: t('pricing.userItemPersonalProfile') },
   ];
+  const userPremiumPlanItems: PlanItem[] = [
+    { icon: Music2, text: t('pricing.userPremiumItemCreditsPerMonth') },
+    { icon: BadgeCheck, text: t('pricing.userPremiumItemPremiumBeats') },
+    { icon: Check, text: t('pricing.userPremiumItemInstantPurchase') },
+    { icon: Users, text: t('pricing.userPremiumItemCreditsCap') },
+    { icon: Flame, text: t('pricing.userPremiumItemPriorityAccess') },
+  ];
   const proPlanItems: PlanItem[] = [
-    { icon: Music2, text: t('pricing.proItemPublishedBeats', { count: proBeatsLimit }) },
+    { icon: Music2, text: t('pricing.proItemUnlimitedUploads') },
     { icon: Users, text: t('pricing.proItemBattlesPerMonth', { count: proBattlesLimit }) },
     { icon: Flame, text: t('pricing.proItemUnlimitedBattles') },
     { icon: Globe2, text: t('pricing.proItemPublicRanking') },
     { icon: BadgeCheck, text: t('pricing.proItemVerifiedBadge') },
     { icon: BarChart3, text: t('pricing.proItemAdvancedStats') },
-    { icon: Coins, text: t('pricing.proItemReducedCommission') },
+    { icon: Target, text: t('pricing.proItemTopBeatsBoost') },
   ];
   const proPrice = formatPlanPrice(
     proPlan,
@@ -394,6 +420,7 @@ export function PricingPage() {
   );
   const isProCheckoutAvailable =
     proPlan.is_active;
+  const userPremiumPrice = formatPrice(999, 'EUR');
   const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
   const addToEliteWaitlist = async (rawEmail: string) => {
@@ -468,7 +495,7 @@ export function PricingPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6">
           <Card className="relative h-full flex flex-col border border-emerald-700/60 bg-zinc-900 p-6">
             <div className="flex items-start justify-between gap-3 mb-6">
               <div>
@@ -502,7 +529,7 @@ export function PricingPage() {
                   size="lg"
                   onClick={() => navigate('/dashboard')}
                 >
-                  {isUserCurrent ? t('subscription.currentPlan') : t('pricing.startFree')}
+                  {isUserCurrent ? t('subscription.currentPlan') : t('nav.dashboard')}
                 </Button>
               ) : (
                 <Link to="/register">
@@ -515,6 +542,70 @@ export function PricingPage() {
                   </Button>
                 </Link>
               )}
+            </div>
+          </Card>
+
+          <Card className="h-full flex flex-col border border-sky-500/60 bg-zinc-900 p-6 shadow-md shadow-sky-900/20 transition-transform duration-200 hover:scale-[1.02]">
+            <div className="mb-3 flex justify-center">
+              <span className="rounded-full bg-gradient-to-r from-pink-500 to-orange-500 px-3 py-1 text-xs font-semibold text-white shadow-md">
+                {t('pricing.userPremiumPopular')}
+              </span>
+            </div>
+            <div className="flex items-start justify-between gap-3 mb-6">
+              <div>
+                <h3 className="text-2xl font-bold text-white mb-1">{t('pricing.userPremiumTitle')}</h3>
+                <p className="text-zinc-200 font-semibold">{t('pricing.userPremiumSubtitle')}</p>
+                <p className="text-zinc-400 text-sm mt-1 flex items-start gap-2">
+                  <Target className="w-4 h-4 mt-0.5 text-zinc-300" />
+                  {t('pricing.userPremiumAudience')}
+                </p>
+              </div>
+              {hasActiveUserSubscription && <Badge variant="success">{t('pricing.userSubscriptionActiveBadge')}</Badge>}
+            </div>
+
+            <div className="mb-6">
+              <span className="text-4xl font-bold text-white">{userPremiumPrice}</span>
+              <span className="text-zinc-400"> {t('subscription.perMonth')}</span>
+            </div>
+
+            <div className="mb-3 flex items-center gap-2">
+              <Check className="w-5 h-5 text-emerald-400" />
+              <p className="text-xl font-bold text-white">{t('pricing.includedShort')}</p>
+            </div>
+            <ul className="space-y-2 mb-6">
+              {userPremiumPlanItems.map(renderPlanItem)}
+            </ul>
+
+            {hasActiveUserSubscription && (
+              <div className="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                <p className="font-medium">{t('pricing.userSubscriptionActive')}</p>
+                <p className="mt-1 text-emerald-100/80">
+                  {t('pricing.userSubscriptionRenewal', {
+                    date: userSubscription?.current_period_end
+                      ? formatDate(userSubscription.current_period_end)
+                      : t('common.notAvailable'),
+                  })}
+                </p>
+              </div>
+            )}
+
+            <div className="mt-auto pt-6">
+              {error && (
+                <div className="mb-4 text-sm text-red-400 bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">
+                  {error}
+                </div>
+              )}
+
+              <Button
+                className="w-full"
+                variant="primary"
+                size="lg"
+                isLoading={isUserCheckoutLoading}
+                disabled={hasActiveUserSubscription || isUserSubscriptionLoading || isUserCheckoutLoading}
+                onClick={() => void startUserSubscriptionCheckout()}
+              >
+                {hasActiveUserSubscription ? t('pricing.userSubscriptionActiveBadge') : t('pricing.subscribeUser')}
+              </Button>
             </div>
           </Card>
 
@@ -543,6 +634,9 @@ export function PricingPage() {
             <ul className="space-y-2 mb-8">
               {proPlanItems.map(renderPlanItem)}
             </ul>
+            <p className="text-sm text-zinc-400 mb-8">
+              {t('pricing.proVisibilityHint')}
+            </p>
 
             <div className="mt-auto pt-6">
               {error && (

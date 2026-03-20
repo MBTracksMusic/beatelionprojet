@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Pause, Play, ShoppingCart } from 'lucide-react';
+import { ArrowLeft, Coins, Pause, Play, ShoppingCart } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { Button } from '../components/ui/Button';
-import { useTranslation } from '../lib/i18n';
+import { useTranslation, type TranslateFn } from '../lib/i18n';
 import { getLocalizedName } from '../lib/i18n/localized';
 import { fetchCatalogProductBySlug } from '../lib/supabase/catalog';
 import type { ProductWithRelations } from '../lib/supabase/types';
@@ -10,10 +11,41 @@ import { formatPrice } from '../lib/utils/format';
 import { usePlayerStore } from '../lib/stores/player';
 import { useCartStore } from '../lib/stores/cart';
 import { useAuth } from '../lib/auth/hooks';
+import { supabase } from '@/lib/supabase/client';
+import { useCreditBalance } from '../lib/credits/useCreditBalance';
+
+interface CreditPurchaseResult {
+  balance_after: number;
+  balance_before: number;
+  credits_spent: number;
+  entitlement_id: string;
+  license_id: string;
+  product_id: string;
+  purchase_id: string;
+  status: string;
+}
+
+const CREDIT_COST = 2;
+
+const mapCreditPurchaseError = (message: string, t: TranslateFn) => {
+  if (message.includes('insufficient_credits')) return t('productDetails.creditPurchaseInsufficient');
+  if (message.includes('purchase_already_exists')) return t('productDetails.creditPurchaseAlreadyOwned');
+  if (message.includes('exclusive_not_allowed_with_credits')) return t('productDetails.creditPurchaseUnavailable');
+  if (message.includes('license_selection_required')) return t('productDetails.creditPurchaseSelectLicense');
+  if (message.includes('duplicate_request')) return t('productDetails.creditPurchaseDuplicate');
+  if (message.includes('product_not_available')) return t('productDetails.creditPurchaseUnavailable');
+  if (message.includes('product_not_published')) return t('productDetails.creditPurchaseUnavailable');
+  if (message.includes('product_deleted')) return t('productDetails.creditPurchaseUnavailable');
+  if (message.includes('product_not_active')) return t('productDetails.creditPurchaseUnavailable');
+  if (message.includes('product_not_credit_eligible')) return t('productDetails.creditPurchaseUnavailable');
+  if (message.includes('license_not_credit_eligible')) return t('productDetails.creditPurchaseSelectLicense');
+  if (message.includes('concurrent_purchase_conflict')) return t('productDetails.creditPurchaseInProgress');
+  return t('productDetails.creditPurchaseGenericError');
+};
 
 export function ProductDetailsPage() {
   const { t, language } = useTranslation();
-  const { isAuthenticated } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const { slug } = useParams<{ slug: string }>();
   const location = useLocation();
@@ -24,6 +56,12 @@ export function ProductDetailsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isAddingToCart, setIsAddingToCart] = useState(false);
+  const [isPurchasingWithCredits, setIsPurchasingWithCredits] = useState(false);
+  const [creditPurchaseError, setCreditPurchaseError] = useState<string | null>(null);
+  const [hasPurchasedProduct, setHasPurchasedProduct] = useState(false);
+  const [isOwnershipLoading, setIsOwnershipLoading] = useState(false);
+  const { balance: creditBalance, isLoading: isCreditBalanceLoading, error: creditBalanceError, refetch: refetchCreditBalance } =
+    useCreditBalance(user?.id);
 
   const routePrefix = useMemo(() => location.pathname.split('/')[1] || 'beats', [location.pathname]);
 
@@ -74,9 +112,75 @@ export function ProductDetailsPage() {
     };
   }, [slug, routePrefix, t]);
 
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadOwnership = async () => {
+      if (!user?.id || !product?.id) {
+        if (!isCancelled) {
+          setHasPurchasedProduct(false);
+          setIsOwnershipLoading(false);
+          setCreditPurchaseError(null);
+        }
+        return;
+      }
+
+      setIsOwnershipLoading(true);
+
+      try {
+        const { count, error: purchaseError } = await supabase
+          .from('purchases')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('product_id', product.id)
+          .eq('status', 'completed');
+
+        if (purchaseError) {
+          throw purchaseError;
+        }
+
+        if (!isCancelled) {
+          setHasPurchasedProduct((count ?? 0) > 0);
+        }
+      } catch (ownershipError) {
+        console.error('Error loading purchase ownership for product details', ownershipError);
+        if (!isCancelled) {
+          setHasPurchasedProduct(false);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsOwnershipLoading(false);
+        }
+      }
+    };
+
+    void loadOwnership();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [product?.id, user?.id]);
+
   const isCurrentTrack = currentTrack?.id === product?.id;
   const hasPreview = Boolean(product?.preview_url?.trim());
   const isPlayingCurrent = hasPreview && isCurrentTrack && isPlaying;
+  const isCreditEligible = product?.product_type === 'beat' && !product?.is_exclusive && !product?.is_sold;
+  const hasEnoughCredits = typeof creditBalance === 'number' && creditBalance >= CREDIT_COST;
+  const isCreditPurchaseDisabled =
+    !isAuthenticated ||
+    !isCreditEligible ||
+    hasPurchasedProduct ||
+    isOwnershipLoading ||
+    isPurchasingWithCredits ||
+    isCreditBalanceLoading ||
+    !hasEnoughCredits;
+  const shouldShowGetCreditsCta =
+    isAuthenticated &&
+    isCreditEligible &&
+    !hasPurchasedProduct &&
+    !isCreditBalanceLoading &&
+    typeof creditBalance === 'number' &&
+    creditBalance < CREDIT_COST;
 
   const handlePlay = () => {
     if (!product || !hasPreview) return;
@@ -103,6 +207,48 @@ export function ProductDetailsPage() {
       console.error('Error adding to cart from details page', e);
     } finally {
       setIsAddingToCart(false);
+    }
+  };
+
+  const handleCreditPurchase = async () => {
+    if (!product) return;
+
+    if (!isAuthenticated) {
+      navigate('/login', { state: { from: { pathname: location.pathname } } });
+      return;
+    }
+
+    setCreditPurchaseError(null);
+    setIsPurchasingWithCredits(true);
+
+    try {
+      const { data, error: rpcError } = await supabase.rpc(
+        'purchase_beat_with_credits',
+        {
+          p_product_id: product.id,
+          p_license_id: null,
+        },
+      );
+
+      if (rpcError) {
+        throw rpcError;
+      }
+
+      const purchaseResult = ((data as CreditPurchaseResult[] | null) ?? [])[0] ?? null;
+      if (!purchaseResult) {
+        throw new Error('credit_purchase_failed');
+      }
+      setHasPurchasedProduct(true);
+      await refetchCreditBalance();
+      toast.success(t('productDetails.creditPurchaseSuccess'));
+    } catch (purchaseError) {
+      console.error('Error purchasing beat with credits', purchaseError);
+      const message = purchaseError instanceof Error ? purchaseError.message : 'credit_purchase_failed';
+      const friendlyMessage = mapCreditPurchaseError(message, t);
+      setCreditPurchaseError(friendlyMessage);
+      toast.error(friendlyMessage);
+    } finally {
+      setIsPurchasingWithCredits(false);
     }
   };
 
@@ -194,16 +340,80 @@ export function ProductDetailsPage() {
               <p className="mb-6 text-sm text-zinc-500">{t('audio.previewUnavailable')}</p>
             )}
 
-            {!product.is_sold && (
-              <Button
-                onClick={handleAddToCart}
-                isLoading={isAddingToCart}
-                leftIcon={<ShoppingCart className="w-4 h-4" />}
-                variant={isAuthenticated ? 'primary' : 'outline'}
-              >
-                {isAuthenticated ? t('products.addToCart') : t('auth.loginButton')}
-              </Button>
+            <div className="mb-6 rounded-xl border border-zinc-800 bg-zinc-900/70 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-zinc-400">{t('productDetails.availableCredits')}</p>
+                <p className="text-lg font-semibold text-white">
+                  {isAuthenticated
+                    ? isCreditBalanceLoading
+                      ? t('common.loading')
+                      : typeof creditBalance === 'number'
+                        ? creditBalance
+                        : '—'
+                    : '—'}
+                </p>
+              </div>
+              {isAuthenticated && creditBalanceError && (
+                <p className="mt-2 text-xs text-zinc-500">{t('productDetails.creditBalanceError')}</p>
+              )}
+              {!isAuthenticated && (
+                <p className="mt-2 text-xs text-zinc-500">{t('productDetails.creditPurchaseLogin')}</p>
+              )}
+            </div>
+
+            {hasPurchasedProduct && (
+              <p className="mb-4 text-sm font-medium text-emerald-400">
+                {t('productDetails.creditPurchaseAlreadyOwned')}
+              </p>
             )}
+
+            {creditPurchaseError && (
+              <p className="mb-4 text-sm text-red-400">{creditPurchaseError}</p>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3">
+              {shouldShowGetCreditsCta ? (
+                <Button
+                  onClick={() => navigate('/pricing')}
+                  leftIcon={<Coins className="w-4 h-4" />}
+                  variant="secondary"
+                >
+                  {t('pricing.getCredits')}
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleCreditPurchase}
+                  isLoading={isPurchasingWithCredits}
+                  disabled={isCreditPurchaseDisabled}
+                  leftIcon={<Coins className="w-4 h-4" />}
+                  variant="secondary"
+                >
+                  {t('productDetails.buyWithCredits', { count: CREDIT_COST })}
+                </Button>
+              )}
+
+              {!product.is_sold && (
+                <Button
+                  onClick={handleAddToCart}
+                  isLoading={isAddingToCart}
+                  leftIcon={<ShoppingCart className="w-4 h-4" />}
+                  variant={isAuthenticated ? 'primary' : 'outline'}
+                >
+                  {isAuthenticated ? t('products.addToCart') : t('auth.loginButton')}
+                </Button>
+              )}
+            </div>
+
+            {!isAuthenticated && (
+              <p className="mt-3 text-xs text-zinc-500">{t('productDetails.creditPurchaseLogin')}</p>
+            )}
+            {product.is_exclusive && (
+              <p className="mt-3 text-xs text-zinc-500">{t('productDetails.creditPurchaseUnavailable')}</p>
+            )}
+            {!product.is_exclusive && !product.is_sold && isAuthenticated && !isCreditBalanceLoading && typeof creditBalance === 'number' && creditBalance < CREDIT_COST && (
+              <p className="mt-3 text-xs text-zinc-500">{t('productDetails.creditPurchaseInsufficient')}</p>
+            )}
+
           </div>
         </div>
       </div>
