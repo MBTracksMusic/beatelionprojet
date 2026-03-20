@@ -44,9 +44,22 @@ interface LicenseRow {
 }
 
 const isProduction = () => {
-  const runtimeEnv = (Deno.env.get("ENV") ?? Deno.env.get("NODE_ENV") ?? "").trim().toLowerCase();
+  const runtimeEnv = (
+    Deno.env.get("ENV") ??
+    Deno.env.get("NODE_ENV") ??
+    Deno.env.get("ENVIRONMENT") ??
+    ""
+  ).trim().toLowerCase();
   return runtimeEnv === "production" || runtimeEnv === "prod";
 };
+
+const DEFAULT_ALLOWED_REDIRECT_ORIGINS = [
+  "https://beatelion.com",
+  "https://www.beatelion.com",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://dev.beatelion.local:5173",
+];
 
 const normalizeOrigin = (value: string): string | null => {
   try {
@@ -94,7 +107,7 @@ const TRUSTED_VERCEL_PREVIEW_ORIGIN_REGEX = /^https:\/\/[a-z0-9-]+-mbtracksmusic
 const isTrustedVercelPreviewOrigin = (origin: string) => TRUSTED_VERCEL_PREVIEW_ORIGIN_REGEX.test(origin);
 
 const resolveAllowedRedirectOrigins = () => {
-  const allowed = new Set<string>();
+  const allowed = new Set<string>(DEFAULT_ALLOWED_REDIRECT_ORIGINS);
 
   const csvAllowlist = asNonEmptyString(Deno.env.get("CHECKOUT_REDIRECT_ALLOWLIST"));
   if (csvAllowlist) {
@@ -117,6 +130,7 @@ const resolveAllowedRedirectOrigins = () => {
   if (!isProduction()) {
     allowed.add("http://localhost:5173");
     allowed.add("http://127.0.0.1:5173");
+    allowed.add("http://dev.beatelion.local:5173");
   }
 
   return allowed;
