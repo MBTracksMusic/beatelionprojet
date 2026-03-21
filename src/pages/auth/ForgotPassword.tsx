@@ -5,9 +5,8 @@ import { Mail, Music, ArrowLeft } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { useTranslation } from '../../lib/i18n';
-import { resetPassword } from '../../lib/auth/service';
+import { AuthFunctionError, resetPassword } from '../../lib/auth/service';
 import toast from 'react-hot-toast';
-import { AuthApiError } from '@supabase/supabase-js';
 
 export function ForgotPasswordPage() {
   const { t } = useTranslation();
@@ -67,7 +66,7 @@ export function ForgotPasswordPage() {
       setEmailSent(true);
       toast.success(t('auth.forgotPasswordEmailSentSuccess'));
     } catch (error) {
-      const apiError = error as AuthApiError;
+      const apiError = error as AuthFunctionError;
       if (apiError?.code === 'over_email_send_rate_limit' || apiError?.status === 429) {
         setCooldown(60);
         toast.error(t('auth.forgotPasswordRateLimited'));

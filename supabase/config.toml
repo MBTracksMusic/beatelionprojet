@@ -25,6 +25,15 @@ verify_jwt = false
 [functions.contact-submit]
 verify_jwt = false
 
+[functions.auth-signup]
+verify_jwt = false
+
+[functions.auth-login]
+verify_jwt = false
+
+[functions.auth-forgot-password]
+verify_jwt = false
+
 [functions.agent-finalize-expired-battles]
 verify_jwt = false
 

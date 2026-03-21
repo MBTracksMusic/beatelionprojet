@@ -38,3 +38,7 @@ backups/
 !supabase/seed.sql
 .vercel
 .env*.local
+
+# services backend
+audio-worker/.env
+contract-service/.env

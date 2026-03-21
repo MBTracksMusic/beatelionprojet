@@ -1,3 +1,4 @@
+import type { AuthResponse, Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase/client';
 import { getAuthRedirectUrl } from './redirects';
 
@@ -13,37 +14,115 @@ export interface SignInData {
   password: string;
 }
 
+type AuthFunctionResponse = {
+  user: User | null;
+  session: Session | null;
+};
+
+type AuthFunctionResetResponse = {
+  ok: boolean;
+};
+
+export class AuthFunctionError extends Error {
+  readonly status?: number;
+  readonly code?: string;
+
+  constructor(message: string, status?: number, code?: string) {
+    super(message);
+    this.name = 'AuthFunctionError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+async function parseFunctionInvokeError(error: unknown) {
+  let message = error instanceof Error ? error.message : 'Request failed';
+  let status: number | undefined;
+  let code: string | undefined;
+
+  try {
+    const context = (error as {
+      context?: {
+        status?: number;
+        json?: () => Promise<{ error?: string; message?: string }>;
+      };
+    }).context;
+    status = typeof context?.status === 'number' ? context.status : undefined;
+    const payload = await context?.json?.();
+    if (payload?.message) {
+      message = payload.message;
+    }
+    if (payload?.error) {
+      code = payload.error;
+    }
+  } catch {
+    // Ignore invoke parsing failures and keep the original error message.
+  }
+
+  return new AuthFunctionError(message, status, code);
+}
+
+async function invokeAuthFunction<T>(functionName: string, body: Record<string, unknown>) {
+  const { data, error } = await supabase.functions.invoke<T>(functionName, {
+    body,
+  });
+
+  if (error) {
+    throw await parseFunctionInvokeError(error);
+  }
+
+  if (data == null) {
+    throw new AuthFunctionError(`Empty response from ${functionName}`);
+  }
+
+  return data;
+}
+
+async function hydrateBrowserSession(authResponse: AuthFunctionResponse): Promise<AuthResponse['data']> {
+  if (authResponse.session?.access_token && authResponse.session?.refresh_token) {
+    const { data, error } = await supabase.auth.setSession({
+      access_token: authResponse.session.access_token,
+      refresh_token: authResponse.session.refresh_token,
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
+  }
+
+  return {
+    user: authResponse.user,
+    session: authResponse.session,
+  };
+}
+
 export async function signUp({ email, password, username, fullName, captchaToken }: SignUpData & { captchaToken: string }) {
   const cleanEmail = email.trim().toLowerCase();
   const cleanUsername = (username ?? cleanEmail.split('@')[0]).trim();
   const cleanFullName = fullName?.trim() || undefined;
 
-  const { data, error } = await supabase.auth.signUp({
+  const data = await invokeAuthFunction<AuthFunctionResponse>('auth-signup', {
     email: cleanEmail,
     password,
-    options: {
-      emailRedirectTo: getAuthRedirectUrl('/email-confirmation'),
-      data: {
-        username: cleanUsername,
-        full_name: cleanFullName,
-      },
-      captchaToken,
-    },
+    username: cleanUsername,
+    fullName: cleanFullName,
+    captchaToken,
+    redirectTo: getAuthRedirectUrl('/email-confirmation'),
   });
 
-  if (error) throw error;
-  return data;
+  return await hydrateBrowserSession(data);
 }
 
 export async function signIn({ email, password, captchaToken }: SignInData & { captchaToken: string }) {
-  const { data, error } = await supabase.auth.signInWithPassword({
+  const data = await invokeAuthFunction<AuthFunctionResponse>('auth-login', {
     email,
     password,
-    options: { captchaToken },
+    captchaToken,
   });
 
-  if (error) throw error;
-  return data;
+  return await hydrateBrowserSession(data);
 }
 
 export async function signOut() {
@@ -52,12 +131,15 @@ export async function signOut() {
 }
 
 export async function resetPassword(email: string, captchaToken: string) {
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: getAuthRedirectUrl('/reset-password'),
+  const data = await invokeAuthFunction<AuthFunctionResetResponse>('auth-forgot-password', {
+    email,
     captchaToken,
+    redirectTo: getAuthRedirectUrl('/reset-password'),
   });
 
-  if (error) throw error;
+  if (!data?.ok) {
+    throw new AuthFunctionError('Unable to trigger password reset');
+  }
 }
 
 export async function updatePassword(newPassword: string) {
@@ -80,7 +162,7 @@ export async function updateProfile(updates: {
   if (!user) throw new Error('Not authenticated');
 
   const sanitizedUpdates = Object.fromEntries(
-    Object.entries(updates).filter(([, value]) => value !== undefined)
+    Object.entries(updates).filter(([, value]) => value !== undefined),
   );
   const updatePayload = {
     ...sanitizedUpdates,

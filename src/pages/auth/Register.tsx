@@ -5,9 +5,8 @@ import { Mail, Lock, User, Music, ArrowLeft } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { useTranslation } from '../../lib/i18n';
-import { signUp } from '../../lib/auth/service';
+import { AuthFunctionError, signUp } from '../../lib/auth/service';
 import toast from 'react-hot-toast';
-import { AuthApiError } from '@supabase/supabase-js';
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,32}$/;
 type AccountType = 'user' | 'producer';
@@ -143,7 +142,7 @@ export function RegisterPage() {
       const error = err as { message?: string; code?: string; status?: number };
       const errorMessage = error.message?.toLowerCase() || '';
       const isRateLimited =
-        (error instanceof AuthApiError &&
+        (error instanceof AuthFunctionError &&
           (error.code === 'over_email_send_rate_limit' || error.status === 429)) ||
         error.status === 429 ||
         errorMessage.includes('too many requests') ||
@@ -152,7 +151,7 @@ export function RegisterPage() {
       if (isRateLimited) {
         setCooldown(60);
         toast.error(t('auth.registerRateLimited'));
-      } else if (error instanceof AuthApiError && error.code === 'user_already_exists') {
+      } else if (error instanceof AuthFunctionError && error.code === 'user_already_exists') {
         setErrors({ email: t('auth.emailInUse') });
       } else if (error.message?.includes('duplicate key value') && error.message.includes('user_profiles_username_key')) {
         setErrors({ username: t('auth.usernameTaken') });
