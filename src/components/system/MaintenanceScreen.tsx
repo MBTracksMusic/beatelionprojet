@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { supabase } from '@/lib/supabase/client';
 
 interface MaintenanceScreenProps {
   launchDate: string | null;
@@ -11,6 +12,16 @@ interface CountdownState {
   minutes: number;
   seconds: number;
 }
+
+type WaitlistFeedback = {
+  tone: 'success' | 'error';
+  message: string;
+} | null;
+
+type WaitlistSubmitResponse = {
+  status?: 'ok' | 'duplicate';
+  error?: string;
+};
 
 const ZERO_COUNTDOWN: CountdownState = {
   days: 0,
@@ -102,6 +113,69 @@ export function MaintenanceScreen({ launchDate, launchVideoUrl }: MaintenanceScr
   const isCountdownMode = formattedLaunchDate !== null;
   const trimmedLaunchVideoUrl = launchVideoUrl?.trim() ?? '';
   const embedUrl = trimmedLaunchVideoUrl ? getEmbedUrl(trimmedLaunchVideoUrl) : null;
+  const [waitlistEmail, setWaitlistEmail] = useState('');
+  const [waitlistFeedback, setWaitlistFeedback] = useState<WaitlistFeedback>(null);
+  const [isSubmittingWaitlist, setIsSubmittingWaitlist] = useState(false);
+
+  const handleWaitlistSubmit = async (email: string) => {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
+      setWaitlistFeedback({
+        tone: 'error',
+        message: 'Erreur, reessaie plus tard',
+      });
+      return;
+    }
+
+    setIsSubmittingWaitlist(true);
+    setWaitlistFeedback(null);
+
+    try {
+      // TODO: add CAPTCHA before public launch for production hardening
+      const { data, error } = await supabase.functions.invoke<WaitlistSubmitResponse>('waitlist-submit', {
+        body: { email: normalizedEmail },
+      });
+
+      if (error) {
+        setWaitlistFeedback({
+          tone: 'error',
+          message: 'Erreur, reessaie plus tard',
+        });
+        return;
+      }
+
+      if (data?.status === 'duplicate') {
+        setWaitlistFeedback({
+          tone: 'success',
+          message: 'Tu es déjà inscrit 👍',
+        });
+        return;
+      }
+
+      if (data?.status === 'ok') {
+        setWaitlistFeedback({
+          tone: 'success',
+          message: 'Merci ! Tu seras informé 🚀',
+        });
+        setWaitlistEmail('');
+        return;
+      }
+
+      setWaitlistFeedback({
+        tone: 'error',
+        message: 'Erreur, reessaie plus tard',
+      });
+    } finally {
+      setIsSubmittingWaitlist(false);
+    }
+  };
+
+  const onWaitlistSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (isSubmittingWaitlist) return;
+    await handleWaitlistSubmit(waitlistEmail);
+  };
 
   return (
     <div className="min-h-screen bg-zinc-950 px-6 py-12 text-white">
@@ -118,6 +192,42 @@ export function MaintenanceScreen({ launchDate, launchVideoUrl }: MaintenanceScr
           <p className="mt-4 text-base text-zinc-300 sm:text-lg">
             {isCountdownMode ? formattedLaunchDate : 'Retour bientôt'}
           </p>
+
+          <div className="mx-auto mt-6 w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 sm:p-5">
+            <p className="text-sm text-zinc-300">
+              📩 Sois informé dès l&apos;ouverture
+            </p>
+
+            <form onSubmit={onWaitlistSubmit} className="mt-4 space-y-3">
+              <input
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                value={waitlistEmail}
+                onChange={(event) => setWaitlistEmail(event.target.value)}
+                placeholder="ton@email.com"
+                className="h-12 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 text-sm text-white placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none"
+                disabled={isSubmittingWaitlist}
+                required
+              />
+
+              <button
+                type="submit"
+                className="h-12 w-full rounded-xl bg-yellow-400 px-4 text-sm font-semibold text-zinc-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-70"
+                disabled={isSubmittingWaitlist}
+              >
+                {isSubmittingWaitlist ? 'Envoi...' : "M'avertir"}
+              </button>
+
+              <div className="min-h-[20px] text-sm">
+                {waitlistFeedback ? (
+                  <p className={waitlistFeedback.tone === 'success' ? 'text-emerald-400' : 'text-red-400'}>
+                    {waitlistFeedback.message}
+                  </p>
+                ) : null}
+              </div>
+            </form>
+          </div>
 
           {isCountdownMode ? (
             <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
