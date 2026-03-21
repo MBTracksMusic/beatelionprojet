@@ -358,19 +358,33 @@ export function AdminDashboardPage() {
     setIsSendingWaitlistCampaign(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke<{ success?: boolean; error?: boolean }>(
+      const { data, error } = await supabase.functions.invoke<{
+        success?: boolean;
+        error?: boolean;
+        sent?: number;
+        message?: string;
+      }>(
         'send-waitlist-campaign',
       );
+      console.log("DATA:", data);
+      console.log("ERROR:", error);
 
-    if (error || !data?.success) {
+      if (error) {
+        console.error("Supabase invoke error:", error);
+        toast.error("Erreur: " + error.message);
+        return;
+      }
+
+      if (!data?.success) {
+        console.error("Function response error:", data);
+        toast.error(data?.message ? "Erreur backend: " + data.message : "Erreur backend");
+        return;
+      }
+
+      toast.success(`Campagne envoyée 🚀 (${data.sent ?? 0} emails)`);
+    } catch {
       toast.error("Erreur lors de l'envoi");
-      return;
-    }
-
-    toast.success(`Campagne envoyée 🚀 (${data.sent ?? 0} emails)`);
-  } catch {
-    toast.error("Erreur lors de l'envoi");
-  } finally {
+    } finally {
       setIsSendingWaitlistCampaign(false);
     }
   };

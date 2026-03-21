@@ -4,7 +4,7 @@ import { requireAdminUser } from "../_shared/auth.ts";
 
 type CampaignResponse =
   | { success: true; sent?: number }
-  | { error: true };
+  | { error: true; message?: string };
 
 type WaitlistRow = {
   email: string;
@@ -79,6 +79,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if ("error" in authResult) {
       return authResult.error;
     }
+    console.log("Admin validated");
 
     const { supabaseAdmin } = authResult;
 
@@ -90,6 +91,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (error || !data) {
       return jsonResponse({ error: true }, 500, corsHeaders);
     }
+    console.log("Users fetched:", data.length);
 
     const resendApiKey = asNonEmptyString(Deno.env.get("RESEND_API_KEY"));
     if (!resendApiKey) {
@@ -102,15 +104,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     let sent = 0;
+    console.log("Starting campaign");
 
     for (const entry of users) {
       const email = asNonEmptyString(entry.email);
       if (!email) {
         continue;
       }
+      console.log("Sending to:", email);
 
       const emailSent = await sendCampaignEmail(email, resendApiKey);
       if (!emailSent) {
+        console.error("Email failed:", email);
         // TODO: add monitoring for per-recipient campaign delivery failures.
         continue;
       }
@@ -121,7 +126,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     return jsonResponse({ success: true, sent }, 200, corsHeaders);
-  } catch {
-    return jsonResponse({ error: true }, 500, corsHeaders);
+  } catch (err) {
+    console.error("GLOBAL ERROR:", err);
+    return jsonResponse(
+      { error: true, message: String(err) },
+      500,
+      corsHeaders,
+    );
   }
 });
