@@ -175,6 +175,14 @@ export function ProductDetailsPage() {
     const previousTitle = document.title;
     const previousMetaDescription =
       document.querySelector('meta[name="description"]')?.getAttribute('content') ?? '';
+    const previousOgTitle =
+      document.querySelector('meta[property="og:title"]')?.getAttribute('content') ?? '';
+    const previousOgDescription =
+      document.querySelector('meta[property="og:description"]')?.getAttribute('content') ?? '';
+    const previousOgType =
+      document.querySelector('meta[property="og:type"]')?.getAttribute('content') ?? '';
+    const previousOgImage =
+      document.querySelector('meta[property="og:image"]')?.getAttribute('content') ?? '';
     const nextTitle = `${product.title} | Beatelion`;
     const producerName = product.producer?.username?.trim();
     const descriptionParts = [
@@ -184,17 +192,33 @@ export function ProductDetailsPage() {
       `Disponible sur Beatelion`,
     ].filter(Boolean);
     const nextDescription = descriptionParts.join(' • ').slice(0, 155);
-    let meta = document.querySelector('meta[name="description"]');
+    const getOrCreateMeta = (attribute: 'name' | 'property', value: string) => {
+      let metaTag = document.querySelector(`meta[${attribute}="${value}"]`);
+
+      if (!metaTag) {
+        metaTag = document.createElement('meta');
+        metaTag.setAttribute(attribute, value);
+        document.head.appendChild(metaTag);
+      }
+
+      return metaTag;
+    };
+    const descriptionMeta = getOrCreateMeta('name', 'description');
+    const ogTitleMeta = getOrCreateMeta('property', 'og:title');
+    const ogDescriptionMeta = getOrCreateMeta('property', 'og:description');
+    const ogTypeMeta = getOrCreateMeta('property', 'og:type');
+    const ogImageMeta = product.cover_image_url
+      ? getOrCreateMeta('property', 'og:image')
+      : document.querySelector('meta[property="og:image"]');
 
     document.title = nextTitle;
-
-    if (!meta) {
-      meta = document.createElement('meta');
-      meta.setAttribute('name', 'description');
-      document.head.appendChild(meta);
+    descriptionMeta.setAttribute('content', nextDescription);
+    ogTitleMeta.setAttribute('content', product.title);
+    ogDescriptionMeta.setAttribute('content', nextDescription);
+    ogTypeMeta.setAttribute('content', 'website');
+    if (ogImageMeta) {
+      ogImageMeta.setAttribute('content', product.cover_image_url ?? previousOgImage);
     }
-
-    meta.setAttribute('content', nextDescription);
 
     trackViewProduct({
       productId: product.id,
@@ -204,8 +228,12 @@ export function ProductDetailsPage() {
 
     return () => {
       document.title = previousTitle;
-      if (meta) {
-        meta.setAttribute('content', previousMetaDescription);
+      descriptionMeta.setAttribute('content', previousMetaDescription);
+      ogTitleMeta.setAttribute('content', previousOgTitle);
+      ogDescriptionMeta.setAttribute('content', previousOgDescription);
+      ogTypeMeta.setAttribute('content', previousOgType);
+      if (ogImageMeta) {
+        ogImageMeta.setAttribute('content', previousOgImage);
       }
     };
   }, [product]);

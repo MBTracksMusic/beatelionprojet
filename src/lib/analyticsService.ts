@@ -385,7 +385,10 @@ export async function getProductPerformance(dateRange: AnalyticsDateRange) {
     .map((product) => {
       const views = viewsByProduct.get(product.id as string) ?? 0;
       const purchaseCount = purchasesByProduct.get(product.id as string) ?? 0;
-      const conversionRate = views > 0 ? purchaseCount / views : 0;
+      const conversionRate =
+        views > 0
+          ? Math.min(1, purchaseCount / views)
+          : 0;
 
       return {
         productId: product.id as string,

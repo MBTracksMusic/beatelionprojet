@@ -188,6 +188,8 @@ export function trackBeginCheckout(payload: ProductEventPayload) {
 }
 
 export function trackPurchase(payload: ProductEventPayload) {
+  // WARNING: purchase is tracked server-side via Stripe webhook.
+  // Do NOT call this in production flow to avoid duplicate GA4 revenue events.
   trackEvent('purchase', toProductEventParams(payload));
 }
 
