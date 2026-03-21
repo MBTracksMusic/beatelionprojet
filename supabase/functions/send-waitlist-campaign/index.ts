@@ -4,7 +4,10 @@ import { requireAdminUser } from "../_shared/auth.ts";
 
 type CampaignResponse =
   | { success: true; sent?: number }
-  | { error: true; message?: string };
+  | {
+      success: false;
+      error: "not_admin" | "missing_resend_key" | "db_error" | "unexpected_error";
+    };
 
 type WaitlistRow = {
   email: string;
@@ -71,15 +74,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   if (req.method !== "POST") {
-    return jsonResponse({ error: true }, 405, corsHeaders);
+    return jsonResponse({ success: false, error: "unexpected_error" }, 200, corsHeaders);
   }
 
   try {
+    console.log("START CAMPAIGN");
     const authResult = await requireAdminUser(req, corsHeaders);
     if ("error" in authResult) {
-      return authResult.error;
+      const status = authResult.error.status;
+      if (status === 403) {
+        return jsonResponse({ success: false, error: "not_admin" }, 200, corsHeaders);
+      }
+
+      return jsonResponse({ success: false, error: "unexpected_error" }, 200, corsHeaders);
     }
-    console.log("Admin validated");
+    console.log("AUTH OK");
 
     const { supabaseAdmin } = authResult;
 
@@ -89,33 +98,32 @@ Deno.serve(async (req: Request): Promise<Response> => {
       .order("created_at", { ascending: true });
 
     if (error || !data) {
-      return jsonResponse({ error: true }, 500, corsHeaders);
+      return jsonResponse({ success: false, error: "db_error" }, 200, corsHeaders);
     }
-    console.log("Users fetched:", data.length);
 
     const resendApiKey = asNonEmptyString(Deno.env.get("RESEND_API_KEY"));
     if (!resendApiKey) {
-      return jsonResponse({ error: true }, 500, corsHeaders);
+      return jsonResponse({ success: false, error: "missing_resend_key" }, 200, corsHeaders);
     }
 
     const users = (data as WaitlistRow[]).slice(0, MAX_EMAILS);
+    console.log("USERS:", users.length);
     if (users.length === 0) {
       return jsonResponse({ success: true, sent: 0 }, 200, corsHeaders);
     }
 
     let sent = 0;
-    console.log("Starting campaign");
 
     for (const entry of users) {
       const email = asNonEmptyString(entry.email);
       if (!email) {
         continue;
       }
-      console.log("Sending to:", email);
+      console.log("SEND:", email);
 
       const emailSent = await sendCampaignEmail(email, resendApiKey);
       if (!emailSent) {
-        console.error("Email failed:", email);
+        console.error("FAILED:", email);
         // TODO: add monitoring for per-recipient campaign delivery failures.
         continue;
       }
@@ -127,11 +135,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     return jsonResponse({ success: true, sent }, 200, corsHeaders);
   } catch (err) {
-    console.error("GLOBAL ERROR:", err);
-    return jsonResponse(
-      { error: true, message: String(err) },
-      500,
-      corsHeaders,
-    );
+    console.error("ERROR:", err);
+    return jsonResponse({ success: false, error: "unexpected_error" }, 200, corsHeaders);
   }
 });

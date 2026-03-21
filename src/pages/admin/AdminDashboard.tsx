@@ -360,9 +360,8 @@ export function AdminDashboardPage() {
     try {
       const { data, error } = await supabase.functions.invoke<{
         success?: boolean;
-        error?: boolean;
+        error?: string;
         sent?: number;
-        message?: string;
       }>(
         'send-waitlist-campaign',
       );
@@ -370,14 +369,14 @@ export function AdminDashboardPage() {
       console.log("ERROR:", error);
 
       if (error) {
-        console.error("Supabase invoke error:", error);
-        toast.error("Erreur: " + error.message);
+        console.error("Invoke error:", error);
+        toast.error("Erreur réseau");
         return;
       }
 
       if (!data?.success) {
-        console.error("Function response error:", data);
-        toast.error(data?.message ? "Erreur backend: " + data.message : "Erreur backend");
+        console.error("Backend error:", data);
+        toast.error("Erreur: " + (data?.error ?? "unknown"));
         return;
       }
 
