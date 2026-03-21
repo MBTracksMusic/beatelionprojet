@@ -3,7 +3,7 @@ import { resolveCorsHeaders } from "../_shared/cors.ts";
 import { requireAdminUser } from "../_shared/auth.ts";
 
 type CampaignResponse =
-  | { success: true }
+  | { success: true; sent?: number }
   | { error: true };
 
 type WaitlistRow = {
@@ -15,6 +15,7 @@ const DEFAULT_FROM_EMAIL = "Beatelion <noreply@beatelion.com>";
 const CAMPAIGN_SUBJECT = "🚀 Beatelion est en ligne !";
 const CAMPAIGN_HTML =
   "<h1>🔥 Beatelion est ouvert</h1><p>La plateforme est maintenant disponible</p><a href=\"https://beatelion.com\">Accéder au site</a>";
+const MAX_EMAILS = 200;
 
 const jsonResponse = (
   payload: CampaignResponse,
@@ -40,18 +41,13 @@ const delay = (ms: number) =>
     setTimeout(resolve, ms);
   });
 
-const sendCampaignEmail = async (email: string): Promise<boolean> => {
-  const resendApiKey = asNonEmptyString(Deno.env.get("RESEND_API_KEY"));
-  if (!resendApiKey) {
-    return false;
-  }
-
+const sendCampaignEmail = async (email: string, apiKey: string): Promise<boolean> => {
   const from = asNonEmptyString(Deno.env.get("RESEND_FROM_EMAIL")) || DEFAULT_FROM_EMAIL;
   const response = await fetch(RESEND_ENDPOINT, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${resendApiKey}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       from,
@@ -100,21 +96,31 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return jsonResponse({ error: true }, 500, corsHeaders);
     }
 
-    for (const entry of data as WaitlistRow[]) {
+    const users = (data as WaitlistRow[]).slice(0, MAX_EMAILS);
+    if (users.length === 0) {
+      return jsonResponse({ success: true, sent: 0 }, 200, corsHeaders);
+    }
+
+    let sent = 0;
+
+    for (const entry of users) {
       const email = asNonEmptyString(entry.email);
       if (!email) {
         continue;
       }
 
-      const emailSent = await sendCampaignEmail(email);
+      const emailSent = await sendCampaignEmail(email, resendApiKey);
       if (!emailSent) {
-        return jsonResponse({ error: true }, 500, corsHeaders);
+        // TODO: add monitoring for per-recipient campaign delivery failures.
+        continue;
       }
+
+      sent += 1;
 
       await delay(150);
     }
 
-    return jsonResponse({ success: true }, 200, corsHeaders);
+    return jsonResponse({ success: true, sent }, 200, corsHeaders);
   } catch {
     return jsonResponse({ error: true }, 500, corsHeaders);
   }

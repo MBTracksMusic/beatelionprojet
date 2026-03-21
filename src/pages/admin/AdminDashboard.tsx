@@ -362,15 +362,15 @@ export function AdminDashboardPage() {
         'send-waitlist-campaign',
       );
 
-      if (error || !data?.success) {
-        alert("Erreur lors de l'envoi");
-        return;
-      }
+    if (error || !data?.success) {
+      toast.error("Erreur lors de l'envoi");
+      return;
+    }
 
-      alert('Campagne envoyée 🚀');
-    } catch {
-      alert("Erreur lors de l'envoi");
-    } finally {
+    toast.success(`Campagne envoyée 🚀 (${data.sent ?? 0} emails)`);
+  } catch {
+    toast.error("Erreur lors de l'envoi");
+  } finally {
       setIsSendingWaitlistCampaign(false);
     }
   };
