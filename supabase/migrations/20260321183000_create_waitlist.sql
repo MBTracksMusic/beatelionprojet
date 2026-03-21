@@ -1,8 +1,10 @@
 -- Create public.waitlist for maintenance-page email capture.
--- Access is intended through the waitlist-submit Edge Function.
+-- Access is intended through the join-waitlist Edge Function.
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TABLE IF NOT EXISTS public.waitlist (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   email text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );

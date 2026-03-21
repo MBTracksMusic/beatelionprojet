@@ -7,7 +7,7 @@ verify_jwt = false
 [functions.stripe-webhook]
 verify_jwt = false
 
-[functions.waitlist-submit]
+[functions.join-waitlist]
 verify_jwt = false
 
 [functions.create-checkout]

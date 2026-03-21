@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '@/lib/supabase/client';
 
 interface MaintenanceScreenProps {
   launchDate: string | null;
@@ -19,7 +18,7 @@ type WaitlistFeedback = {
 } | null;
 
 type WaitlistSubmitResponse = {
-  status?: 'ok' | 'duplicate';
+  message?: 'success' | 'already_registered';
   error?: string;
 };
 
@@ -132,20 +131,24 @@ export function MaintenanceScreen({ launchDate, launchVideoUrl }: MaintenanceScr
     setWaitlistFeedback(null);
 
     try {
-      // TODO: add CAPTCHA before public launch for production hardening
-      const { data, error } = await supabase.functions.invoke<WaitlistSubmitResponse>('waitlist-submit', {
-        body: { email: normalizedEmail },
+      const response = await fetch('/functions/v1/join-waitlist', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: normalizedEmail }),
       });
+      const data = await response.json().catch(() => null) as WaitlistSubmitResponse | null;
 
-      if (error) {
+      if (!response.ok) {
         setWaitlistFeedback({
           tone: 'error',
-          message: 'Erreur, reessaie plus tard',
+          message: 'Erreur, réessaie plus tard',
         });
         return;
       }
 
-      if (data?.status === 'duplicate') {
+      if (data?.message === 'already_registered') {
         setWaitlistFeedback({
           tone: 'success',
           message: 'Tu es déjà inscrit 👍',
@@ -153,7 +156,7 @@ export function MaintenanceScreen({ launchDate, launchVideoUrl }: MaintenanceScr
         return;
       }
 
-      if (data?.status === 'ok') {
+      if (data?.message === 'success') {
         setWaitlistFeedback({
           tone: 'success',
           message: 'Merci ! Tu seras informé 🚀',
@@ -164,7 +167,7 @@ export function MaintenanceScreen({ launchDate, launchVideoUrl }: MaintenanceScr
 
       setWaitlistFeedback({
         tone: 'error',
-        message: 'Erreur, reessaie plus tard',
+        message: 'Erreur, réessaie plus tard',
       });
     } finally {
       setIsSubmittingWaitlist(false);
