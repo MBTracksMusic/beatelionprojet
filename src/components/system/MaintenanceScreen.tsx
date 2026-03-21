@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 interface MaintenanceScreenProps {
   launchDate: string | null;
+  launchVideoUrl?: string | null;
 }
 
 interface CountdownState {
@@ -38,7 +39,16 @@ function formatCountdownUnit(value: number) {
   return value.toString().padStart(2, '0');
 }
 
-export function MaintenanceScreen({ launchDate }: MaintenanceScreenProps) {
+function getEmbedUrl(url: string): string {
+  if (url.includes('youtube.com/watch')) {
+    const id = new URL(url).searchParams.get('v');
+    return id ? `https://www.youtube.com/embed/${id}` : url;
+  }
+
+  return url;
+}
+
+export function MaintenanceScreen({ launchDate, launchVideoUrl }: MaintenanceScreenProps) {
   const targetTime = useMemo(() => {
     if (!launchDate) {
       return null;
@@ -78,6 +88,8 @@ export function MaintenanceScreen({ launchDate }: MaintenanceScreenProps) {
   }, [targetTime]);
 
   const isCountdownMode = formattedLaunchDate !== null;
+  const trimmedLaunchVideoUrl = launchVideoUrl?.trim() ?? '';
+  const hasVideo = trimmedLaunchVideoUrl !== '';
 
   return (
     <div className="min-h-screen bg-zinc-950 px-6 py-12 text-white">
@@ -115,6 +127,19 @@ export function MaintenanceScreen({ launchDate }: MaintenanceScreenProps) {
                   </p>
                 </div>
               ))}
+            </div>
+          ) : null}
+
+          {hasVideo ? (
+            <div className="mt-8 w-full max-w-2xl">
+              <iframe
+                className="w-full aspect-video rounded-lg"
+                src={getEmbedUrl(trimmedLaunchVideoUrl)}
+                title="Beatelion Launch Video"
+                frameBorder="0"
+                allow="autoplay; encrypted-media"
+                allowFullScreen
+              />
             </div>
           ) : null}
         </div>
