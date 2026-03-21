@@ -55,6 +55,7 @@ import { AdminMessagesPage } from './pages/admin/AdminMessages';
 import { AdminMessageDetailPage } from './pages/admin/AdminMessageDetail';
 import { AdminReputationPage } from './pages/admin/AdminReputation';
 import { LogoLoader } from './components/ui/LogoLoader';
+import { MaintenanceScreen } from './components/system/MaintenanceScreen';
 import { MaintenanceModeProvider } from './lib/supabase/MaintenanceModeContext';
 import { useMaintenanceMode } from './lib/supabase/useMaintenanceMode';
 
@@ -239,30 +240,13 @@ function NotFound() {
   );
 }
 
-function MaintenanceScreen() {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        fontFamily: 'sans-serif',
-        textAlign: 'center',
-      }}
-    >
-      <h1>🚧 Beatelion en maintenance</h1>
-      <p>Retour bientôt</p>
-    </div>
-  );
-}
-
 function AppShell({
   maintenance,
+  launchDate,
   isMaintenanceLoading,
 }: {
   maintenance: boolean;
+  launchDate: string | null;
   isMaintenanceLoading: boolean;
 }) {
   const { profile, isInitialized } = useAuth();
@@ -280,7 +264,7 @@ function AppShell({
 
   if (maintenance && !isAdmin && !canBypassMaintenance) {
     return (
-      <MaintenanceScreen />
+      <MaintenanceScreen launchDate={launchDate} />
     );
   }
 
@@ -294,12 +278,16 @@ function App() {
   }, []);
 
   const maintenanceMode = useMaintenanceMode();
-  const { maintenance, isLoading: isMaintenanceLoading } = maintenanceMode;
+  const { maintenance, launchDate, isLoading: isMaintenanceLoading } = maintenanceMode;
 
   return (
     <MaintenanceModeProvider value={maintenanceMode}>
       <BrowserRouter>
-        <AppShell maintenance={maintenance} isMaintenanceLoading={isMaintenanceLoading} />
+        <AppShell
+          maintenance={maintenance}
+          launchDate={launchDate}
+          isMaintenanceLoading={isMaintenanceLoading}
+        />
         <Toaster
           position="bottom-right"
           toastOptions={{

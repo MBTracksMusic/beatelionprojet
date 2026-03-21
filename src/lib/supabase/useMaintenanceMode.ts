@@ -4,9 +4,10 @@ import { supabase } from './client';
 import type { Database } from './database.types';
 
 type SettingsRow = Database['public']['Tables']['settings']['Row'];
-type SettingsRowShape = Pick<SettingsRow, 'id' | 'maintenance_mode' | 'updated_at'>;
+type SettingsUpdate = Database['public']['Tables']['settings']['Update'];
+type SettingsRowShape = Pick<SettingsRow, 'id' | 'launch_date' | 'maintenance_mode' | 'updated_at'>;
 
-const SETTINGS_SELECT = 'id, maintenance_mode, updated_at';
+const SETTINGS_SELECT = 'id, launch_date, maintenance_mode, updated_at';
 const SETTINGS_CHANNEL = 'public:settings:maintenance-mode';
 
 function isSettingsRow(value: unknown): value is SettingsRowShape {
@@ -15,6 +16,7 @@ function isSettingsRow(value: unknown): value is SettingsRowShape {
   const candidate = value as Record<string, unknown>;
   return (
     typeof candidate.id === 'string'
+    && (typeof candidate.launch_date === 'string' || candidate.launch_date === null)
     && typeof candidate.maintenance_mode === 'boolean'
     && typeof candidate.updated_at === 'string'
   );
@@ -22,6 +24,7 @@ function isSettingsRow(value: unknown): value is SettingsRowShape {
 
 export function useMaintenanceMode() {
   const [maintenance, setMaintenance] = useState(false);
+  const [launchDate, setLaunchDate] = useState<string | null>(null);
   const [settingsId, setSettingsId] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -30,12 +33,14 @@ export function useMaintenanceMode() {
   const applySettingsRow = useCallback((row: SettingsRowShape | null) => {
     if (!row) {
       setMaintenance(false);
+      setLaunchDate(null);
       setSettingsId(null);
       setUpdatedAt(null);
       return;
     }
 
     setMaintenance(row.maintenance_mode);
+    setLaunchDate(row.launch_date);
     setSettingsId(row.id);
     setUpdatedAt(row.updated_at);
   }, []);
@@ -88,14 +93,14 @@ export function useMaintenanceMode() {
     };
   }, [applySettingsRow, refresh]);
 
-  const updateMaintenanceMode = useCallback(async (nextValue: boolean) => {
+  const updateSettings = useCallback(async (updates: SettingsUpdate) => {
     if (!settingsId) {
       throw new Error('Maintenance settings row is missing');
     }
 
     const { data, error: updateError } = await supabase
       .from('settings')
-      .update({ maintenance_mode: nextValue })
+      .update(updates)
       .eq('id', settingsId)
       .select(SETTINGS_SELECT)
       .single();
@@ -108,13 +113,19 @@ export function useMaintenanceMode() {
     return data;
   }, [applySettingsRow, settingsId]);
 
+  const updateMaintenanceMode = useCallback(async (nextValue: boolean) => {
+    return updateSettings({ maintenance_mode: nextValue });
+  }, [updateSettings]);
+
   return {
     maintenance,
+    launchDate,
     settingsId,
     updatedAt,
     isLoading,
     error,
     refresh,
+    updateSettings,
     updateMaintenanceMode,
   };
 }

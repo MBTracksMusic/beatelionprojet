@@ -336,16 +336,19 @@ export type Database = {
       settings: {
         Row: {
           id: string
+          launch_date: string | null
           maintenance_mode: boolean
           updated_at: string
         }
         Insert: {
           id?: string
+          launch_date?: string | null
           maintenance_mode?: boolean
           updated_at?: string
         }
         Update: {
           id?: string
+          launch_date?: string | null
           maintenance_mode?: boolean
           updated_at?: string
         }

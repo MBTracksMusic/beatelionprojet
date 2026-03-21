@@ -1,16 +1,60 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowRight, BarChart3, Inbox, Newspaper, Settings2, Swords } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card';
+import { Input } from '../../components/ui/Input';
 import { useTranslation } from '../../lib/i18n';
 import { useMaintenanceModeContext } from '../../lib/supabase/MaintenanceModeContext';
 
+function toDatetimeLocalValue(value: string | null) {
+  if (!value) {
+    return '';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - offset * 60_000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function toIsoStringOrNull(value: string) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('invalid-launch-date');
+  }
+
+  return date.toISOString();
+}
+
 export function AdminDashboardPage() {
   const { t } = useTranslation();
-  const { maintenance, updatedAt, isLoading, updateMaintenanceMode } = useMaintenanceModeContext();
+  const {
+    maintenance,
+    launchDate,
+    updatedAt,
+    isLoading,
+    updateMaintenanceMode,
+    updateSettings,
+  } = useMaintenanceModeContext();
   const [isSavingMaintenance, setIsSavingMaintenance] = useState(false);
+  const [launchDateInput, setLaunchDateInput] = useState(() => toDatetimeLocalValue(launchDate));
+  const [isSavingLaunchDate, setIsSavingLaunchDate] = useState(false);
+
+  useEffect(() => {
+    if (!isSavingLaunchDate) {
+      setLaunchDateInput(toDatetimeLocalValue(launchDate));
+    }
+  }, [isSavingLaunchDate, launchDate]);
 
   const handleMaintenanceToggle = async () => {
     setIsSavingMaintenance(true);
@@ -23,6 +67,33 @@ export function AdminDashboardPage() {
       toast.error("Impossible de mettre à jour le mode maintenance.");
     } finally {
       setIsSavingMaintenance(false);
+    }
+  };
+
+  const handleLaunchDateSave = async () => {
+    setIsSavingLaunchDate(true);
+
+    try {
+      await updateSettings({ launch_date: toIsoStringOrNull(launchDateInput) });
+      toast.success(launchDateInput ? 'Date de lancement enregistrée.' : 'Date de lancement supprimée.');
+    } catch {
+      toast.error("Impossible d'enregistrer la date de lancement.");
+    } finally {
+      setIsSavingLaunchDate(false);
+    }
+  };
+
+  const handleLaunchDateClear = async () => {
+    setIsSavingLaunchDate(true);
+
+    try {
+      setLaunchDateInput('');
+      await updateSettings({ launch_date: null });
+      toast.success('Date de lancement supprimée.');
+    } catch {
+      toast.error("Impossible de supprimer la date de lancement.");
+    } finally {
+      setIsSavingLaunchDate(false);
     }
   };
 
@@ -89,6 +160,48 @@ export function AdminDashboardPage() {
             >
               {maintenance ? 'Désactiver la maintenance' : 'Activer la maintenance'}
             </Button>
+          </div>
+
+          <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+            <div className="flex flex-col gap-4">
+              <div>
+                <p className="text-sm font-medium text-white">Date de lancement</p>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Laisse vide pour le mode simple. Renseigne une date pour afficher le mode lancement avec compte à rebours.
+                </p>
+              </div>
+
+              <Input
+                type="datetime-local"
+                label="Lancement prévu"
+                value={launchDateInput}
+                onChange={(event) => setLaunchDateInput(event.target.value)}
+                disabled={isLoading || isSavingLaunchDate}
+              />
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  variant="primary"
+                  onClick={handleLaunchDateSave}
+                  isLoading={isSavingLaunchDate}
+                  disabled={isLoading}
+                >
+                  Enregistrer la date
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleLaunchDateClear}
+                  disabled={isLoading || isSavingLaunchDate || !launchDate}
+                >
+                  Vider la date
+                </Button>
+                <span className="text-sm text-zinc-500">
+                  {launchDate
+                    ? `Date active : ${new Date(launchDate).toLocaleString()}`
+                    : 'Aucune date active'}
+                </span>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
