@@ -74,7 +74,7 @@ type Ga4PurchasePayload = {
   value: number;
   currency: string;
   userId: string | null;
-  customerEmail: string | null;
+  gaClientId: string | null;
   item: Ga4PurchaseItem;
 };
 
@@ -90,6 +90,7 @@ async function claimGa4PurchaseTracking(
       transaction_id: transactionId,
       stripe_event_id: stripeEventId,
       event_name: eventName,
+      status: "pending",
     });
 
   if (!error) {
@@ -97,10 +98,34 @@ async function claimGa4PurchaseTracking(
   }
 
   if (error.code === "23505") {
+    const { data: existingRow, error: existingRowError } = await supabase
+      .from("ga4_tracked_purchases")
+      .select("status")
+      .eq("transaction_id", transactionId)
+      .maybeSingle();
+
+    if (existingRowError) {
+      throw new Error(`Failed to inspect existing GA4 purchase tracking row: ${existingRowError.message}`);
+    }
+
     return false;
   }
 
   throw new Error(`Failed to claim GA4 purchase tracking: ${error.message}`);
+}
+
+async function markGa4PurchaseTrackingSent(
+  supabase: ReturnType<typeof createClient>,
+  transactionId: string,
+) {
+  const { error } = await supabase
+    .from("ga4_tracked_purchases")
+    .update({ status: "sent" })
+    .eq("transaction_id", transactionId);
+
+  if (error) {
+    throw new Error(`Failed to mark GA4 tracking as sent: ${error.message}`);
+  }
 }
 
 async function sendPurchaseToGA4(payload: Ga4PurchasePayload) {
@@ -108,10 +133,10 @@ async function sendPurchaseToGA4(payload: Ga4PurchasePayload) {
   const apiSecret = asNonEmptyString(Deno.env.get("GA4_API_SECRET"));
 
   if (!measurementId || !apiSecret) {
-    return;
+    return false;
   }
 
-  const clientId = payload.userId ? `server-${payload.userId}` : crypto.randomUUID();
+  const clientId = payload.gaClientId ?? crypto.randomUUID();
   const response = await fetch(
     `${GA4_COLLECT_ENDPOINT}?measurement_id=${encodeURIComponent(measurementId)}&api_secret=${encodeURIComponent(apiSecret)}`,
     {
@@ -122,14 +147,16 @@ async function sendPurchaseToGA4(payload: Ga4PurchasePayload) {
       body: JSON.stringify({
         client_id: clientId,
         user_id: payload.userId ?? undefined,
+        timestamp_micros: Date.now() * 1000,
         events: [
           {
             name: "purchase",
+            event_id: payload.transactionId,
             params: {
               value: payload.value,
               currency: payload.currency,
               transaction_id: payload.transactionId,
-              customer_email: payload.customerEmail ?? undefined,
+              engagement_time_msec: 1,
               items: [
                 {
                   item_id: payload.item.item_id,
@@ -147,6 +174,8 @@ async function sendPurchaseToGA4(payload: Ga4PurchasePayload) {
   if (!response.ok) {
     throw new Error(`GA4 Measurement Protocol request failed with status ${response.status}`);
   }
+
+  return true;
 }
 
 async function trackPurchaseViaGa4(
@@ -172,12 +201,11 @@ async function trackPurchaseViaGa4(
   }
 
   try {
-    await sendPurchaseToGA4(payload);
+    const sent = await sendPurchaseToGA4(payload);
+    if (sent) {
+      await markGa4PurchaseTrackingSent(supabase, payload.transactionId);
+    }
   } catch (error) {
-    await supabase
-      .from("ga4_tracked_purchases")
-      .delete()
-      .eq("transaction_id", payload.transactionId);
     throw error;
   }
 }
@@ -1432,7 +1460,7 @@ async function handleCheckoutCompleted(
         value,
         currency,
         userId,
-        customerEmail: asNonEmptyString(session.customer_details?.email) ?? asNonEmptyString(session.customer_email),
+        gaClientId: asNonEmptyString(metadata.ga_client_id),
         item: {
           item_id: productId,
           item_name: productTitle,
@@ -1676,7 +1704,7 @@ async function handlePaymentSucceeded(
       value,
       currency: asNonEmptyString(invoice.currency)?.toUpperCase() ?? "EUR",
       userId: profile?.id ?? asNonEmptyString(invoiceMetadata.user_id),
-      customerEmail: asNonEmptyString(invoice.customer_email),
+      gaClientId: asNonEmptyString(invoiceMetadata.ga_client_id),
       item: {
         item_id: productId,
         item_name: productName,
