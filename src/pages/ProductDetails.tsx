@@ -28,6 +28,7 @@ interface CreditPurchaseResult {
 }
 
 const CREDIT_COST = 2;
+const DEFAULT_OG_IMAGE = 'https://beatelion.com/og-default.jpg';
 
 const mapCreditPurchaseError = (message: string, t: TranslateFn) => {
   if (message.includes('insufficient_credits')) return t('productDetails.creditPurchaseInsufficient');
@@ -181,8 +182,14 @@ export function ProductDetailsPage() {
       document.querySelector('meta[property="og:description"]')?.getAttribute('content') ?? '';
     const previousOgType =
       document.querySelector('meta[property="og:type"]')?.getAttribute('content') ?? '';
+    const previousOgUrl =
+      document.querySelector('meta[property="og:url"]')?.getAttribute('content') ?? '';
     const previousOgImage =
       document.querySelector('meta[property="og:image"]')?.getAttribute('content') ?? '';
+    const previousOgSiteName =
+      document.querySelector('meta[property="og:site_name"]')?.getAttribute('content') ?? '';
+    const previousTwitterCard =
+      document.querySelector('meta[name="twitter:card"]')?.getAttribute('content') ?? '';
     const nextTitle = `${product.title} | Beatelion`;
     const producerName = product.producer?.username?.trim();
     const descriptionParts = [
@@ -192,6 +199,8 @@ export function ProductDetailsPage() {
       `Disponible sur Beatelion`,
     ].filter(Boolean);
     const nextDescription = descriptionParts.join(' • ').slice(0, 155);
+    const currentPageUrl = window.location.href;
+    const ogImage = product.cover_image_url ?? DEFAULT_OG_IMAGE;
     const getOrCreateMeta = (attribute: 'name' | 'property', value: string) => {
       let metaTag = document.querySelector(`meta[${attribute}="${value}"]`);
 
@@ -207,18 +216,20 @@ export function ProductDetailsPage() {
     const ogTitleMeta = getOrCreateMeta('property', 'og:title');
     const ogDescriptionMeta = getOrCreateMeta('property', 'og:description');
     const ogTypeMeta = getOrCreateMeta('property', 'og:type');
-    const ogImageMeta = product.cover_image_url
-      ? getOrCreateMeta('property', 'og:image')
-      : document.querySelector('meta[property="og:image"]');
+    const ogUrlMeta = getOrCreateMeta('property', 'og:url');
+    const ogImageMeta = getOrCreateMeta('property', 'og:image');
+    const ogSiteNameMeta = getOrCreateMeta('property', 'og:site_name');
+    const twitterCardMeta = getOrCreateMeta('name', 'twitter:card');
 
     document.title = nextTitle;
     descriptionMeta.setAttribute('content', nextDescription);
     ogTitleMeta.setAttribute('content', product.title);
     ogDescriptionMeta.setAttribute('content', nextDescription);
-    ogTypeMeta.setAttribute('content', 'website');
-    if (ogImageMeta) {
-      ogImageMeta.setAttribute('content', product.cover_image_url ?? previousOgImage);
-    }
+    ogTypeMeta.setAttribute('content', 'product');
+    ogUrlMeta.setAttribute('content', currentPageUrl);
+    ogImageMeta.setAttribute('content', ogImage);
+    ogSiteNameMeta.setAttribute('content', 'Beatelion');
+    twitterCardMeta.setAttribute('content', 'summary_large_image');
 
     trackViewProduct({
       productId: product.id,
@@ -232,9 +243,10 @@ export function ProductDetailsPage() {
       ogTitleMeta.setAttribute('content', previousOgTitle);
       ogDescriptionMeta.setAttribute('content', previousOgDescription);
       ogTypeMeta.setAttribute('content', previousOgType);
-      if (ogImageMeta) {
-        ogImageMeta.setAttribute('content', previousOgImage);
-      }
+      ogUrlMeta.setAttribute('content', previousOgUrl);
+      ogImageMeta.setAttribute('content', previousOgImage);
+      ogSiteNameMeta.setAttribute('content', previousOgSiteName);
+      twitterCardMeta.setAttribute('content', previousTwitterCard);
     };
   }, [product]);
 
