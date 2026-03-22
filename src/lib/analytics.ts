@@ -1,4 +1,5 @@
-const MEASUREMENT_ID = (import.meta.env.VITE_GA_MEASUREMENT_ID as string | undefined)?.trim() ?? '';
+const MEASUREMENT_ID =
+  (import.meta.env.VITE_GA_MEASUREMENT_ID as string | undefined)?.trim() || 'G-ECDLTP21H5';
 const ALLOWED_HOSTNAMES = new Set(['beatelion.com', 'www.beatelion.com']);
 const ANALYTICS_CONSENT_KEY = 'beatelion_analytics_consent';
 const DEFAULT_CONSENT = {
@@ -29,6 +30,7 @@ declare global {
 let analyticsInitialized = false;
 let analyticsInitPromise: Promise<void> | null = null;
 let consentDefaultApplied = false;
+let initialPageViewHandled = false;
 
 function hasAnalyticsConsent() {
   try {
@@ -73,7 +75,7 @@ function applyDefaultConsent() {
 
 function loadGtagScript() {
   const existingScript = document.querySelector<HTMLScriptElement>(
-    `script[data-ga-measurement-id="${MEASUREMENT_ID}"]`,
+    `script[data-ga-measurement-id="${MEASUREMENT_ID}"], script[src="https://www.googletagmanager.com/gtag/js?id=${MEASUREMENT_ID}"]`,
   );
 
   if (existingScript) {
@@ -141,6 +143,11 @@ export async function initAnalytics() {
 
 export function trackPage(path: string) {
   void withAnalyticsReady(() => {
+    if (!initialPageViewHandled) {
+      initialPageViewHandled = true;
+      return;
+    }
+
     window.gtag?.('event', 'page_view', {
       page_path: path,
       page_location: `${window.location.origin}${path}`,
