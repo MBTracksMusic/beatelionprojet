@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth/hooks';
+import { useCreditBalance } from '../lib/credits/useCreditBalance';
 import { useTranslation } from '../lib/i18n';
 import { updateProfile, updatePassword } from '../lib/auth/service';
 import { supabase } from '@/lib/supabase/client';
 import { extractStoragePathFromCandidate } from '../lib/utils/storage';
+import { formatPrice } from '../lib/utils/format';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
@@ -16,6 +18,7 @@ import toast from 'react-hot-toast';
 const AVATAR_BUCKET = import.meta.env.VITE_SUPABASE_AVATAR_BUCKET || 'avatars';
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024; // 2 MB
 const MAX_SOCIAL_LINK_LENGTH = 255;
+const CREDIT_VALUE_CENTS = 1000;
 
 type SocialLinkKey = 'instagram' | 'youtube' | 'soundcloud' | 'tiktok' | 'spotify';
 
@@ -66,8 +69,9 @@ const formatDeleteAccountError = (error: unknown, fallbackMessage: string): stri
 
 export function SettingsPage() {
   const navigate = useNavigate();
-  const { profile, refreshProfile, signOut } = useAuth();
+  const { profile, user, refreshProfile, signOut } = useAuth();
   const { t, language, updateLanguage } = useTranslation();
+  const { balance: creditBalance, isLoading: isCreditBalanceLoading } = useCreditBalance(user?.id);
   const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'preferences'>('profile');
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
@@ -403,6 +407,9 @@ export function SettingsPage() {
     { id: 'security', label: t('settings.tabSecurity'), icon: Lock },
     { id: 'preferences', label: t('settings.tabPreferences'), icon: Globe },
   ];
+  const creditValueCents = typeof creditBalance === 'number'
+    ? Math.max(creditBalance, 0) * CREDIT_VALUE_CENTS
+    : null;
 
   return (
     <div className="pt-20 pb-12 px-4">
@@ -678,6 +685,28 @@ export function SettingsPage() {
           size="md"
         >
           <div className="space-y-4">
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-300" />
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold text-amber-200">
+                    {t('settings.deleteAccountCreditsWarning')}
+                  </p>
+                  <p className="text-sm text-zinc-200">
+                    {isCreditBalanceLoading
+                      ? t('settings.deleteAccountCreditsValueLoading')
+                      : t('settings.deleteAccountCreditsValue', {
+                          credits: typeof creditBalance === 'number' ? creditBalance : 0,
+                          value: formatPrice(creditValueCents ?? 0),
+                        })}
+                  </p>
+                  <p className="text-xs text-zinc-400">
+                    {t('settings.deleteAccountLegalNote')}
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-zinc-300 mb-2">
                 {t('settings.deleteAccountReasonLabel')}

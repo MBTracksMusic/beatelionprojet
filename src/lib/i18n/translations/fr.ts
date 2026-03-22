@@ -480,6 +480,11 @@ export const fr = {
     deleteAccountSuccess: 'Votre compte a ete supprime.',
     deleteAccountError: 'Impossible de supprimer le compte pour le moment.',
     deleteAccountConfirmationError: 'Veuillez taper SUPPRIMER pour confirmer.',
+    deleteAccountCreditsWarning:
+      '⚠️ Vous allez perdre définitivement vos crédits restants. Cette action est irréversible.',
+    deleteAccountCreditsValue: 'Vous avez {credits} crédits (≈ {value} de valeur)',
+    deleteAccountCreditsValueLoading: 'Chargement de la valeur de vos crédits...',
+    deleteAccountLegalNote: 'Les crédits ne sont pas remboursables sauf obligation légale.',
   },
   dashboard: {
     title: 'Tableau de bord',

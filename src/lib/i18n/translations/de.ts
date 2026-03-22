@@ -481,6 +481,11 @@ export const de: TranslationSchema = {
     deleteAccountSuccess: 'Ihr Konto wurde geloscht.',
     deleteAccountError: 'Konto kann derzeit nicht geloscht werden.',
     deleteAccountConfirmationError: 'Bitte geben Sie SUPPRIMER zur Bestatigung ein.',
+    deleteAccountCreditsWarning:
+      '⚠️ Sie verlieren Ihre verbleibenden Credits dauerhaft. Diese Aktion ist unwiderruflich.',
+    deleteAccountCreditsValue: 'Sie haben {credits} Credits (≈ {value} Wert)',
+    deleteAccountCreditsValueLoading: 'Der Wert Ihrer Credits wird geladen...',
+    deleteAccountLegalNote: 'Credits sind außer bei gesetzlicher Verpflichtung nicht erstattungsfähig.',
   },
   dashboard: {
     title: 'Dashboard',

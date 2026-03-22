@@ -481,6 +481,11 @@ export const en: TranslationSchema = {
     deleteAccountSuccess: 'Your account has been deleted.',
     deleteAccountError: 'Unable to delete account right now.',
     deleteAccountConfirmationError: 'Please type SUPPRIMER to confirm.',
+    deleteAccountCreditsWarning:
+      '⚠️ You will permanently lose your remaining credits. This action is irreversible.',
+    deleteAccountCreditsValue: 'You have {credits} credits (≈ {value} in value)',
+    deleteAccountCreditsValueLoading: 'Loading your credit value...',
+    deleteAccountLegalNote: 'Credits are non-refundable except where required by law.',
   },
   dashboard: {
     title: 'Dashboard',
