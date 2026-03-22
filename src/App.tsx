@@ -14,6 +14,8 @@ import { MaintenanceScreen } from './components/system/MaintenanceScreen';
 import { MaintenanceModeProvider } from './lib/supabase/MaintenanceModeContext';
 import { useMaintenanceMode } from './lib/supabase/useMaintenanceMode';
 import { initAnalytics, setAnalyticsUserId } from './lib/analytics';
+import { AudioPlayerProvider } from './context/AudioPlayerContext';
+import { GlobalAudioPlayer } from './components/player/GlobalAudioPlayer';
 
 const MAINTENANCE_BYPASS_PATHS = new Set([
   '/login',
@@ -334,34 +336,37 @@ function App() {
   } = maintenanceMode;
 
   return (
-    <MaintenanceModeProvider value={maintenanceMode}>
-      <BrowserRouter>
-        <AnalyticsTracker />
-        <AppShell
-          maintenance={maintenance}
-          launchDate={launchDate}
-          launchVideoUrl={launchVideoUrl}
-          isMaintenanceLoading={isMaintenanceLoading}
-        />
-        <CookieBanner />
-        <Toaster
-          position="bottom-right"
-          toastOptions={{
-            style: {
-              background: '#18181b',
-              color: '#fff',
-              border: '1px solid #27272a',
-            },
-            success: {
-              iconTheme: {
-                primary: '#f43f5e',
-                secondary: '#fff',
+    <AudioPlayerProvider>
+      <MaintenanceModeProvider value={maintenanceMode}>
+        <BrowserRouter>
+          <AnalyticsTracker />
+          <AppShell
+            maintenance={maintenance}
+            launchDate={launchDate}
+            launchVideoUrl={launchVideoUrl}
+            isMaintenanceLoading={isMaintenanceLoading}
+          />
+          <GlobalAudioPlayer />
+          <CookieBanner />
+          <Toaster
+            position="bottom-right"
+            toastOptions={{
+              style: {
+                background: '#18181b',
+                color: '#fff',
+                border: '1px solid #27272a',
               },
-            },
-          }}
-        />
-      </BrowserRouter>
-    </MaintenanceModeProvider>
+              success: {
+                iconTheme: {
+                  primary: '#f43f5e',
+                  secondary: '#fff',
+                },
+              },
+            }}
+          />
+        </BrowserRouter>
+      </MaintenanceModeProvider>
+    </AudioPlayerProvider>
   );
 }
 

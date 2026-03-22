@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ExternalLink, Instagram, Twitter, Users, Youtube } from 'lucide-react';
+import { ExternalLink, Instagram, Pause, Play, Twitter, Users, Youtube } from 'lucide-react';
+import { PublishedBeatsList } from '../components/producers/PublishedBeatsList';
+import { useAudioPlayer } from '../context/AudioPlayerContext';
 import { ReputationBadge, formatRankTier } from '../components/reputation/ReputationBadge';
 import { useTranslation } from '../lib/i18n';
 import { supabase } from '@/lib/supabase/client';
@@ -28,6 +30,7 @@ interface PublicProducerBeat {
   title: string;
   slug: string;
   cover_image_url: string | null;
+  audio_url: string;
   price: number;
   bpm: number | null;
   key_signature: string | null;
@@ -79,6 +82,7 @@ const getProducerTierLabel = (tier: ProducerTier | null, t: ReturnType<typeof us
 
 export function ProducerPublicProfilePage() {
   const { t } = useTranslation();
+  const { playQueue, currentTrack, isPlaying } = useAudioPlayer();
   const { username } = useParams<{ username: string }>();
   const [producer, setProducer] = useState<PublicProducerProfile | null>(null);
   const [topBeats, setTopBeats] = useState<PublicProducerBeat[]>([]);
@@ -93,6 +97,18 @@ export function ProducerPublicProfilePage() {
   const [isDeletedProfile, setIsDeletedProfile] = useState(false);
 
   const socialLinks = useMemo(() => toSocialLinks(producer?.social_links), [producer?.social_links]);
+  const topBeatQueue = useMemo(
+    () =>
+      topBeats
+        .filter((beat) => Boolean(beat.audio_url))
+        .map((beat) => ({
+          id: beat.id,
+          title: beat.title,
+          audioUrl: beat.audio_url,
+          cover_image_url: beat.cover_image_url,
+        })),
+    [topBeats],
+  );
 
   useEffect(() => {
     let isCancelled = false;
@@ -244,7 +260,7 @@ export function ProducerPublicProfilePage() {
           }),
           supabase
             .from('products')
-            .select('id, title, slug, cover_image_url, price, bpm, key_signature, created_at')
+            .select('id, title, slug, cover_image_url, preview_url, price, bpm, key_signature, created_at')
             .eq('producer_id', producerRow.user_id)
             .eq('product_type', 'beat')
             .eq('is_published', true)
@@ -262,7 +278,12 @@ export function ProducerPublicProfilePage() {
 
         const fallbackAllBeats = ((beatsResponse.data ?? []) as PublicProducerBeat[]).filter(
           (beat) => typeof beat.id === 'string' && typeof beat.slug === 'string'
-        );
+        ).map((beat) => ({
+          ...beat,
+          audio_url: (beat as PublicProducerBeat & { preview_url?: string | null }).audio_url
+            || (beat as PublicProducerBeat & { preview_url?: string | null }).preview_url
+            || '',
+        }));
 
         if (beatsResponse.error) {
           if (!isCancelled) {
@@ -305,6 +326,7 @@ export function ProducerPublicProfilePage() {
                     price: row.price,
                     bpm: fallbackBeat?.bpm ?? null,
                     key_signature: fallbackBeat?.key_signature ?? null,
+                    audio_url: fallbackBeat?.audio_url ?? '',
                     created_at: row.created_at,
                     producer_rank: row.producer_rank,
                     top_10_flag: row.top_10_flag,
@@ -505,19 +527,44 @@ export function ProducerPublicProfilePage() {
                 <Link
                   key={beat.id}
                   to={`/beats/${beat.slug}`}
-                  className="rounded-xl border border-zinc-800 bg-zinc-950/50 overflow-hidden transition transform-gpu hover:scale-[1.02] hover:shadow-xl hover:shadow-black/40 hover:border-zinc-600"
+                  className={`rounded-xl border border-zinc-800 bg-zinc-950/50 overflow-hidden transition-all duration-150 transform-gpu hover:scale-[1.02] hover:shadow-xl hover:shadow-black/40 hover:border-zinc-600 ${
+                    currentTrack?.id === beat.id
+                      ? 'ring-2 ring-rose-500 shadow-lg shadow-rose-500/30'
+                      : ''
+                  }`}
                 >
-                  {beat.cover_image_url ? (
-                    <img
-                      src={beat.cover_image_url}
-                      alt={beat.title}
-                      className="aspect-[4/3] w-full object-cover"
-                    />
-                  ) : (
-                    <div className="aspect-[4/3] w-full bg-zinc-800 flex items-center justify-center">
-                      <Users className="w-8 h-8 text-zinc-500" />
-                    </div>
-                  )}
+                  <div className="relative">
+                    {beat.cover_image_url ? (
+                      <img
+                        src={beat.cover_image_url}
+                        alt={beat.title}
+                        className="aspect-[4/3] w-full object-cover"
+                      />
+                    ) : (
+                      <div className="aspect-[4/3] w-full bg-zinc-800 flex items-center justify-center">
+                        <Users className="w-8 h-8 text-zinc-500" />
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      title="Play preview"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const startIndex = topBeatQueue.findIndex((track) => track.id === beat.id);
+                        if (startIndex === -1) return;
+                        playQueue(topBeatQueue, startIndex);
+                      }}
+                      disabled={!beat.audio_url}
+                      className="absolute bottom-3 left-3 flex h-9 w-9 items-center justify-center rounded-full border border-rose-500/40 bg-black/70 text-rose-400 backdrop-blur-sm transition hover:border-rose-500 hover:bg-rose-500 hover:text-black active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {currentTrack?.id === beat.id && isPlaying ? (
+                        <Pause className="h-4 w-4" />
+                      ) : (
+                        <Play className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
                   <div className="p-2.5">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-semibold text-white truncate">{beat.title}</p>
@@ -541,34 +588,7 @@ export function ProducerPublicProfilePage() {
         {!isBeatsLoading && !beatsError && allBeats.length > 0 && (
           <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mt-4">
             <h2 className="text-lg font-semibold text-white mb-4">{t('producerProfile.publishedBeats')}</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {allBeats.map((beat) => (
-                <Link
-                  key={beat.id}
-                  to={`/beats/${beat.slug}`}
-                  className="rounded-xl border border-zinc-800 bg-zinc-950/50 overflow-hidden transition transform-gpu hover:scale-[1.02] hover:shadow-xl hover:shadow-black/40 hover:border-zinc-600"
-                >
-                  {beat.cover_image_url ? (
-                    <img
-                      src={beat.cover_image_url}
-                      alt={beat.title}
-                      className="aspect-[4/3] w-full object-cover"
-                    />
-                  ) : (
-                    <div className="aspect-[4/3] w-full bg-zinc-800 flex items-center justify-center">
-                      <Users className="w-8 h-8 text-zinc-500" />
-                    </div>
-                  )}
-                  <div className="p-2.5">
-                    <p className="text-sm font-semibold text-white truncate">{beat.title}</p>
-                    <p className="text-xs text-zinc-400 mt-1">
-                      {beat.bpm ? `${beat.bpm} ${t('products.bpm')}` : '—'} · {beat.key_signature || '—'}
-                    </p>
-                    <p className="text-sm font-bold text-rose-300 mt-2">{formatPrice(beat.price || 0)}</p>
-                  </div>
-                </Link>
-              ))}
-            </div>
+            <PublishedBeatsList beats={allBeats} />
           </section>
         )}
 

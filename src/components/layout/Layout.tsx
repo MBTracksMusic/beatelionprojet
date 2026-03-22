@@ -16,7 +16,7 @@ export function Layout({ children, hidePlayer }: LayoutProps) {
   return (
     <div className="min-h-screen bg-zinc-950 text-white flex flex-col">
       <Header />
-      <main className="flex-1 pt-16">{children ?? <Outlet />}</main>
+      <main className="flex-1 pt-16 pb-20">{children ?? <Outlet />}</main>
       <Footer />
       {!hidePlayer && (
         <AudioPlayer
