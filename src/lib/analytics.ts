@@ -1,203 +1,268 @@
-const MEASUREMENT_ID =
-  (import.meta.env.VITE_GA_MEASUREMENT_ID as string | undefined)?.trim() || 'G-ECDLTP21H5';
-const ALLOWED_HOSTNAMES = new Set(['beatelion.com', 'www.beatelion.com']);
-const ANALYTICS_CONSENT_KEY = 'beatelion_analytics_consent';
-const DEFAULT_CONSENT = {
-  analytics_storage: 'denied',
-} as const;
-const GRANTED_CONSENT = {
-  analytics_storage: 'granted',
-} as const;
-
-type GtagParams = Record<string, string | number | boolean | null | undefined>;
+type AnalyticsValue = string | number | boolean | null | undefined;
+type EcommerceItem = {
+  item_id: string;
+  item_name?: string;
+  price?: number;
+  quantity?: number;
+};
+type AnalyticsParams = Record<string, AnalyticsValue | EcommerceItem[]>;
 type ConsentMode = 'default' | 'update';
 type ConsentParams = {
   analytics_storage: 'denied' | 'granted';
 };
+type ConfigParams = {
+  user_id?: string;
+};
 
 declare global {
   interface Window {
-    dataLayer?: unknown[];
     gtag?: {
-      (command: 'js', target: Date): void;
-      (command: 'config', target: string, params?: GtagParams): void;
-      (command: 'event', target: string, params?: GtagParams): void;
-      (command: 'consent', target: ConsentMode, params: ConsentParams): void;
+      (command: 'event', eventName: string, params?: AnalyticsParams): void;
+      (command: 'consent', mode: ConsentMode, params: ConsentParams): void;
+      (command: 'config', target: string, params?: ConfigParams): void;
     };
   }
 }
 
-let analyticsInitialized = false;
-let analyticsInitPromise: Promise<void> | null = null;
-let consentDefaultApplied = false;
-let initialPageViewHandled = false;
+const ANALYTICS_CONSENT_KEY = 'beatelion_analytics_consent';
+const MEASUREMENT_ID =
+  (import.meta.env.VITE_GA_MEASUREMENT_ID as string | undefined)?.trim() || 'G-ECDLTP21H5';
+const DEFAULT_CONSENT: ConsentParams = {
+  analytics_storage: 'denied',
+};
+const GRANTED_CONSENT: ConsentParams = {
+  analytics_storage: 'granted',
+};
+let consentInitialized = false;
+let configuredUserId: string | null = null;
 
-function hasAnalyticsConsent() {
+function canTrack() {
+  return typeof window !== 'undefined' && typeof window.gtag === 'function';
+}
+
+function trackOnce(key: string, callback: () => void) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
   try {
-    return window.localStorage.getItem(ANALYTICS_CONSENT_KEY) === 'granted';
-  } catch {
-    return false;
-  }
-}
-
-function canRunAnalytics() {
-  if (typeof window === 'undefined' || typeof document === 'undefined') {
-    return false;
-  }
-
-  if (!import.meta.env.PROD || !MEASUREMENT_ID) {
-    return false;
-  }
-
-  return ALLOWED_HOSTNAMES.has(window.location.hostname) && hasAnalyticsConsent();
-}
-
-function ensureGtagRuntime() {
-  window.dataLayer = window.dataLayer ?? [];
-
-  if (typeof window.gtag !== 'function') {
-    window.gtag = function gtag(...args: unknown[]) {
-      window.dataLayer?.push(args);
-    } as Window['gtag'];
-  }
-}
-
-function applyDefaultConsent() {
-  ensureGtagRuntime();
-
-  if (consentDefaultApplied) {
-    return;
-  }
-
-  window.gtag?.('consent', 'default', DEFAULT_CONSENT);
-  consentDefaultApplied = true;
-}
-
-function loadGtagScript() {
-  const existingScript = document.querySelector<HTMLScriptElement>(
-    `script[data-ga-measurement-id="${MEASUREMENT_ID}"], script[src="https://www.googletagmanager.com/gtag/js?id=${MEASUREMENT_ID}"]`,
-  );
-
-  if (existingScript) {
-    return Promise.resolve();
-  }
-
-  return new Promise<void>((resolve, reject) => {
-    const script = document.createElement('script');
-    script.async = true;
-    script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(MEASUREMENT_ID)}`;
-    script.dataset.gaMeasurementId = MEASUREMENT_ID;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load Google Analytics script'));
-    document.head.appendChild(script);
-  });
-}
-
-async function withAnalyticsReady(callback: () => void) {
-  await initAnalytics();
-
-  if (!analyticsInitialized || typeof window.gtag !== 'function') {
-    return;
-  }
-
-  callback();
-}
-
-export async function initAnalytics() {
-  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-    applyDefaultConsent();
-  }
-
-  if (!canRunAnalytics()) {
-    return;
-  }
-
-  if (analyticsInitialized) {
-    return;
-  }
-
-  if (!analyticsInitPromise) {
-    analyticsInitPromise = loadGtagScript()
-      .then(() => {
-        applyDefaultConsent();
-        window.gtag?.('js', new Date());
-        window.gtag?.('config', MEASUREMENT_ID, {
-          send_page_view: false,
-          anonymize_ip: true,
-        });
-        analyticsInitialized = true;
-      })
-      .catch((err) => {
-        if (import.meta.env.DEV) {
-          console.error('GA init failed', err);
-        }
-        analyticsInitialized = false;
-      })
-      .finally(() => {
-        analyticsInitPromise = null;
-      });
-  }
-
-  await analyticsInitPromise;
-}
-
-export function trackPage(path: string) {
-  void withAnalyticsReady(() => {
-    if (!initialPageViewHandled) {
-      initialPageViewHandled = true;
+    if (window.sessionStorage.getItem(key) === '1') {
       return;
     }
+    callback();
+    window.sessionStorage.setItem(key, '1');
+  } catch {
+    callback();
+  }
+}
 
-    window.gtag?.('event', 'page_view', {
-      page_path: path,
-      page_location: `${window.location.origin}${path}`,
-      page_title: document.title,
-    });
+export const trackEvent = (eventName: string, params?: AnalyticsParams) => {
+  if (canTrack()) {
+    window.gtag('event', eventName, params);
+  }
+};
+
+export function trackPage(path: string) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  trackEvent('page_view', {
+    page_path: path,
+    page_location: `${window.location.origin}${path}`,
+    page_title: document.title,
   });
 }
 
-export function trackEvent(name: string, params: GtagParams = {}) {
-  void withAnalyticsReady(() => {
-    window.gtag?.('event', name, params);
+export function trackSignUp(method = 'email') {
+  trackEvent('sign_up', { method });
+}
+
+export function trackLogin(method = 'email') {
+  trackEvent('login', { method });
+}
+
+export function trackViewItem(params: {
+  itemId?: string;
+  itemName: string;
+  price?: number;
+}): void;
+export function trackViewItem(itemName: string, itemId?: string, price?: number): void;
+export function trackViewItem(
+  paramsOrItemName: {
+    itemId?: string;
+    itemName: string;
+    price?: number;
+  } | string,
+  itemId?: string,
+  price?: number,
+) {
+  const params =
+    typeof paramsOrItemName === 'string'
+      ? {
+          itemId,
+          itemName: paramsOrItemName,
+          price,
+        }
+      : paramsOrItemName;
+
+  trackEvent('view_item', {
+    items: [
+      {
+        item_id: params.itemId ?? 'unknown',
+        item_name: params.itemName,
+        price: params.price,
+      },
+    ],
   });
 }
 
-interface ProductEventPayload {
+export function trackAddToCart(params: {
+  productId: string;
+  productName?: string;
+  price: number;
+}) {
+  trackEvent('add_to_cart', {
+    currency: 'EUR',
+    value: params.price,
+    items: [
+      {
+        item_id: params.productId,
+        item_name: params.productName ?? undefined,
+        price: params.price,
+        quantity: 1,
+      },
+    ],
+  });
+}
+
+export function trackClickBuy(params: {
   productId: string;
   price: number;
   productName?: string | null;
   currency?: string;
-  transactionId?: string;
+}) {
+  trackEvent('select_item', {
+    item_id: params.productId,
+    item_name: params.productName ?? undefined,
+    value: params.price,
+    currency: params.currency ?? 'EUR',
+  });
 }
 
-function toProductEventParams(payload: ProductEventPayload): GtagParams {
-  return {
-    product_id: payload.productId,
-    value: payload.price,
-    price: payload.price,
-    currency: payload.currency ?? 'EUR',
-    item_id: payload.productId,
-    item_name: payload.productName ?? undefined,
-    transaction_id: payload.transactionId ?? undefined,
-  };
+export function trackBeginCheckout(params: {
+  productId: string;
+  price: number;
+  productName?: string | null;
+  currency?: string;
+}) {
+  trackEvent('begin_checkout', {
+    value: params.price,
+    currency: params.currency ?? 'EUR',
+    items: [
+      {
+        item_id: params.productId,
+        item_name: params.productName ?? undefined,
+        price: params.price,
+        quantity: 1,
+      },
+    ],
+  });
 }
 
-export function trackViewProduct(payload: ProductEventPayload) {
-  trackEvent('view_product', toProductEventParams(payload));
+export function trackPurchase(params: {
+  transactionId: string;
+  value: number;
+  currency?: string;
+  itemId?: string;
+  itemName?: string;
+}) {
+  trackOnce(`ga:purchase:${params.transactionId}`, () => {
+    trackEvent('purchase', {
+      transaction_id: params.transactionId,
+      value: params.value,
+      currency: params.currency ?? 'EUR',
+      items: [
+        {
+          item_id: params.itemId ?? 'unknown',
+          item_name: params.itemName ?? 'unknown',
+          price: params.value,
+          quantity: 1,
+        },
+      ],
+    });
+  });
 }
 
-export function trackClickBuy(payload: ProductEventPayload) {
-  trackEvent('click_buy', toProductEventParams(payload));
+export function trackSubscriptionStart(params: {
+  plan: string;
+  value: number;
+  subscriptionId?: string | null;
+}) {
+  const onceKey = params.subscriptionId
+    ? `ga:subscription:${params.subscriptionId}`
+    : `ga:subscription:${params.plan}:${params.value}`;
+
+  trackOnce(onceKey, () => {
+    trackEvent('subscription_start', {
+      plan: params.plan,
+      value: params.value,
+    });
+  });
 }
 
-export function trackBeginCheckout(payload: ProductEventPayload) {
-  trackEvent('begin_checkout', toProductEventParams(payload));
+export function trackUploadBeat() {
+  trackEvent('upload_beat');
 }
 
-export function trackPurchase(payload: ProductEventPayload) {
-  // WARNING: purchase is tracked server-side via Stripe webhook.
-  // Do NOT call this in production flow to avoid duplicate GA4 revenue events.
-  trackEvent('purchase', toProductEventParams(payload));
+export function trackJoinBattle(battleId?: string) {
+  if (!battleId) {
+    trackEvent('join_battle');
+    return;
+  }
+
+  trackOnce(`ga:join_battle:${battleId}`, () => {
+    trackEvent('join_battle', {
+      battle_id: battleId,
+    });
+  });
+}
+
+export async function initAnalytics() {
+  if (!canTrack() || consentInitialized) {
+    return;
+  }
+
+  const consent =
+    typeof window !== 'undefined' && window.localStorage.getItem(ANALYTICS_CONSENT_KEY) === 'granted'
+      ? GRANTED_CONSENT
+      : DEFAULT_CONSENT;
+
+  window.gtag('consent', 'default', consent);
+  consentInitialized = true;
+}
+
+export function setAnalyticsUserId(userId: string) {
+  if (!canTrack() || !userId || configuredUserId === userId) {
+    return;
+  }
+
+  window.gtag('config', MEASUREMENT_ID, {
+    user_id: userId,
+  });
+  configuredUserId = userId;
+}
+
+export function clearAnalyticsUserId() {
+  if (typeof window === 'undefined' || typeof window.gtag !== 'function') {
+    return;
+  }
+
+  window.gtag('config', MEASUREMENT_ID, {
+    user_id: undefined,
+  });
+
+  configuredUserId = null;
 }
 
 export async function grantAnalyticsConsent() {
@@ -211,9 +276,9 @@ export async function grantAnalyticsConsent() {
     return;
   }
 
-  applyDefaultConsent();
-  window.gtag?.('consent', 'update', GRANTED_CONSENT);
-  await initAnalytics();
+  if (canTrack()) {
+    window.gtag('consent', 'update', GRANTED_CONSENT);
+  }
 }
 
 export function revokeAnalyticsConsent() {
@@ -227,8 +292,9 @@ export function revokeAnalyticsConsent() {
     return;
   }
 
-  applyDefaultConsent();
-  window.gtag?.('consent', 'update', DEFAULT_CONSENT);
+  if (canTrack()) {
+    window.gtag('consent', 'update', DEFAULT_CONSENT);
+  }
 }
 
 export function useAnalytics() {
@@ -236,11 +302,19 @@ export function useAnalytics() {
     initAnalytics,
     grantAnalyticsConsent,
     revokeAnalyticsConsent,
+    clearAnalyticsUserId,
+    setAnalyticsUserId,
+    trackAddToCart,
     trackBeginCheckout,
     trackClickBuy,
     trackEvent,
+    trackJoinBattle,
+    trackLogin,
     trackPage,
     trackPurchase,
-    trackViewProduct,
+    trackSignUp,
+    trackSubscriptionStart,
+    trackUploadBeat,
+    trackViewItem,
   };
 }

@@ -13,6 +13,7 @@ import { CookieBanner } from './components/system/CookieBanner';
 import { MaintenanceScreen } from './components/system/MaintenanceScreen';
 import { MaintenanceModeProvider } from './lib/supabase/MaintenanceModeContext';
 import { useMaintenanceMode } from './lib/supabase/useMaintenanceMode';
+import { initAnalytics, setAnalyticsUserId } from './lib/analytics';
 
 const MAINTENANCE_BYPASS_PATHS = new Set([
   '/login',
@@ -110,6 +111,12 @@ function AppContent() {
       fetchCart();
     }
   }, [user, isInitialized, fetchCart]);
+
+  useEffect(() => {
+    if (user?.id) {
+      setAnalyticsUserId(user.id);
+    }
+  }, [user?.id]);
 
   const shouldBypassAuthBootstrapLoader =
     location.pathname === '/reset-password' || location.pathname === '/email-confirmation';
@@ -312,6 +319,10 @@ function App() {
   useEffect(() => {
     const unsubscribe = initializeAuth();
     return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    void initAnalytics();
   }, []);
 
   const maintenanceMode = useMaintenanceMode();

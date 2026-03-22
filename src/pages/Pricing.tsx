@@ -21,6 +21,7 @@ import { Card } from '../components/ui/Card';
 import { Modal } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
 import toast from 'react-hot-toast';
+import { trackSubscriptionStart } from '../lib/analytics';
 import type { Database } from '../lib/supabase/types';
 import { formatDate, formatPrice } from '../lib/utils/format';
 import { useUserSubscriptionStatus } from '../lib/subscriptions/useUserSubscriptionStatus';
@@ -228,6 +229,61 @@ export function PricingPage() {
     void fetchPlan();
   }, [t]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const producerStatus = params.get('status');
+    const userStatus = params.get('user_subscription');
+
+    if (producerStatus !== 'success' && userStatus !== 'success') {
+      return;
+    }
+
+    void (async () => {
+      if (!user?.id) {
+        return;
+      }
+
+      if (producerStatus === 'success') {
+        const { data, error: subscriptionError } = await supabase
+          .from('producer_subscriptions')
+          .select('stripe_subscription_id, subscription_status')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (subscriptionError) {
+          console.error('Error loading producer subscription for analytics:', subscriptionError);
+        } else if (data && ['active', 'trialing'].includes((data as { subscription_status?: string }).subscription_status ?? '')) {
+          const plan = window.sessionStorage.getItem('ga_pending_producer_plan') || 'producer';
+          const rawValue = Number(window.sessionStorage.getItem('ga_pending_producer_value') || '0');
+          trackSubscriptionStart({
+            plan,
+            value: Number.isFinite(rawValue) ? rawValue : 0,
+            subscriptionId: (data as { stripe_subscription_id: string | null }).stripe_subscription_id,
+          });
+        }
+      }
+
+      if (userStatus === 'success') {
+        const isActive = ['active', 'trialing'].includes(userSubscription?.subscription_status ?? '');
+
+        if (userSubscription?.id && isActive) {
+          const rawValue = Number(window.sessionStorage.getItem('ga_pending_user_subscription_value') || '9.99');
+          trackSubscriptionStart({
+            plan: userSubscription.plan_code || 'user_premium',
+            value: Number.isFinite(rawValue) ? rawValue : 9.99,
+            subscriptionId: userSubscription.id,
+          });
+        }
+      }
+
+      window.sessionStorage.removeItem('ga_pending_producer_plan');
+      window.sessionStorage.removeItem('ga_pending_producer_value');
+      window.sessionStorage.removeItem('ga_pending_user_subscription_value');
+    })();
+  }, [user?.id, userSubscription?.id, userSubscription?.plan_code, userSubscription?.subscription_status]);
+
   const startCheckout = async (tier: CheckoutTier) => {
     if (!user) {
       navigate('/register', { state: { from: { pathname: '/pricing' } } });
@@ -307,6 +363,8 @@ export function PricingPage() {
 
       const url = data?.url;
       if (url) {
+        window.sessionStorage.setItem('ga_pending_producer_plan', tier);
+        window.sessionStorage.setItem('ga_pending_producer_value', String((targetPlan.amount_cents ?? 0) / 100));
         window.location.href = url;
       } else {
         throw new Error(t('pricing.missingCheckoutUrl'));
@@ -356,6 +414,7 @@ export function PricingPage() {
         throw new Error(t('pricing.userCheckoutUnavailable'));
       }
 
+      window.sessionStorage.setItem('ga_pending_user_subscription_value', '9.99');
       window.location.href = data.url;
     } catch (checkoutError) {
       console.error('User subscription checkout failed', checkoutError);

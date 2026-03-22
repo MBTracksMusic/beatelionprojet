@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { User, Session } from '@supabase/supabase-js';
 import type { UserProfile } from '../supabase/types';
 import { supabase } from '@/lib/supabase/client';
+import { clearAnalyticsUserId } from '../analytics';
 import { resolveInitialLanguage, syncI18nLanguage } from '../i18n';
 
 interface AuthState {
@@ -116,6 +117,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (signOutError) {
           console.error('Error signing out deleted account:', signOutError);
         }
+        clearAnalyticsUserId();
         set({ user: null, session: null, profile: null });
         syncI18nLanguage();
         return;
@@ -190,6 +192,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signOut: async () => {
     await supabase.auth.signOut();
+    clearAnalyticsUserId();
     set({ user: null, session: null, profile: null });
   },
 }));

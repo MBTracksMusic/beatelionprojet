@@ -13,7 +13,7 @@ import { useCartStore } from '../lib/stores/cart';
 import { useAuth } from '../lib/auth/hooks';
 import { supabase } from '@/lib/supabase/client';
 import { useCreditBalance } from '../lib/credits/useCreditBalance';
-import { trackClickBuy, trackViewProduct } from '../lib/analytics';
+import { trackAddToCart, trackClickBuy, trackPurchase, trackViewItem } from '../lib/analytics';
 import { getExperimentVariant } from '../lib/experiments';
 
 interface CreditPurchaseResult {
@@ -231,10 +231,10 @@ export function ProductDetailsPage() {
     ogSiteNameMeta.setAttribute('content', 'Beatelion');
     twitterCardMeta.setAttribute('content', 'summary_large_image');
 
-    trackViewProduct({
-      productId: product.id,
+    trackViewItem({
+      itemId: product.id,
+      itemName: product.title,
       price: product.price,
-      productName: product.title,
     });
 
     return () => {
@@ -299,6 +299,11 @@ export function ProductDetailsPage() {
     setIsAddingToCart(true);
     try {
       await addToCart(product.id);
+      trackAddToCart({
+        productId: product.id,
+        productName: product.title,
+        price: product.price,
+      });
     } catch (e) {
       console.error('Error adding to cart from details page', e);
     } finally {
@@ -335,6 +340,13 @@ export function ProductDetailsPage() {
         throw new Error('credit_purchase_failed');
       }
       setHasPurchasedProduct(true);
+      trackPurchase({
+        transactionId: purchaseResult.purchase_id,
+        value: product.price,
+        currency: 'EUR',
+        itemId: product.id,
+        itemName: product.title,
+      });
       await refetchCreditBalance();
       toast.success(t('productDetails.creditPurchaseSuccess'));
     } catch (purchaseError) {

@@ -6,6 +6,7 @@ import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
+import { trackJoinBattle } from '../lib/analytics';
 import { useAuth } from '../lib/auth/hooks';
 import { useTranslation, type TranslateFn } from '../lib/i18n';
 import { supabase } from '@/lib/supabase/client';
@@ -651,7 +652,7 @@ export function ProducerBattlesPage() {
       return;
     }
 
-    const { error: insertError } = await supabase
+    const { data: createdBattle, error: insertError } = await supabase
       .from('battles')
       .insert({
         title: form.title.trim(),
@@ -665,7 +666,9 @@ export function ProducerBattlesPage() {
         winner_id: undefined,
         votes_producer1: 0,
         votes_producer2: 0,
-      });
+      })
+      .select('id')
+      .single();
 
     if (insertError) {
       console.error('Error creating battle:', {
@@ -692,6 +695,7 @@ export function ProducerBattlesPage() {
       product1Id: '',
       product2Id: '',
     });
+    trackJoinBattle((createdBattle as { id: string } | null)?.id);
     setProducer2Products([]);
     setIsSaving(false);
     await Promise.all([loadBattles(), loadQuotaStatus(), loadMatchmakingOpponents()]);
@@ -728,6 +732,9 @@ export function ProducerBattlesPage() {
     }
 
     setRejectReasons((prev) => ({ ...prev, [battleId]: '' }));
+    if (accept) {
+      trackJoinBattle(battleId);
+    }
     setRespondingId(null);
     await loadBattles();
   };

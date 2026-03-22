@@ -7,6 +7,7 @@ import { Card } from '../ui/Card';
 import { useAuth } from '../../lib/auth/hooks';
 import { useTranslation } from '../../lib/i18n';
 import { supabase } from '@/lib/supabase/client';
+import { trackAddToCart } from '../../lib/analytics';
 import { fetchPublicProducerProfilesMap } from '../../lib/supabase/publicProfiles';
 import { useCartStore } from '../../lib/stores/cart';
 import { formatNumber, formatPrice } from '../../lib/utils/format';
@@ -167,6 +168,7 @@ export function HomeFeaturedBeats() {
   }, []);
 
   const handleAddToCart = async (beatId: string) => {
+    const beat = beats.find((entry) => entry.id === beatId);
     if (!isAuthenticated) {
       navigate('/login', { state: { from: { pathname: location.pathname } } });
       return;
@@ -175,6 +177,13 @@ export function HomeFeaturedBeats() {
     setAddingBeatId(beatId);
     try {
       await addToCart(beatId);
+      if (beat) {
+        trackAddToCart({
+          productId: beat.id,
+          productName: beat.title,
+          price: beat.price,
+        });
+      }
     } catch (error) {
       console.error('Error adding featured beat to cart:', error);
     } finally {

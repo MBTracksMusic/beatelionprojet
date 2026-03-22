@@ -4,6 +4,7 @@ import { Play, Pause, Heart, ShoppingCart, Star, Lock } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import type { ProductWithRelations } from '../../lib/supabase/types';
+import { trackAddToCart } from '../../lib/analytics';
 import { usePlayerStore } from '../../lib/stores/player';
 import { useCartStore } from '../../lib/stores/cart';
 import { useAuth, usePermissions } from '../../lib/auth/hooks';
@@ -57,6 +58,11 @@ export function ProductCard({ product, onWishlistToggle, isWishlisted }: Product
     setIsAddingToCart(true);
     try {
       await addToCart(product.id);
+      trackAddToCart({
+        productId: product.id,
+        productName: product.title,
+        price: product.price,
+      });
     } catch (error) {
       console.error('Error adding to cart:', error);
     } finally {

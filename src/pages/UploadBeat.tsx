@@ -10,6 +10,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { trackUploadBeat } from '../lib/analytics';
 import { useTranslation, type TranslateFn } from '../lib/i18n';
 import { useAuth } from '../lib/auth/hooks';
 import { supabase } from '@/lib/supabase/client';
@@ -873,6 +874,9 @@ export function UploadBeatPage() {
             )
             : t('uploadBeat.beatPublished')
       );
+      if (!versionSource && !editingProduct) {
+        trackUploadBeat();
+      }
       setErrors({});
       setTitle('');
       setPrice('');

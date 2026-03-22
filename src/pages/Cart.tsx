@@ -7,7 +7,7 @@ import { formatPrice } from '../lib/utils/format';
 import { Button } from '../components/ui/Button';
 import { LogoLoader } from '../components/ui/LogoLoader';
 import { supabase } from '../lib/supabase/client';
-import { trackBeginCheckout } from '../lib/analytics';
+import { trackBeginCheckout, trackPurchase } from '../lib/analytics';
 
 export function CartPage() {
   const navigate = useNavigate();
@@ -25,6 +25,42 @@ export function CartPage() {
 
     void (async () => {
       try {
+        const { data: authData } = await supabase.auth.getUser();
+        const userId = authData.user?.id;
+
+        if (userId) {
+          const { data: latestPurchase, error } = await supabase
+            .from('purchases')
+            .select('id, product_id, beat_title_snapshot, stripe_checkout_session_id, amount, currency, status')
+            .eq('user_id', userId)
+            .eq('status', 'completed')
+            .order('completed_at', { ascending: false, nullsFirst: false })
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (error) {
+            console.error('Error loading latest purchase for analytics:', error);
+          } else if (latestPurchase) {
+            const purchase = latestPurchase as {
+              id: string;
+              product_id: string;
+              beat_title_snapshot: string | null;
+              stripe_checkout_session_id: string | null;
+              amount: number;
+              currency: string;
+            };
+
+            trackPurchase({
+              transactionId: purchase.stripe_checkout_session_id || purchase.id,
+              value: purchase.amount / 100,
+              currency: purchase.currency || 'EUR',
+              itemId: purchase.product_id,
+              itemName: purchase.beat_title_snapshot ?? 'unknown',
+            });
+          }
+        }
+
         await clearCart();
       } catch (error) {
         console.error('Error clearing cart after successful checkout:', error);

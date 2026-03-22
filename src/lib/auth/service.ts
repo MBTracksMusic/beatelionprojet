@@ -1,5 +1,6 @@
 import type { AuthResponse, Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase/client';
+import { clearAnalyticsUserId } from '../analytics';
 import { getAuthRedirectUrl } from './redirects';
 
 export interface SignUpData {
@@ -128,6 +129,7 @@ export async function signIn({ email, password, captchaToken }: SignInData & { c
 export async function signOut() {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
+  clearAnalyticsUserId();
 }
 
 export async function resetPassword(email: string, captchaToken: string) {

@@ -5,6 +5,7 @@ import HCaptcha from '@hcaptcha/react-hcaptcha';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { useTranslation } from '../../lib/i18n';
+import { setAnalyticsUserId, trackLogin } from '../../lib/analytics';
 import { signIn } from '../../lib/auth/service';
 import { supabase } from '@/lib/supabase/client';
 import toast from 'react-hot-toast';
@@ -78,6 +79,10 @@ export function LoginPage() {
         return;
       }
 
+      if (result.user?.id) {
+        setAnalyticsUserId(result.user.id);
+      }
+      trackLogin('email');
       toast.success(t('auth.loginSuccess'));
       if (from !== '/' && from !== '/login') {
         navigate(from, { replace: true });

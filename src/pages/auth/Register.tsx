@@ -5,6 +5,7 @@ import { Mail, Lock, User, Music, ArrowLeft } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { useTranslation } from '../../lib/i18n';
+import { trackSignUp } from '../../lib/analytics';
 import { AuthFunctionError, signUp } from '../../lib/auth/service';
 import toast from 'react-hot-toast';
 
@@ -126,6 +127,7 @@ export function RegisterPage() {
         username: formData.username.trim(),
         captchaToken: captchaTokenRef.current,
       });
+      trackSignUp('email');
 
       const producerRedirectPath = '/tarifs';
       if (result.user && !result.user.confirmed_at) {
