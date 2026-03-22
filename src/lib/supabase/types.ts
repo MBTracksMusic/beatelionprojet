@@ -121,6 +121,7 @@ export interface ProductWithRelations extends Product {
   producer?: UserProfile;
   genre?: Genre;
   mood?: Mood;
+  licenses?: ProductLicense[];
 }
 
 export interface License {
@@ -136,6 +137,21 @@ export interface License {
   price: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProductLicense {
+  id: string;
+  product_id: string;
+  license_id: string;
+  license_type: string;
+  price: number;
+  stripe_price_id: string | null;
+  features: GeneratedDatabase['public']['Tables']['product_licenses']['Row']['features'];
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  license?: License | null;
 }
 
 export interface ProductFile {
@@ -413,12 +429,14 @@ export interface CartItem {
   id: string;
   user_id: string;
   product_id: string;
-  license_type: string;
+  license_type: string | null;
+  license_id: string | null;
   created_at: string;
 }
 
 export interface CartItemWithProduct extends CartItem {
   product?: ProductWithRelations;
+  selected_license?: ProductLicense | null;
 }
 
 export interface WishlistItem {

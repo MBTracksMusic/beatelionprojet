@@ -4,6 +4,11 @@ import { Play, Pause, Heart, ShoppingCart, Star, Lock } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { useAudioPlayer, type Track } from '../../context/AudioPlayerContext';
+import {
+  getDefaultProductLicense,
+  getDisplayPrice,
+  hasMultipleLicenses,
+} from '../../lib/pricing';
 import type { ProductWithRelations } from '../../lib/supabase/types';
 import { trackAddToCart, trackBeatLike } from '../../lib/analytics';
 import { useCartStore } from '../../lib/stores/cart';
@@ -36,6 +41,9 @@ export function ProductCard({
   const [isHovered, setIsHovered] = useState(false);
   const [isAddingToCart, setIsAddingToCart] = useState(false);
   const hasPreview = Boolean(product.preview_url?.trim());
+  const defaultLicense = getDefaultProductLicense(product);
+  const displayPrice = getDisplayPrice(product);
+  const showStartingFrom = hasMultipleLicenses(product);
 
   const isCurrentTrack = currentTrack?.id === product.id;
   const isPlayingCurrent = hasPreview && isCurrentTrack && isPlaying;
@@ -72,11 +80,14 @@ export function ProductCard({
 
     setIsAddingToCart(true);
     try {
-      await addToCart(product.id);
+      await addToCart(product.id, {
+        licenseId: defaultLicense?.license_id ?? null,
+        licenseType: defaultLicense?.license_type ?? null,
+      });
       trackAddToCart({
         productId: product.id,
         productName: product.title,
-        price: product.price,
+        price: displayPrice / 100,
       });
       if (product.product_type === 'beat') {
         void trackInteraction({
@@ -232,9 +243,16 @@ export function ProductCard({
           )}
 
           <div className="flex items-center justify-between">
-            <span className="text-lg font-bold text-white">
-              {formatPrice(product.price)}
-            </span>
+            <div>
+              {showStartingFrom && (
+                <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                  {t('products.startingFrom')}
+                </p>
+              )}
+              <span className="text-lg font-bold text-white">
+                {formatPrice(displayPrice)}
+              </span>
+            </div>
             {!product.is_sold && (
               <Button
                 size="sm"

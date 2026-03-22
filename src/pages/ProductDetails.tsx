@@ -6,14 +6,30 @@ import { Button } from '../components/ui/Button';
 import { useAudioPlayer } from '../context/AudioPlayerContext';
 import { useTranslation, type TranslateFn } from '../lib/i18n';
 import { getLocalizedName } from '../lib/i18n/localized';
+import {
+  getDefaultProductLicense,
+  getDisplayPrice,
+  getLicenseDisplayName,
+  getProductActiveLicenses,
+  hasMultipleLicenses,
+  resolveProductLicense,
+} from '../lib/pricing';
 import { fetchCatalogProductBySlug } from '../lib/supabase/catalog';
-import type { ProductWithRelations } from '../lib/supabase/types';
+import type { ProductLicense, ProductWithRelations } from '../lib/supabase/types';
 import { formatPrice } from '../lib/utils/format';
 import { useCartStore } from '../lib/stores/cart';
 import { useAuth } from '../lib/auth/hooks';
 import { supabase } from '@/lib/supabase/client';
 import { useCreditBalance } from '../lib/credits/useCreditBalance';
-import { trackAddToCart, trackClickBuy, trackPurchase, trackViewItem } from '../lib/analytics';
+import {
+  trackAddToCart,
+  trackClickBuy,
+  trackLicenseSelected,
+  trackPriceViewed,
+  trackPurchase,
+  trackPurchaseByLicense,
+  trackViewItem,
+} from '../lib/analytics';
 import { getExperimentVariant } from '../lib/experiments';
 import { trackInteraction } from '../lib/tracking';
 
@@ -64,6 +80,7 @@ export function ProductDetailsPage() {
   const [creditPurchaseError, setCreditPurchaseError] = useState<string | null>(null);
   const [hasPurchasedProduct, setHasPurchasedProduct] = useState(false);
   const [isOwnershipLoading, setIsOwnershipLoading] = useState(false);
+  const [selectedLicenseId, setSelectedLicenseId] = useState<string | null>(null);
   const { balance: creditBalance, isLoading: isCreditBalanceLoading, error: creditBalanceError, refetch: refetchCreditBalance } =
     useCreditBalance(user?.id);
 
@@ -169,6 +186,25 @@ export function ProductDetailsPage() {
     };
   }, [product?.id, user?.id]);
 
+  const availableLicenses = useMemo(() => getProductActiveLicenses(product), [product]);
+  const defaultLicense = useMemo(() => getDefaultProductLicense(product), [product]);
+  const selectedLicense = useMemo(
+    () => resolveProductLicense(product, { licenseId: selectedLicenseId }) ?? defaultLicense,
+    [defaultLicense, product, selectedLicenseId],
+  );
+  const selectedPrice = selectedLicense?.price ?? getDisplayPrice(product);
+  const showStartingFrom = hasMultipleLicenses(product);
+  const priceLabel =
+    showStartingFrom && selectedLicense?.license_id === defaultLicense?.license_id
+      ? t('products.startingFrom')
+      : selectedLicense
+      ? getLicenseDisplayName(selectedLicense)
+      : null;
+
+  useEffect(() => {
+    setSelectedLicenseId(defaultLicense?.license_id ?? null);
+  }, [defaultLicense?.license_id, product?.id]);
+
   useEffect(() => {
     if (!product) {
       return;
@@ -235,7 +271,14 @@ export function ProductDetailsPage() {
     trackViewItem({
       itemId: product.id,
       itemName: product.title,
-      price: product.price,
+      price: getDisplayPrice(product) / 100,
+    });
+    trackPriceViewed({
+      productId: product.id,
+      productName: product.title,
+      value: getDisplayPrice(product) / 100,
+      licenseId: defaultLicense?.license_id ?? null,
+      licenseType: defaultLicense?.license_type ?? null,
     });
 
     return () => {
@@ -249,7 +292,7 @@ export function ProductDetailsPage() {
       ogSiteNameMeta.setAttribute('content', previousOgSiteName);
       twitterCardMeta.setAttribute('content', previousTwitterCard);
     };
-  }, [product]);
+  }, [defaultLicense?.license_id, defaultLicense?.license_type, product]);
 
   const isCurrentTrack = currentTrack?.id === product?.id;
   const hasPreview = Boolean(product?.preview_url?.trim());
@@ -263,7 +306,8 @@ export function ProductDetailsPage() {
     isOwnershipLoading ||
     isPurchasingWithCredits ||
     isCreditBalanceLoading ||
-    !hasEnoughCredits;
+    !hasEnoughCredits ||
+    (availableLicenses.length > 0 && !selectedLicense);
   const shouldShowGetCreditsCta =
     isAuthenticated &&
     isCreditEligible &&
@@ -287,9 +331,11 @@ export function ProductDetailsPage() {
   const handleAddToCart = async () => {
     if (!product || product.is_sold) return;
 
+    const cartLicense = selectedLicense ?? defaultLicense;
+
     trackClickBuy({
       productId: product.id,
-      price: product.price,
+      price: selectedPrice / 100,
       productName: product.title,
     });
 
@@ -299,11 +345,14 @@ export function ProductDetailsPage() {
     }
     setIsAddingToCart(true);
     try {
-      await addToCart(product.id);
+      await addToCart(product.id, {
+        licenseId: cartLicense?.license_id ?? null,
+        licenseType: cartLicense?.license_type ?? null,
+      });
       trackAddToCart({
         productId: product.id,
         productName: product.title,
-        price: product.price,
+        price: selectedPrice / 100,
       });
       if (product.product_type === 'beat') {
         void trackInteraction({
@@ -334,7 +383,7 @@ export function ProductDetailsPage() {
         'purchase_beat_with_credits',
         {
           p_product_id: product.id,
-          p_license_id: null,
+          p_license_id: selectedLicense?.license_id ?? defaultLicense?.license_id ?? null,
         },
       );
 
@@ -349,10 +398,19 @@ export function ProductDetailsPage() {
       setHasPurchasedProduct(true);
       trackPurchase({
         transactionId: purchaseResult.purchase_id,
-        value: product.price,
+        value: selectedPrice / 100,
         currency: 'EUR',
         itemId: product.id,
         itemName: product.title,
+      });
+      trackPurchaseByLicense({
+        transactionId: purchaseResult.purchase_id,
+        productId: product.id,
+        value: selectedPrice / 100,
+        currency: 'EUR',
+        itemName: product.title,
+        licenseId: selectedLicense?.license_id ?? purchaseResult.license_id,
+        licenseType: getLicenseDisplayName(selectedLicense ?? defaultLicense),
       });
       await refetchCreditBalance();
       toast.success(t('productDetails.creditPurchaseSuccess'));
@@ -365,6 +423,28 @@ export function ProductDetailsPage() {
     } finally {
       setIsPurchasingWithCredits(false);
     }
+  };
+
+  const handleSelectLicense = (license: ProductLicense) => {
+    setSelectedLicenseId(license.license_id);
+    setCreditPurchaseError(null);
+    if (!product) {
+      return;
+    }
+    trackLicenseSelected({
+      productId: product.id,
+      productName: product.title,
+      licenseId: license.license_id,
+      licenseType: license.license_type,
+      value: license.price / 100,
+    });
+    trackPriceViewed({
+      productId: product.id,
+      productName: product.title,
+      value: license.price / 100,
+      licenseId: license.license_id,
+      licenseType: license.license_type,
+    });
   };
 
   if (isLoading) {
@@ -448,11 +528,60 @@ export function ProductDetailsPage() {
                 )}
               </button>
 
-              <span className="text-3xl font-bold text-white">{formatPrice(product.price)}</span>
+              <div>
+                {priceLabel && (
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                    {priceLabel}
+                  </p>
+                )}
+                <span className="text-3xl font-bold text-white">{formatPrice(selectedPrice)}</span>
+              </div>
             </div>
 
             {!hasPreview && (
               <p className="mb-6 text-sm text-zinc-500">{t('audio.previewUnavailable')}</p>
+            )}
+
+            {availableLicenses.length > 0 && (
+              <div className="mb-6">
+                <p className="mb-3 text-sm font-medium text-zinc-300">
+                  {t('products.selectLicense')}
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {availableLicenses.map((license) => {
+                    const isSelected = selectedLicense?.license_id === license.license_id;
+
+                    return (
+                      <button
+                        key={license.id}
+                        type="button"
+                        onClick={() => handleSelectLicense(license)}
+                        className={`rounded-xl border px-4 py-3 text-left transition-all ${
+                          isSelected
+                            ? 'border-rose-500 bg-rose-500/10 shadow-lg shadow-rose-500/10'
+                            : 'border-zinc-800 bg-zinc-900/70 hover:border-zinc-600 hover:bg-zinc-900'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-white">
+                              {getLicenseDisplayName(license)}
+                            </p>
+                            {license.license?.description && (
+                              <p className="mt-1 text-xs text-zinc-400">
+                                {license.license.description}
+                              </p>
+                            )}
+                          </div>
+                          <span className="text-sm font-semibold text-rose-300">
+                            {formatPrice(license.price)}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             )}
 
             <div className="mb-6 rounded-xl border border-zinc-800 bg-zinc-900/70 p-4">

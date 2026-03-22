@@ -6,10 +6,18 @@ import { Card } from '../ui/Card';
 import { useAudioPlayer, type Track } from '../../context/AudioPlayerContext';
 import { useAuth } from '../../lib/auth/hooks';
 import { useTranslation } from '../../lib/i18n';
+import {
+  attachLicensesToProducts,
+  fetchProductLicensesMap,
+  getDefaultProductLicense,
+  getDisplayPrice,
+  hasMultipleLicenses,
+} from '../../lib/pricing';
 import { supabase } from '@/lib/supabase/client';
 import { trackAddToCart } from '../../lib/analytics';
 import { useCartStore } from '../../lib/stores/cart';
 import { trackInteraction } from '../../lib/tracking';
+import type { ProductLicense } from '../../lib/supabase/types';
 import { formatNumber, formatPrice } from '../../lib/utils/format';
 
 interface HomeBeatRow {
@@ -26,6 +34,7 @@ interface HomeBeatRow {
     id: string;
     username: string | null;
   };
+  licenses?: ProductLicense[];
 }
 
 interface HomeFeaturedBeatRpcRow {
@@ -108,19 +117,14 @@ export function HomeFeaturedBeats() {
             }));
           }
         }
+
+        const licensesMap = await fetchProductLicensesMap(featuredBeats.map((beat) => beat.id));
+        featuredBeats = attachLicensesToProducts(featuredBeats, licensesMap);
       }
 
       if (!isCancelled) {
         if (rpcRes.error) {
           console.error('Error fetching featured beats RPC for home:', rpcRes.error);
-        }
-        if (import.meta.env.DEV) {
-          console.log('FEATURED BEATS:', featuredBeats);
-          featuredBeats.forEach((beat) => {
-            if (!normalizePreviewUrl(beat.preview_url)) {
-              console.warn('NO PREVIEW FOR:', beat.id, beat.title);
-            }
-          });
         }
         setBeats(featuredBeats);
         setIsLoading(false);
@@ -137,13 +141,7 @@ export function HomeFeaturedBeats() {
   const playbackQueue = useMemo<Track[]>(
     () =>
       beats
-        .filter((beat) => {
-          const hasPreview = Boolean(normalizePreviewUrl(beat.preview_url));
-          if (import.meta.env.DEV && !hasPreview) {
-            console.warn('Skipping beat without preview:', beat.id);
-          }
-          return hasPreview;
-        })
+        .filter((beat) => Boolean(normalizePreviewUrl(beat.preview_url)))
         .map((beat) => ({
           id: beat.id,
           title: beat.title,
@@ -153,18 +151,6 @@ export function HomeFeaturedBeats() {
         })),
     [beats],
   );
-
-  useEffect(() => {
-    if (!import.meta.env.DEV) {
-      return;
-    }
-
-    console.log('QUEUE:', playbackQueue);
-
-    if (beats.length > 0 && playbackQueue.length === 0) {
-      console.error('QUEUE EMPTY — NO PLAYBACK POSSIBLE');
-    }
-  }, [beats, playbackQueue]);
 
   const handlePlay = (beat: HomeBeatRow) => {
     const previewUrl = normalizePreviewUrl(beat.preview_url);
@@ -196,13 +182,19 @@ export function HomeFeaturedBeats() {
       return;
     }
 
+    const defaultLicense = getDefaultProductLicense(beat);
+    const displayPrice = getDisplayPrice(beat);
+
     setAddingBeatId(beat.id);
     try {
-      await addToCart(beat.id);
+      await addToCart(beat.id, {
+        licenseId: defaultLicense?.license_id ?? null,
+        licenseType: defaultLicense?.license_type ?? null,
+      });
       trackAddToCart({
         productId: beat.id,
         productName: beat.title,
-        price: beat.price,
+        price: displayPrice / 100,
       });
       void trackInteraction({
         beatId: beat.id,
@@ -259,6 +251,8 @@ export function HomeFeaturedBeats() {
               const hasPreview = Boolean(normalizePreviewUrl(beat.preview_url));
               const isCurrentTrack = currentTrack?.id === beat.id;
               const isPlayingCurrent = hasPreview && isCurrentTrack && isPlaying;
+              const displayPrice = getDisplayPrice(beat);
+              const showStartingFrom = hasMultipleLicenses(beat);
 
               return (
               <div
@@ -318,9 +312,16 @@ export function HomeFeaturedBeats() {
                   </div>
 
                   <div className="flex shrink-0 items-center gap-3">
-                    <span className="text-sm font-semibold text-rose-400">
-                      {formatPrice(beat.price)}
-                    </span>
+                    <div className="text-right">
+                      {showStartingFrom && (
+                        <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                          {t('products.startingFrom')}
+                        </p>
+                      )}
+                      <span className="text-sm font-semibold text-rose-400">
+                        {formatPrice(displayPrice)}
+                      </span>
+                    </div>
                     {!beat.is_sold && (
                       <Button
                         size="sm"

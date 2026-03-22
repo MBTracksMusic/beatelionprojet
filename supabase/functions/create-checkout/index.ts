@@ -12,6 +12,8 @@ const CREATE_CHECKOUT_RATE_LIMIT_RPC = "create_checkout_user";
 interface CheckoutRequest {
   beatId?: string;
   productId?: string;
+  licenseId?: string;
+  license_id?: string;
   licenseType?: string;
   successUrl?: string;
   cancelUrl?: string;
@@ -41,6 +43,17 @@ interface LicenseRow {
   name: string;
   price: number;
   exclusive_allowed: boolean;
+}
+
+interface ProductLicenseRow {
+  id: string;
+  product_id: string;
+  license_id: string;
+  license_type: string;
+  price: number;
+  stripe_price_id: string | null;
+  is_active: boolean;
+  license: LicenseRow | null;
 }
 
 const isProduction = () => {
@@ -227,6 +240,31 @@ const isValidCheckoutAmount = (value: unknown): value is number => (
   value > 0
 );
 
+const normalizeLicenseLookup = (value: string | null) => value?.trim().toLowerCase() ?? "";
+
+async function fetchProductLicenses(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  productId: string,
+): Promise<ProductLicenseRow[]> {
+  const { data, error } = await supabaseAdmin
+    .from("product_licenses")
+    .select("id, product_id, license_id, license_type, price, stripe_price_id, is_active, license:licenses(id, name, price, exclusive_allowed)")
+    .eq("product_id", productId)
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true })
+    .order("price", { ascending: true });
+
+  if (error) {
+    console.error("[create-checkout] Product license lookup failed, falling back to product.price", {
+      productId,
+      message: error.message,
+    });
+    return [];
+  }
+
+  return ((data ?? []) as ProductLicenseRow[]).filter((row) => row.license !== null);
+}
+
 async function resolveCheckoutLicense(
   supabaseAdmin: ReturnType<typeof createClient>,
   params: {
@@ -390,6 +428,7 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
     const requestedPriceId = asNonEmptyString(body.price_id) || asNonEmptyString(body.priceId);
     const subscriptionKind = asNonEmptyString(body.subscription_kind);
     const resolvedBeatId = asNonEmptyString(beatId) || asNonEmptyString(productId);
+    const requestedLicenseId = asNonEmptyString(body.licenseId) || asNonEmptyString(body.license_id);
     const licenseType = asNonEmptyString(rawLicenseType) || "standard";
 
     if (subscriptionKind === "user") {
@@ -665,36 +704,6 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
       });
     }
 
-    if (!isValidCheckoutAmount(productRow.price)) {
-      console.error("[create-checkout] Invalid product price configuration", {
-        beatId: productRow.id,
-        licenseType,
-        price_db: productRow.price,
-      });
-      return new Response(JSON.stringify({ error: "Prix du beat invalide." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (productRow.price < 2999) {
-      return new Response(JSON.stringify({
-        error: "Prix minimum 29,99€"
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (productRow.is_exclusive && productRow.price < 5000) {
-      return new Response(JSON.stringify({
-        error: "Prix minimum 50€ pour une exclusive"
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     if (productRow.is_exclusive && productRow.is_sold) {
       return new Response(JSON.stringify({ error: "This exclusive has already been sold" }), {
         status: 400,
@@ -778,11 +787,32 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
       });
     }
 
+    const productLicenses = await fetchProductLicenses(
+      supabaseAdmin as ReturnType<typeof createClient>,
+      resolvedBeatId,
+    );
+
+    let selectedProductLicense: ProductLicenseRow | null = null;
+
+    if (productLicenses.length > 0) {
+      selectedProductLicense =
+        productLicenses.find((productLicense) => productLicense.license_id === requestedLicenseId) ??
+        productLicenses.find((productLicense) => {
+          return (
+            normalizeLicenseLookup(productLicense.license_type) === normalizeLicenseLookup(licenseType) ||
+            normalizeLicenseLookup(productLicense.license?.name ?? null) === normalizeLicenseLookup(licenseType)
+          );
+        }) ??
+        (productRow.is_exclusive
+          ? productLicenses.find((productLicense) => productLicense.license?.exclusive_allowed === true) ?? null
+          : productLicenses[0] ?? null);
+    }
+
     // Resolve license server-side so Stripe metadata cannot be forged by the client.
-    const selectedLicense = await resolveCheckoutLicense(
+    const selectedLicense = selectedProductLicense?.license ?? await resolveCheckoutLicense(
       supabaseAdmin as ReturnType<typeof createClient>,
       {
-        licenseId: null,
+        licenseId: requestedLicenseId,
         licenseType,
         isExclusiveProduct: Boolean(productRow.is_exclusive),
       },
@@ -941,11 +971,14 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
     }
 
     const lineItems = new URLSearchParams();
-    const checkoutAmount = productRow.price;
+    const checkoutAmount = selectedProductLicense?.price ?? productRow.price;
+    const checkoutStripePriceId = selectedProductLicense?.stripe_price_id ?? null;
+    const resolvedLicenseType = selectedProductLicense?.license_type ?? selectedLicense.name;
 
     if (!checkoutAmount || checkoutAmount <= 0) {
       console.error("[create-checkout] Invalid product price", {
         beatId: productRow.id,
+        licenseId: requestedLicenseId,
         price: checkoutAmount,
       });
 
@@ -957,12 +990,16 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
       });
     }
 
-    lineItems.append("line_items[0][price_data][currency]", "eur");
-    lineItems.append("line_items[0][price_data][unit_amount]", checkoutAmount.toString());
-    lineItems.append("line_items[0][price_data][product_data][name]", productRow.title);
-    lineItems.append("line_items[0][price_data][product_data][description]", `Licence: ${selectedLicense.name}`);
-    if (productRow.cover_image_url) {
-      lineItems.append("line_items[0][price_data][product_data][images][0]", productRow.cover_image_url);
+    if (checkoutStripePriceId) {
+      lineItems.append("line_items[0][price]", checkoutStripePriceId);
+    } else {
+      lineItems.append("line_items[0][price_data][currency]", "eur");
+      lineItems.append("line_items[0][price_data][unit_amount]", checkoutAmount.toString());
+      lineItems.append("line_items[0][price_data][product_data][name]", productRow.title);
+      lineItems.append("line_items[0][price_data][product_data][description]", `Licence: ${selectedLicense.name}`);
+      if (productRow.cover_image_url) {
+        lineItems.append("line_items[0][price_data][product_data][images][0]", productRow.cover_image_url);
+      }
     }
     lineItems.append("line_items[0][quantity]", "1");
 
@@ -981,18 +1018,22 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
       "metadata[is_exclusive]": productRow.is_exclusive.toString(),
       "metadata[license_id]": selectedLicense.id,
       "metadata[license_name]": selectedLicense.name,
-      "metadata[license_type]": licenseType,
+      "metadata[license_type]": resolvedLicenseType,
       // Immutable checkout snapshot: used by webhook/RPC to avoid product price drift.
       "metadata[db_price_snapshot]": checkoutAmount.toString(),
       // Backward compatibility for in-flight sessions created before snapshot key rollout.
       "metadata[db_price]": checkoutAmount.toString(),
-      "metadata[price_source]": "products.price",
+      "metadata[price_source]": selectedProductLicense ? "product_licenses.price" : "products.price",
     };
 
     if (customerId) {
       sessionParamsData.customer = customerId;
     } else {
       sessionParamsData.customer_creation = "always";
+    }
+
+    if (selectedProductLicense?.id) {
+      sessionParamsData["metadata[product_license_id]"] = selectedProductLicense.id;
     }
 
     const sessionParams = new URLSearchParams(sessionParamsData);
@@ -1011,7 +1052,7 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
     if (session.error) {
       console.error("[create-checkout] Stripe checkout session creation failed", {
         beatId: resolvedBeatId,
-        licenseType,
+        licenseType: resolvedLicenseType,
         price_db: checkoutAmount,
         unit_amount: checkoutAmount,
         message: session.error.message,
@@ -1024,7 +1065,7 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
 
     console.log("[create-checkout] Stripe checkout session created", {
       beatId: resolvedBeatId,
-      licenseType,
+      licenseType: resolvedLicenseType,
       price_db: checkoutAmount,
       unit_amount: checkoutAmount,
       sessionId: session.id,

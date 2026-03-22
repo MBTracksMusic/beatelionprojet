@@ -166,6 +166,40 @@ export function trackBeatLike(beatId: string) {
   });
 }
 
+export function trackLicenseSelected(params: {
+  productId: string;
+  licenseId: string;
+  licenseType: string;
+  value: number;
+  productName?: string | null;
+}) {
+  trackEvent('license_selected', {
+    product_id: params.productId,
+    license_id: params.licenseId,
+    license_type: params.licenseType,
+    item_name: params.productName ?? undefined,
+    value: params.value,
+    currency: 'EUR',
+  });
+}
+
+export function trackPriceViewed(params: {
+  productId: string;
+  value: number;
+  licenseId?: string | null;
+  licenseType?: string | null;
+  productName?: string | null;
+}) {
+  trackEvent('price_viewed', {
+    product_id: params.productId,
+    license_id: params.licenseId ?? undefined,
+    license_type: params.licenseType ?? undefined,
+    item_name: params.productName ?? undefined,
+    value: params.value,
+    currency: 'EUR',
+  });
+}
+
 export function trackClickBuy(params: {
   productId: string;
   price: number;
@@ -220,6 +254,28 @@ export function trackPurchase(params: {
           quantity: 1,
         },
       ],
+    });
+  });
+}
+
+export function trackPurchaseByLicense(params: {
+  transactionId: string;
+  productId: string;
+  value: number;
+  currency?: string;
+  licenseId?: string | null;
+  licenseType?: string | null;
+  itemName?: string | null;
+}) {
+  trackOnce(`ga:purchase_by_license:${params.transactionId}`, () => {
+    trackEvent('purchase_by_license', {
+      transaction_id: params.transactionId,
+      product_id: params.productId,
+      license_id: params.licenseId ?? undefined,
+      license_type: params.licenseType ?? undefined,
+      item_name: params.itemName ?? undefined,
+      value: params.value,
+      currency: params.currency ?? 'EUR',
     });
   });
 }
@@ -343,9 +399,12 @@ export function useAnalytics() {
     trackClickBuy,
     trackEvent,
     trackJoinBattle,
+    trackLicenseSelected,
     trackLogin,
     trackPage,
+    trackPriceViewed,
     trackPurchase,
+    trackPurchaseByLicense,
     trackSignUp,
     trackSubscriptionStart,
     trackUploadBeat,

@@ -1,5 +1,6 @@
 import { supabase } from './client';
 import type { Database, Json } from './database.types';
+import { attachProductLicenses } from '../pricing';
 import { fetchPublicProducerProfilesMap } from './publicProfiles';
 import { GENRE_SAFE_COLUMNS, MOOD_SAFE_COLUMNS, PRODUCT_SAFE_COLUMNS } from './selects';
 import type { ProductWithRelations } from './types';
@@ -331,7 +332,8 @@ const fetchLegacyCatalogProducts = async ({
   }
 
   const rows = (data as unknown as ProductWithRelations[] | null) ?? [];
-  return applyProducerVisibility(rows, restrictToActiveProducers ?? false);
+  const visibleProducts = await applyProducerVisibility(rows, restrictToActiveProducers ?? false);
+  return attachProductLicenses(visibleProducts);
 };
 
 const fetchLegacyCatalogProductBySlug = async ({
@@ -365,7 +367,8 @@ const fetchLegacyCatalogProductBySlug = async ({
   if (!row) return null;
 
   const [enriched] = await enrichMissingProducerIdentities([row]);
-  return enriched ?? row;
+  const [withLicenses] = await attachProductLicenses([enriched ?? row]);
+  return withLicenses ?? enriched ?? row;
 };
 
 export async function fetchCatalogProducts({
@@ -445,7 +448,8 @@ export async function fetchCatalogProducts({
 
   const rows = (data as unknown as CatalogProductRow[] | null) ?? [];
   const products = rows.map(toProduct);
-  return applyProducerVisibility(products, restrictToActiveProducers);
+  const visibleProducts = await applyProducerVisibility(products, restrictToActiveProducers);
+  return attachProductLicenses(visibleProducts);
 }
 
 export async function fetchCatalogProductBySlug({
@@ -477,5 +481,6 @@ export async function fetchCatalogProductBySlug({
 
   const product = toProduct(row);
   const [enriched] = await enrichMissingProducerIdentities([product]);
-  return enriched ?? product;
+  const [withLicenses] = await attachProductLicenses([enriched ?? product]);
+  return withLicenses ?? enriched ?? product;
 }

@@ -1212,6 +1212,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          license_id: string | null
           license_type: string | null
           product_id: string
           user_id: string
@@ -1219,6 +1220,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          license_id?: string | null
           license_type?: string | null
           product_id: string
           user_id: string
@@ -1226,11 +1228,19 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          license_id?: string | null
           license_type?: string | null
           product_id?: string
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "cart_items_license_id_fkey"
+            columns: ["license_id"]
+            isOneToOne: false
+            referencedRelation: "licenses"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "cart_items_product_id_fkey"
             columns: ["product_id"]
@@ -3220,6 +3230,77 @@ export type Database = {
             columns: ["watermark_profile_id"]
             isOneToOne: false
             referencedRelation: "watermark_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_licenses: {
+        Row: {
+          created_at: string
+          features: Json | null
+          id: string
+          is_active: boolean
+          license_id: string
+          license_type: string
+          price: number
+          product_id: string
+          sort_order: number
+          stripe_price_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          features?: Json | null
+          id?: string
+          is_active?: boolean
+          license_id: string
+          license_type: string
+          price: number
+          product_id: string
+          sort_order?: number
+          stripe_price_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          features?: Json | null
+          id?: string
+          is_active?: boolean
+          license_id?: string
+          license_type?: string
+          price?: number
+          product_id?: string
+          sort_order?: number
+          stripe_price_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_licenses_license_id_fkey"
+            columns: ["license_id"]
+            isOneToOne: false
+            referencedRelation: "licenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_licenses_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_licenses_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products_public"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_licenses_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "public_products"
             referencedColumns: ["id"]
           },
         ]
