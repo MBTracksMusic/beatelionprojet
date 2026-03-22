@@ -136,7 +136,6 @@ BEGIN
 
   EXECUTE format($view$
     CREATE OR REPLACE VIEW public.public_catalog_products
-    WITH (security_invoker = true)
     AS
     SELECT
       p.id,

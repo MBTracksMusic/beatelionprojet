@@ -384,6 +384,7 @@ export async function fetchCatalogProducts({
   filters,
   limit = 50,
   restrictToActiveProducers = false,
+  hasPremiumAccess = false,
 }: FetchCatalogProductsParams): Promise<ProductWithRelations[]> {
   let query = supabase
     .from('public_catalog_products')
