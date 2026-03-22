@@ -106,8 +106,9 @@ export function ProducerPublicProfilePage() {
           title: beat.title,
           audioUrl: beat.audio_url,
           cover_image_url: beat.cover_image_url,
+          producerId: producer?.user_id,
         })),
-    [topBeats],
+    [producer?.user_id, topBeats],
   );
 
   useEffect(() => {

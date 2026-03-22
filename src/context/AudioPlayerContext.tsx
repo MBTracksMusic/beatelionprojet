@@ -1,10 +1,13 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { trackBeatComplete, trackBeatPause, trackBeatPlay } from '../lib/analytics';
+import { isTrackableBeatId, trackInteraction } from '../lib/tracking';
 
 export type Track = {
   id: string;
   title: string;
   audioUrl: string;
   cover_image_url?: string | null;
+  producerId?: string;
 };
 
 type AudioPlayerContextType = {
@@ -30,6 +33,9 @@ const AudioPlayerContext = createContext<AudioPlayerContextType | null>(null);
 export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fadeIntervalRef = useRef<number | null>(null);
+  const currentTrackRef = useRef<Track | null>(null);
+  const currentTimeRef = useRef(0);
+  const durationRef = useRef(0);
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -49,6 +55,18 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   }, [currentIndex]);
 
   useEffect(() => {
+    currentTrackRef.current = currentTrack;
+  }, [currentTrack]);
+
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+
+  useEffect(() => {
+    durationRef.current = duration;
+  }, [duration]);
+
+  useEffect(() => {
     return () => {
       if (fadeIntervalRef.current !== null) {
         window.clearInterval(fadeIntervalRef.current);
@@ -61,6 +79,9 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   const resetPlayerState = () => {
     queueRef.current = [];
     currentIndexRef.current = -1;
+    currentTrackRef.current = null;
+    currentTimeRef.current = 0;
+    durationRef.current = 0;
     setQueue([]);
     setIsPlaying(false);
     setCurrentTrack(null);
@@ -80,6 +101,8 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
           ? audioRef.current.duration
           : 0;
         const rawProgress = total > 0 ? (current / total) * 100 : 0;
+        currentTimeRef.current = current;
+        durationRef.current = total;
         setCurrentTime(current);
         setDuration(total);
         setProgress(Math.min(rawProgress, 100));
@@ -89,9 +112,25 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
         const total = Number.isFinite(audioRef.current.duration)
           ? audioRef.current.duration
           : 0;
+        durationRef.current = total;
         setDuration(total);
       };
       audioRef.current.onended = () => {
+        const finishedTrack = currentTrackRef.current;
+        const finishedDuration = Math.max(
+          0,
+          Math.round(durationRef.current || audioRef.current?.duration || currentTimeRef.current || 0),
+        );
+
+        if (finishedTrack && isTrackableBeatId(finishedTrack.id)) {
+          trackBeatComplete(finishedTrack.id);
+          void trackInteraction({
+            beatId: finishedTrack.id,
+            action: 'complete',
+            duration: finishedDuration,
+          });
+        }
+
         const nextIndex = currentIndexRef.current + 1;
         if (nextIndex < queueRef.current.length) {
           const nextTrack = queueRef.current[nextIndex] ?? null;
@@ -148,6 +187,35 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     }, intervalTime);
   };
 
+  const reportBeatPlay = (track: Track) => {
+    if (!isTrackableBeatId(track.id)) {
+      return;
+    }
+
+    trackBeatPlay({
+      beatId: track.id,
+      title: track.title,
+      producerId: track.producerId,
+    });
+    void trackInteraction({
+      beatId: track.id,
+      action: 'play',
+    });
+  };
+
+  const reportBeatPause = (track: Track | null) => {
+    if (!track || !isTrackableBeatId(track.id)) {
+      return;
+    }
+
+    trackBeatPause(track.id);
+    void trackInteraction({
+      beatId: track.id,
+      action: 'pause',
+      duration: currentTimeRef.current,
+    });
+  };
+
   const playAudioTrack = (track: Track, index?: number) => {
     if (!track.audioUrl) {
       return;
@@ -168,15 +236,19 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     audio.src = track.audioUrl;
     audio.preload = 'auto';
     audio.currentTime = 0;
+    currentTrackRef.current = track;
+    currentTimeRef.current = 0;
+    durationRef.current = 0;
     setCurrentTime(0);
     setDuration(0);
     setProgress(0);
     setCurrentTrack(track);
     void audio.play().then(() => {
       setIsPlaying(true);
+      reportBeatPlay(track);
     }).catch(() => {
       setIsPlaying(false);
-      });
+    });
   };
 
   const playTrack = (track: Track) => {
@@ -191,6 +263,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
 
     if (currentTrack?.id === track.id) {
       if (isPlaying) {
+        reportBeatPause(currentTrackRef.current);
         fadeOutAndPause();
         setIsPlaying(false);
       } else {
@@ -198,6 +271,9 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
         audio.volume = 1;
         void audio.play().then(() => {
           setIsPlaying(true);
+          if (currentTrackRef.current) {
+            reportBeatPlay(currentTrackRef.current);
+          }
         }).catch(() => {
           setIsPlaying(false);
         });
@@ -244,6 +320,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     }
 
     if (isPlaying) {
+      reportBeatPause(currentTrackRef.current);
       fadeOutAndPause();
       setIsPlaying(false);
     } else {
@@ -251,6 +328,9 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
       audio.volume = 1;
       void audio.play().then(() => {
         setIsPlaying(true);
+        if (currentTrackRef.current) {
+          reportBeatPlay(currentTrackRef.current);
+        }
       }).catch(() => {
         setIsPlaying(false);
       });
@@ -264,6 +344,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
 
     const safeTime = Math.max(0, Math.min(time, duration));
     audioRef.current.currentTime = safeTime;
+    currentTimeRef.current = safeTime;
     setCurrentTime(safeTime);
     setProgress(duration > 0 ? (safeTime / duration) * 100 : 0);
   };

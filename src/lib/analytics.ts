@@ -136,6 +136,36 @@ export function trackAddToCart(params: {
   });
 }
 
+export function trackBeatPlay(params: {
+  beatId: string;
+  title: string;
+  producerId?: string;
+}) {
+  trackEvent('beat_play', {
+    beat_id: params.beatId,
+    title: params.title,
+    producer_id: params.producerId,
+  });
+}
+
+export function trackBeatPause(beatId: string) {
+  trackEvent('beat_pause', {
+    beat_id: beatId,
+  });
+}
+
+export function trackBeatComplete(beatId: string) {
+  trackEvent('beat_complete', {
+    beat_id: beatId,
+  });
+}
+
+export function trackBeatLike(beatId: string) {
+  trackEvent('beat_like', {
+    beat_id: beatId,
+  });
+}
+
 export function trackClickBuy(params: {
   productId: string;
   price: number;
@@ -305,6 +335,10 @@ export function useAnalytics() {
     clearAnalyticsUserId,
     setAnalyticsUserId,
     trackAddToCart,
+    trackBeatComplete,
+    trackBeatLike,
+    trackBeatPause,
+    trackBeatPlay,
     trackBeginCheckout,
     trackClickBuy,
     trackEvent,

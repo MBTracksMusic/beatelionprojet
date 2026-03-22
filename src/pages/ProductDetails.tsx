@@ -15,6 +15,7 @@ import { supabase } from '@/lib/supabase/client';
 import { useCreditBalance } from '../lib/credits/useCreditBalance';
 import { trackAddToCart, trackClickBuy, trackPurchase, trackViewItem } from '../lib/analytics';
 import { getExperimentVariant } from '../lib/experiments';
+import { trackInteraction } from '../lib/tracking';
 
 interface CreditPurchaseResult {
   balance_after: number;
@@ -279,6 +280,7 @@ export function ProductDetailsPage() {
       title: product.title,
       audioUrl: product.preview_url!.trim(),
       cover_image_url: product.cover_image_url,
+      producerId: product.producer_id,
     });
   };
 
@@ -303,6 +305,12 @@ export function ProductDetailsPage() {
         productName: product.title,
         price: product.price,
       });
+      if (product.product_type === 'beat') {
+        void trackInteraction({
+          beatId: product.id,
+          action: 'add_to_cart',
+        });
+      }
     } catch (e) {
       console.error('Error adding to cart from details page', e);
     } finally {

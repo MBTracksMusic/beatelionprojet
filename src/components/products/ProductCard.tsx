@@ -5,17 +5,18 @@ import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { useAudioPlayer, type Track } from '../../context/AudioPlayerContext';
 import type { ProductWithRelations } from '../../lib/supabase/types';
-import { trackAddToCart } from '../../lib/analytics';
+import { trackAddToCart, trackBeatLike } from '../../lib/analytics';
 import { useCartStore } from '../../lib/stores/cart';
 import { useAuth, usePermissions } from '../../lib/auth/hooks';
 import { useTranslation } from '../../lib/i18n';
 import { getLocalizedField } from '../../lib/i18n/localized';
+import { trackInteraction } from '../../lib/tracking';
 import { formatPrice } from '../../lib/utils/format';
 
 interface ProductCardProps {
   product: ProductWithRelations;
   playbackQueue?: Track[];
-  onWishlistToggle?: (productId: string) => void;
+  onWishlistToggle?: (productId: string) => void | Promise<void>;
   isWishlisted?: boolean;
 }
 
@@ -56,6 +57,7 @@ export function ProductCard({
       title: product.title,
       audioUrl: product.preview_url!.trim(),
       cover_image_url: product.cover_image_url,
+      producerId: product.producer_id,
     });
   };
 
@@ -76,6 +78,12 @@ export function ProductCard({
         productName: product.title,
         price: product.price,
       });
+      if (product.product_type === 'beat') {
+        void trackInteraction({
+          beatId: product.id,
+          action: 'add_to_cart',
+        });
+      }
     } catch (error) {
       console.error('Error adding to cart:', error);
     } finally {
@@ -83,10 +91,21 @@ export function ProductCard({
     }
   };
 
-  const handleWishlist = (e: React.MouseEvent) => {
+  const handleWishlist = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    onWishlistToggle?.(product.id);
+    try {
+      await onWishlistToggle?.(product.id);
+      if (product.product_type === 'beat' && !isWishlisted) {
+        trackBeatLike(product.id);
+        void trackInteraction({
+          beatId: product.id,
+          action: 'like',
+        });
+      }
+    } catch (error) {
+      console.error('Error toggling wishlist:', error);
+    }
   };
 
   const getGenreName = () => {

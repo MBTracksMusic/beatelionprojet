@@ -123,6 +123,7 @@ export function BeatsPage({ mode = 'beats' }: BeatsPageProps) {
           title: beat.title,
           audioUrl: beat.preview_url!.trim(),
           cover_image_url: beat.cover_image_url,
+          producerId: beat.producer_id,
         })),
     [beats],
   );

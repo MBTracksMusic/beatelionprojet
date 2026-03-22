@@ -1,15 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ArrowRight, Headphones, ShoppingCart } from 'lucide-react';
-import { Badge } from '../ui/Badge';
+import { ArrowRight, Headphones, Pause, Play, ShoppingCart } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
+import { useAudioPlayer, type Track } from '../../context/AudioPlayerContext';
 import { useAuth } from '../../lib/auth/hooks';
 import { useTranslation } from '../../lib/i18n';
 import { supabase } from '@/lib/supabase/client';
 import { trackAddToCart } from '../../lib/analytics';
-import { fetchPublicProducerProfilesMap } from '../../lib/supabase/publicProfiles';
 import { useCartStore } from '../../lib/stores/cart';
+import { trackInteraction } from '../../lib/tracking';
 import { formatNumber, formatPrice } from '../../lib/utils/format';
 
 interface HomeBeatRow {
@@ -19,6 +19,7 @@ interface HomeBeatRow {
   price: number;
   play_count: number;
   cover_image_url: string | null;
+  preview_url: string | null;
   is_sold: boolean;
   producer_id: string;
   producer?: {
@@ -34,21 +35,15 @@ interface HomeFeaturedBeatRpcRow {
   price: number;
   play_count: number | null;
   cover_image_url: string | null;
+  preview_url: string | null;
   is_sold: boolean | null;
   producer_id: string;
   producer_username: string | null;
 }
 
-interface HomeFeaturedBeatViewRow {
-  id: string | null;
-  title: string | null;
-  slug: string | null;
-  price: number | null;
-  play_count: number | null;
-  cover_image_url: string | null;
-  is_sold: boolean | null;
-  producer_id: string | null;
-  producer_username: string | null;
+function normalizePreviewUrl(previewUrl: string | null | undefined) {
+  const trimmed = previewUrl?.trim();
+  return trimmed ? trimmed : null;
 }
 
 export function HomeFeaturedBeats() {
@@ -56,6 +51,7 @@ export function HomeFeaturedBeats() {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { currentTrack, isPlaying, playQueue, playTrack } = useAudioPlayer();
   const { addToCart } = useCartStore();
   const [beats, setBeats] = useState<HomeBeatRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -76,6 +72,7 @@ export function HomeFeaturedBeats() {
           price: row.price,
           play_count: typeof row.play_count === 'number' ? row.play_count : 0,
           cover_image_url: row.cover_image_url,
+          preview_url: row.preview_url,
           is_sold: row.is_sold === true,
           producer_id: row.producer_id,
           producer: {
@@ -83,77 +80,47 @@ export function HomeFeaturedBeats() {
             username: row.producer_username,
           },
         }));
-      }
 
-      if (featuredBeats.length === 0) {
-        const { data, error } = await supabase
-          .from('public_catalog_products')
-          .select(`
-            id,
-            title,
-            slug,
-            price,
-            play_count,
-            cover_image_url,
-            is_sold,
-            producer_id,
-            producer_username
-          `)
-          .eq('product_type', 'beat')
-          .eq('is_published', true)
-          .order('top_10_flag', { ascending: false })
-          .order('performance_score', { ascending: false })
-          .order('play_count', { ascending: false })
-          .limit(10);
+        const missingPreviewIds = featuredBeats
+          .filter((beat) => !normalizePreviewUrl(beat.preview_url))
+          .map((beat) => beat.id);
 
-        if (error) {
-          if (!isCancelled) {
-            console.error('Error fetching featured beats for home:', error);
-            if (rpcRes.error) {
-              console.error('Error fetching featured beats RPC for home:', rpcRes.error);
-            }
-            setBeats([]);
-            setIsLoading(false);
+        if (missingPreviewIds.length > 0) {
+          const { data: previewRows, error: previewError } = await supabase
+            .from('products')
+            .select('id, preview_url')
+            .in('id', missingPreviewIds)
+            .eq('is_published', true);
+
+          if (previewError) {
+            console.error('Error hydrating featured beat previews:', previewError);
+          } else {
+            const previewById = new Map(
+              ((previewRows ?? []) as Array<{ id: string; preview_url: string | null }>).map((row) => [
+                row.id,
+                normalizePreviewUrl(row.preview_url),
+              ]),
+            );
+
+            featuredBeats = featuredBeats.map((beat) => ({
+              ...beat,
+              preview_url: normalizePreviewUrl(beat.preview_url) ?? previewById.get(beat.id) ?? null,
+            }));
           }
-          return;
         }
-
-        const rows = ((data as HomeFeaturedBeatViewRow[] | null) ?? []).filter(
-          (row): row is HomeFeaturedBeatViewRow & { id: string; title: string; slug: string; price: number; producer_id: string } =>
-            typeof row.id === 'string' &&
-            typeof row.title === 'string' &&
-            typeof row.slug === 'string' &&
-            typeof row.price === 'number' &&
-            typeof row.producer_id === 'string'
-        );
-        const producerProfilesMap = await fetchPublicProducerProfilesMap(rows.map((row) => row.producer_id));
-        featuredBeats = rows.map((row) => {
-          const producer = producerProfilesMap.get(row.producer_id);
-          return {
-            id: row.id,
-            title: row.title,
-            slug: row.slug,
-            price: row.price,
-            play_count: typeof row.play_count === 'number' ? row.play_count : 0,
-            cover_image_url: row.cover_image_url,
-            is_sold: row.is_sold === true,
-            producer_id: row.producer_id,
-            producer: producer
-              ? {
-                  id: producer.user_id,
-                  username: producer.username,
-                }
-              : {
-                  id: row.producer_id,
-                  username: row.producer_username,
-                },
-          };
-        });
       }
 
       if (!isCancelled) {
-        if (rpcRes.error && featuredBeats.length > 0) {
-          console.warn('Featured beats RPC failed, fallback succeeded:', rpcRes.error);
+        if (rpcRes.error) {
+          console.error('Error fetching featured beats RPC for home:', rpcRes.error);
+        }
+        if (import.meta.env.DEV) {
+          console.log('FEATURED BEATS:', featuredBeats);
+          featuredBeats.forEach((beat) => {
+            if (!normalizePreviewUrl(beat.preview_url)) {
+              console.warn('NO PREVIEW FOR:', beat.id, beat.title);
+            }
+          });
         }
         setBeats(featuredBeats);
         setIsLoading(false);
@@ -167,23 +134,80 @@ export function HomeFeaturedBeats() {
     };
   }, []);
 
-  const handleAddToCart = async (beatId: string) => {
-    const beat = beats.find((entry) => entry.id === beatId);
+  const playbackQueue = useMemo<Track[]>(
+    () =>
+      beats
+        .filter((beat) => {
+          const hasPreview = Boolean(normalizePreviewUrl(beat.preview_url));
+          if (import.meta.env.DEV && !hasPreview) {
+            console.warn('Skipping beat without preview:', beat.id);
+          }
+          return hasPreview;
+        })
+        .map((beat) => ({
+          id: beat.id,
+          title: beat.title,
+          audioUrl: normalizePreviewUrl(beat.preview_url)!,
+          cover_image_url: beat.cover_image_url,
+          producerId: beat.producer_id,
+        })),
+    [beats],
+  );
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) {
+      return;
+    }
+
+    console.log('QUEUE:', playbackQueue);
+
+    if (beats.length > 0 && playbackQueue.length === 0) {
+      console.error('QUEUE EMPTY — NO PLAYBACK POSSIBLE');
+    }
+  }, [beats, playbackQueue]);
+
+  const handlePlay = (beat: HomeBeatRow) => {
+    const previewUrl = normalizePreviewUrl(beat.preview_url);
+    if (!previewUrl) {
+      return;
+    }
+
+    const index = playbackQueue.findIndex(
+      (track) => String(track.id) === String(beat.id)
+    );
+
+    if (playbackQueue && index >= 0) {
+      playQueue(playbackQueue, index);
+      return;
+    }
+
+    playTrack({
+      id: beat.id,
+      title: beat.title,
+      audioUrl: previewUrl,
+      cover_image_url: beat.cover_image_url,
+      producerId: beat.producer_id,
+    });
+  };
+
+  const handleAddToCart = async (beat: HomeBeatRow) => {
     if (!isAuthenticated) {
       navigate('/login', { state: { from: { pathname: location.pathname } } });
       return;
     }
 
-    setAddingBeatId(beatId);
+    setAddingBeatId(beat.id);
     try {
-      await addToCart(beatId);
-      if (beat) {
-        trackAddToCart({
-          productId: beat.id,
-          productName: beat.title,
-          price: beat.price,
-        });
-      }
+      await addToCart(beat.id);
+      trackAddToCart({
+        productId: beat.id,
+        productName: beat.title,
+        price: beat.price,
+      });
+      void trackInteraction({
+        beatId: beat.id,
+        action: 'add_to_cart',
+      });
     } catch (error) {
       console.error('Error adding featured beat to cart:', error);
     } finally {
@@ -210,65 +234,112 @@ export function HomeFeaturedBeats() {
         </div>
 
         {isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="flex flex-col gap-2">
             {[...Array(10)].map((_, index) => (
-              <div key={index} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 animate-pulse space-y-3">
-                <div className="h-4 bg-zinc-800 rounded w-1/2" />
-                <div className="h-3 bg-zinc-800 rounded w-1/3" />
-                <div className="h-8 bg-zinc-800 rounded w-32" />
+              <div key={index} className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-3 animate-pulse">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="h-8 w-8 rounded-full bg-zinc-800" />
+                    <div className="h-12 w-12 rounded bg-zinc-800" />
+                    <div className="min-w-0 space-y-2">
+                      <div className="h-4 w-40 rounded bg-zinc-800" />
+                      <div className="h-3 w-28 rounded bg-zinc-800" />
+                    </div>
+                  </div>
+                  <div className="h-8 w-32 rounded bg-zinc-800" />
+                </div>
               </div>
             ))}
           </div>
         ) : beats.length === 0 ? (
           <Card className="text-zinc-400">{t('home.noFeaturedBeats')}</Card>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {beats.map((beat) => (
-              <Card key={beat.id} className="p-4">
-                <div className="flex items-center gap-4">
-                  <Link to={`/beats/${beat.slug}`} className="flex items-center gap-4 min-w-0 flex-1">
+          <div className="flex flex-col gap-2">
+            {beats.map((beat) => {
+              const hasPreview = Boolean(normalizePreviewUrl(beat.preview_url));
+              const isCurrentTrack = currentTrack?.id === beat.id;
+              const isPlayingCurrent = hasPreview && isCurrentTrack && isPlaying;
+
+              return (
+              <div
+                key={beat.id}
+                onClick={() => {
+                  handlePlay(beat);
+                }}
+                className={`group rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-3 transition-all duration-150 ${
+                  hasPreview ? 'cursor-pointer hover:bg-zinc-900 hover:border-zinc-500' : 'opacity-60'
+                } ${
+                  isCurrentTrack
+                    ? 'border-rose-500 bg-zinc-900 shadow-lg shadow-rose-500/20'
+                    : ''
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handlePlay(beat);
+                      }}
+                      disabled={!hasPreview}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-rose-500/40 text-rose-400 transition-all duration-150 hover:bg-rose-500 hover:text-black active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {isPlayingCurrent ? '⏸' : '▶'}
+                    </button>
+
                     {beat.cover_image_url ? (
                       <img
                         src={beat.cover_image_url}
                         alt={beat.title}
-                        className="w-14 h-14 rounded-lg object-cover border border-zinc-800"
+                        className="h-12 w-12 shrink-0 rounded object-cover border border-zinc-800"
                       />
                     ) : (
-                      <div className="w-14 h-14 rounded-lg bg-zinc-800 border border-zinc-700" />
+                      <div className="h-12 w-12 shrink-0 rounded border border-zinc-800 bg-zinc-900" />
                     )}
 
-                    <div className="min-w-0 flex-1">
-                      <p className="text-white font-semibold truncate">{beat.title}</p>
-                      <p className="text-zinc-400 text-sm truncate">
+                    <div className="min-w-0 transition-all duration-150 group-hover:translate-x-[2px]">
+                      <p className="truncate text-sm font-semibold text-white transition-colors group-hover:text-rose-300">
+                        {beat.title}
+                      </p>
+                      <p className="truncate text-sm text-zinc-400 transition-colors group-hover:text-zinc-300">
                         {beat.producer?.username || t('home.unknownProducer')}
                       </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Badge variant="info">
-                          {formatNumber(beat.play_count)} {t('home.playsLabel')}
-                        </Badge>
-                        <span className="text-white font-semibold">{formatPrice(beat.price)}</span>
-                      </div>
+                      <p className="mt-0.5 text-xs text-zinc-500 transition-colors group-hover:text-zinc-400">
+                        {formatNumber(beat.play_count)} {t('home.playsLabel')}
+                      </p>
+                      {!hasPreview && (
+                        <p className="mt-1 text-xs text-zinc-500">
+                          {t('products.previewUnavailable')}
+                        </p>
+                      )}
                     </div>
-                  </Link>
+                  </div>
 
-                  {beat.is_sold ? (
-                    <Badge variant="danger">{t('products.sold')}</Badge>
-                  ) : (
-                    <Button
-                      size="sm"
-                      isLoading={addingBeatId === beat.id}
-                      leftIcon={<ShoppingCart className="w-4 h-4" />}
-                      variant={isAuthenticated ? 'primary' : 'outline'}
-                      onClick={() => {
-                        void handleAddToCart(beat.id);
-                      }}
-                    >
-                      {isAuthenticated ? t('products.addToCart') : t('auth.loginButton')}
-                    </Button>
-                  )}
+                  <div className="flex shrink-0 items-center gap-3">
+                    <span className="text-sm font-semibold text-rose-400">
+                      {formatPrice(beat.price)}
+                    </span>
+                    {!beat.is_sold && (
+                      <Button
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleAddToCart(beat);
+                        }}
+                        isLoading={addingBeatId === beat.id}
+                        leftIcon={<ShoppingCart className="w-4 h-4" />}
+                        variant={isAuthenticated ? 'primary' : 'outline'}
+                      >
+                        {isAuthenticated ? t('products.addToCart') : t('auth.loginButton')}
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </Card>
-            ))}
+              </div>
+              );
+            })}
           </div>
         )}
       </div>

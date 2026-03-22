@@ -23,6 +23,7 @@ RETURNS TABLE (
   price integer,
   play_count integer,
   cover_image_url text,
+  preview_url text,
   is_sold boolean,
   producer_id uuid,
   producer_username text
@@ -39,6 +40,7 @@ AS $$
     p.price,
     COALESCE(p.play_count, 0) AS play_count,
     p.cover_image_url,
+    p.preview_url,
     COALESCE(p.is_sold, false) AS is_sold,
     p.producer_id,
     public.get_public_profile_label(up) AS producer_username
