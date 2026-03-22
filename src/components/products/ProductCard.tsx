@@ -3,9 +3,9 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Play, Pause, Heart, ShoppingCart, Star, Lock } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
+import { useAudioPlayer, type Track } from '../../context/AudioPlayerContext';
 import type { ProductWithRelations } from '../../lib/supabase/types';
 import { trackAddToCart } from '../../lib/analytics';
-import { usePlayerStore } from '../../lib/stores/player';
 import { useCartStore } from '../../lib/stores/cart';
 import { useAuth, usePermissions } from '../../lib/auth/hooks';
 import { useTranslation } from '../../lib/i18n';
@@ -14,17 +14,23 @@ import { formatPrice } from '../../lib/utils/format';
 
 interface ProductCardProps {
   product: ProductWithRelations;
+  playbackQueue?: Track[];
   onWishlistToggle?: (productId: string) => void;
   isWishlisted?: boolean;
 }
 
-export function ProductCard({ product, onWishlistToggle, isWishlisted }: ProductCardProps) {
+export function ProductCard({
+  product,
+  playbackQueue,
+  onWishlistToggle,
+  isWishlisted,
+}: ProductCardProps) {
   const { t, language } = useTranslation();
   const { isAuthenticated } = useAuth();
   const permissions = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
-  const { currentTrack, setCurrentTrack, isPlaying, setIsPlaying } = usePlayerStore();
+  const { currentTrack, isPlaying, playQueue, playTrack } = useAudioPlayer();
   const { addToCart } = useCartStore();
   const [isHovered, setIsHovered] = useState(false);
   const [isAddingToCart, setIsAddingToCart] = useState(false);
@@ -38,12 +44,19 @@ export function ProductCard({ product, onWishlistToggle, isWishlisted }: Product
     e.stopPropagation();
     if (!hasPreview) return;
 
-    if (isCurrentTrack) {
-      setIsPlaying(!isPlaying);
-    } else {
-      setCurrentTrack(product);
-      setIsPlaying(true);
+    const queueIndex = playbackQueue?.findIndex((track) => track.id === product.id) ?? -1;
+
+    if (playbackQueue && queueIndex >= 0) {
+      playQueue(playbackQueue, queueIndex);
+      return;
     }
+
+    playTrack({
+      id: product.id,
+      title: product.title,
+      audioUrl: product.preview_url!.trim(),
+      cover_image_url: product.cover_image_url,
+    });
   };
 
   const handleAddToCart = async (e: React.MouseEvent) => {

@@ -52,7 +52,6 @@ export function BattleDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [historyWarning, setHistoryWarning] = useState<string | null>(null);
-  const [activeBattlePlayerId, setActiveBattlePlayerId] = useState<string | null>(null);
 
   const fetchBattle = useCallback(async () => {
     if (!slug) {
@@ -203,10 +202,6 @@ export function BattleDetailPage() {
   useEffect(() => {
     void fetchBattle();
   }, [fetchBattle]);
-
-  useEffect(() => {
-    setActiveBattlePlayerId(null);
-  }, [battle?.id]);
 
   const totalVotes = useMemo(() => {
     if (!battle) return 0;
@@ -415,9 +410,6 @@ export function BattleDetailPage() {
                     productId={battle.product1?.id ?? product1Snapshot?.product_id ?? null}
                     src={product1PreviewUrl}
                     label={product1IsHistoricalOnly ? t('battleDetail.historicalPreviewProducer1') : t('battleDetail.previewProducer1')}
-                    playerId={`battle-${battle.id}-product-1`}
-                    activePlayerId={activeBattlePlayerId}
-                    onActivePlayerChange={setActiveBattlePlayerId}
                   />
                   {battle.product1 && product1Url && (
                     <Link to={product1Url} className="text-xs text-zinc-400 hover:text-white">
@@ -445,9 +437,6 @@ export function BattleDetailPage() {
                     productId={battle.product2?.id ?? product2Snapshot?.product_id ?? null}
                     src={product2PreviewUrl}
                     label={product2IsHistoricalOnly ? t('battleDetail.historicalPreviewProducer2') : t('battleDetail.previewProducer2')}
-                    playerId={`battle-${battle.id}-product-2`}
-                    activePlayerId={activeBattlePlayerId}
-                    onActivePlayerChange={setActiveBattlePlayerId}
                   />
                   {battle.product2 && product2Url && (
                     <Link to={product2Url} className="text-xs text-zinc-400 hover:text-white">

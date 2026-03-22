@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
+import { Pause, Play } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
+import { useAudioPlayer } from '../../context/AudioPlayerContext';
 import { useTranslation } from '../../lib/i18n';
 import { supabase } from '@/lib/supabase/client';
 import type { Json } from '../../lib/supabase/database.types';
@@ -126,6 +128,7 @@ const toEdgeInvokeErrorMessage = async (error: unknown) => {
 const adminDb = supabase as any;
 
 export function AdminSettingsPage() {
+  const { currentTrack, isPlaying, playTrack } = useAudioPlayer();
   const { t } = useTranslation();
   const [socialForm, setSocialForm] = useState<SocialLinksForm>(EMPTY_FORM);
   const [isSocialLoading, setIsSocialLoading] = useState(true);
@@ -143,6 +146,7 @@ export function AdminSettingsPage() {
   const [selectedWatermarkFile, setSelectedWatermarkFile] = useState<File | null>(null);
   const [reprocessStats, setReprocessStats] = useState<ReprocessStats | null>(null);
   const [watermarkPreviewUrl, setWatermarkPreviewUrl] = useState<string | null>(null);
+  const isWatermarkPreviewActive = currentTrack?.id === 'admin-watermark-preview' && isPlaying;
 
   const currentWatermarkPath = siteAudioSettings?.watermark_audio_path ?? null;
   const lastUpdatedLabel = useMemo(() => {
@@ -227,6 +231,18 @@ export function AdminSettingsPage() {
 
     void Promise.all([loadSocialLinks(), loadHomepageStatsToggle(), loadSiteAudioSettings()]);
   }, [t]);
+
+  const handlePlayWatermarkPreview = () => {
+    if (!watermarkPreviewUrl) {
+      return;
+    }
+
+    playTrack({
+      id: 'admin-watermark-preview',
+      title: t('admin.settingsPage.currentSampleLabel'),
+      audioUrl: watermarkPreviewUrl,
+    });
+  };
 
   useEffect(() => {
     let isCancelled = false;
@@ -535,7 +551,21 @@ export function AdminSettingsPage() {
               <span className="break-all">{currentWatermarkPath ?? t('admin.settingsPage.noSample')}</span>
             </p>
             {watermarkPreviewUrl && (
-              <audio controls src={watermarkPreviewUrl} className="w-full rounded-md" />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handlePlayWatermarkPreview}
+                leftIcon={
+                  isWatermarkPreviewActive ? (
+                    <Pause className="w-4 h-4" />
+                  ) : (
+                    <Play className="w-4 h-4" />
+                  )
+                }
+              >
+                {isWatermarkPreviewActive ? t('common.pause') : t('common.play')}
+              </Button>
             )}
             <p>
               <span className="text-zinc-500">{t('admin.settingsPage.lastUpdatedLabel')}:</span> {lastUpdatedLabel}

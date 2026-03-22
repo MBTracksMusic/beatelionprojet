@@ -451,7 +451,6 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
   const [isCampaignsLoading, setIsCampaignsLoading] = useState(true);
   const [campaignError, setCampaignError] = useState<string | null>(null);
   const [campaignActionKey, setCampaignActionKey] = useState<string | null>(null);
-  const [activeCampaignPreviewPlayerId, setActiveCampaignPreviewPlayerId] = useState<string | null>(null);
   const [isCreatingCampaign, setIsCreatingCampaign] = useState(false);
   const [campaignCoverImageFile, setCampaignCoverImageFile] = useState<File | null>(null);
   const [campaignSelectionById, setCampaignSelectionById] = useState<Record<string, { producer1Id: string; producer2Id: string }>>({});
@@ -1908,9 +1907,6 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
                                           productId={application.proposed_product_id}
                                           src={proposedProduct?.preview_url || proposedProduct?.exclusive_preview_url || null}
                                           label="Campaign beat preview"
-                                          playerId={`campaign-preview-${campaign.id}-${application.id}`}
-                                          activePlayerId={activeCampaignPreviewPlayerId}
-                                          onActivePlayerChange={setActiveCampaignPreviewPlayerId}
                                         />
                                       )}
                                       {application.admin_feedback && (

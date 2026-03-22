@@ -8,9 +8,12 @@ import {
   XCircle,
   AlertCircle,
   ShieldAlert,
+  Pause,
+  Play,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { trackUploadBeat } from '../lib/analytics';
+import { useAudioPlayer } from '../context/AudioPlayerContext';
 import { useTranslation, type TranslateFn } from '../lib/i18n';
 import { useAuth } from '../lib/auth/hooks';
 import { supabase } from '@/lib/supabase/client';
@@ -283,6 +286,7 @@ export async function uploadBeatProduct({
 
 // Page d'upload minimaliste pour les producteurs actifs.
 export function UploadBeatPage() {
+  const { currentTrack, isPlaying, playTrack } = useAudioPlayer();
   const { t } = useTranslation();
   const { profile } = useAuth();
   const navigate = useNavigate();
@@ -528,12 +532,30 @@ export function UploadBeatPage() {
   };
 
   const getAudioDuration = (src: string) =>
-    new Promise<number>((resolve, reject) => {
-      const audio = new Audio();
-      audio.preload = 'metadata';
-      audio.src = src;
-      audio.onloadedmetadata = () => resolve(audio.duration || 0);
-      audio.onerror = () => reject(new Error(t('uploadBeat.audioReadError')));
+    new Promise<number>(async (resolve, reject) => {
+      const AudioContextCtor =
+        typeof window !== 'undefined'
+          ? window.AudioContext ||
+            ((window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext ?? null)
+          : null;
+
+      if (!AudioContextCtor) {
+        reject(new Error(t('uploadBeat.audioReadError')));
+        return;
+      }
+
+      const audioContext = new AudioContextCtor();
+
+      try {
+        const response = await fetch(src);
+        const arrayBuffer = await response.arrayBuffer();
+        const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        resolve(decodedBuffer.duration || 0);
+      } catch {
+        reject(new Error(t('uploadBeat.audioReadError')));
+      } finally {
+        void audioContext.close();
+      }
     });
 
   const getImageDimensions = (src: string) =>
@@ -626,6 +648,20 @@ export function UploadBeatPage() {
         image: error instanceof Error ? error.message : t('uploadBeat.imageInvalid'),
       }));
     }
+  };
+
+  const isUploadPreviewActive = currentTrack?.id === 'upload-audio-preview' && isPlaying;
+
+  const handlePlayUploadPreview = () => {
+    if (!audioPreviewUrl) {
+      return;
+    }
+
+    playTrack({
+      id: 'upload-audio-preview',
+      title: audioFile?.name || t('producer.chooseAudioFile'),
+      audioUrl: audioPreviewUrl,
+    });
   };
 
   const renderStatusBadge = (type: 'audio' | 'image') => {
@@ -1100,7 +1136,21 @@ export function UploadBeatPage() {
                     <span className="text-xs text-zinc-500">{formatBytes(audioFile.size)}</span>
                   </div>
                   {audioPreviewUrl && (
-                    <audio controls src={audioPreviewUrl} className="w-full rounded-md" />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handlePlayUploadPreview}
+                      leftIcon={
+                        isUploadPreviewActive ? (
+                          <Pause className="w-4 h-4" />
+                        ) : (
+                          <Play className="w-4 h-4" />
+                        )
+                      }
+                    >
+                      {isUploadPreviewActive ? t('common.pause') : t('common.play')}
+                    </Button>
                   )}
                   <div className="flex items-center justify-between text-xs text-zinc-500">
                     <span>

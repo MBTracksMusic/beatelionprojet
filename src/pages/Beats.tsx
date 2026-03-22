@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Search, SlidersHorizontal, X } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { ProductCard } from '../components/products/ProductCard';
+import type { Track } from '../context/AudioPlayerContext';
 import { useTranslation } from '../lib/i18n';
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '../lib/auth/hooks';
@@ -112,6 +113,19 @@ export function BeatsPage({ mode = 'beats' }: BeatsPageProps) {
     filters.bpmMax ||
     filters.priceMin ||
     filters.priceMax;
+
+  const playbackQueue = useMemo<Track[]>(
+    () =>
+      beats
+        .filter((beat) => Boolean(beat.preview_url?.trim()))
+        .map((beat) => ({
+          id: beat.id,
+          title: beat.title,
+          audioUrl: beat.preview_url!.trim(),
+          cover_image_url: beat.cover_image_url,
+        })),
+    [beats],
+  );
 
   const handleWishlistToggle = async (productId: string) => {
     try {
@@ -261,6 +275,7 @@ export function BeatsPage({ mode = 'beats' }: BeatsPageProps) {
               <ProductCard
                 key={beat.id}
                 product={beat}
+                playbackQueue={playbackQueue}
                 isWishlisted={wishlistProductIds.includes(beat.id)}
                 onWishlistToggle={handleWishlistToggle}
               />

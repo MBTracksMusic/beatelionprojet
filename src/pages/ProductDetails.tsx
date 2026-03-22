@@ -3,12 +3,12 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Coins, Pause, Play, ShoppingCart } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Button } from '../components/ui/Button';
+import { useAudioPlayer } from '../context/AudioPlayerContext';
 import { useTranslation, type TranslateFn } from '../lib/i18n';
 import { getLocalizedName } from '../lib/i18n/localized';
 import { fetchCatalogProductBySlug } from '../lib/supabase/catalog';
 import type { ProductWithRelations } from '../lib/supabase/types';
 import { formatPrice } from '../lib/utils/format';
-import { usePlayerStore } from '../lib/stores/player';
 import { useCartStore } from '../lib/stores/cart';
 import { useAuth } from '../lib/auth/hooks';
 import { supabase } from '@/lib/supabase/client';
@@ -52,7 +52,7 @@ export function ProductDetailsPage() {
   const navigate = useNavigate();
   const { slug } = useParams<{ slug: string }>();
   const location = useLocation();
-  const { currentTrack, setCurrentTrack, isPlaying, setIsPlaying } = usePlayerStore();
+  const { currentTrack, isPlaying, playTrack } = useAudioPlayer();
   const { addToCart } = useCartStore();
 
   const [product, setProduct] = useState<ProductWithRelations | null>(null);
@@ -274,13 +274,12 @@ export function ProductDetailsPage() {
   const handlePlay = () => {
     if (!product || !hasPreview) return;
 
-    if (isCurrentTrack) {
-      setIsPlaying(!isPlaying);
-      return;
-    }
-
-    setCurrentTrack(product);
-    setIsPlaying(true);
+    playTrack({
+      id: product.id,
+      title: product.title,
+      audioUrl: product.preview_url!.trim(),
+      cover_image_url: product.cover_image_url,
+    });
   };
 
   const handleAddToCart = async () => {
