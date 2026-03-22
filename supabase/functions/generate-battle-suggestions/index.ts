@@ -97,7 +97,6 @@ interface CandidateSuggestion {
   username: string | null;
   avatar_url: string | null;
   producer_tier: string | null;
-  role: "producer" | "admin" | "confirmed_user" | "user" | "visitor";
   elo_rating: number;
   battle_wins: number;
   battle_losses: number;
@@ -719,18 +718,35 @@ serveWithErrorHandling("generate-battle-suggestions", async (req: Request) => {
 
   const suggestionSettings = await loadSuggestionSettings(supabaseAdmin);
 
-  const candidates = ((candidateRows as Array<Record<string, unknown>> | null) ?? []).map((row) => ({
+  const rawCandidates = ((candidateRows as Array<Record<string, unknown>> | null) ?? []).map((row) => ({
     user_id: String(row.user_id),
     username: asNonEmptyString(row.username),
     avatar_url: asNonEmptyString(row.avatar_url),
     producer_tier: asNonEmptyString(row.producer_tier),
-    role: (asNonEmptyString(row.role) ?? "visitor") as CandidateSuggestion["role"],
     elo_rating: asFiniteNumber(row.elo_rating) ?? 1200,
     battle_wins: asFiniteNumber(row.battle_wins) ?? 0,
     battle_losses: asFiniteNumber(row.battle_losses) ?? 0,
     battle_draws: asFiniteNumber(row.battle_draws) ?? 0,
     elo_diff: asFiniteNumber(row.elo_diff) ?? 0,
-  })).filter((candidate) => candidate.role === "producer");
+  }));
+
+  const rawCandidateIds = rawCandidates.map((candidate) => candidate.user_id);
+  const { data: candidateProfiles, error: candidateProfilesError } = await supabaseAdmin
+    .from("user_profiles")
+    .select("id, role")
+    .in("id", rawCandidateIds);
+
+  if (candidateProfilesError) {
+    throw new ApiError(500, "candidate_profile_filter_failed", candidateProfilesError.message);
+  }
+
+  const producerCandidateIds = new Set(
+    (((candidateProfiles as Array<Record<string, unknown>> | null) ?? []))
+      .filter((row) => asNonEmptyString(row.role) === "producer")
+      .map((row) => String(row.id))
+  );
+
+  const candidates = rawCandidates.filter((candidate) => producerCandidateIds.has(candidate.user_id));
 
   if (candidates.length === 0) {
     return jsonResponse({

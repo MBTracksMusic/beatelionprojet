@@ -10,8 +10,7 @@ RETURNS TABLE (
   battle_wins integer,
   battle_losses integer,
   battle_draws integer,
-  elo_diff integer,
-  role public.user_role
+  elo_diff integer
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -54,8 +53,7 @@ BEGIN
     COALESCE(up.battle_wins, 0) AS battle_wins,
     COALESCE(up.battle_losses, 0) AS battle_losses,
     COALESCE(up.battle_draws, 0) AS battle_draws,
-    ABS(COALESCE(up.elo_rating, 1200) - v_user_rating)::integer AS elo_diff,
-    up.role
+    ABS(COALESCE(up.elo_rating, 1200) - v_user_rating)::integer AS elo_diff
   FROM public.user_profiles up
   WHERE up.id <> p_user_id
     AND up.is_producer_active = true
@@ -81,8 +79,7 @@ BEGIN
     COALESCE(up.battle_wins, 0) AS battle_wins,
     COALESCE(up.battle_losses, 0) AS battle_losses,
     COALESCE(up.battle_draws, 0) AS battle_draws,
-    ABS(COALESCE(up.elo_rating, 1200) - v_user_rating)::integer AS elo_diff,
-    up.role
+    ABS(COALESCE(up.elo_rating, 1200) - v_user_rating)::integer AS elo_diff
   FROM public.user_profiles up
   WHERE up.id <> p_user_id
     AND up.is_producer_active = true
@@ -108,8 +105,7 @@ BEGIN
     COALESCE(up.battle_wins, 0) AS battle_wins,
     COALESCE(up.battle_losses, 0) AS battle_losses,
     COALESCE(up.battle_draws, 0) AS battle_draws,
-    ABS(COALESCE(up.elo_rating, 1200) - v_user_rating)::integer AS elo_diff,
-    up.role
+    ABS(COALESCE(up.elo_rating, 1200) - v_user_rating)::integer AS elo_diff
   FROM public.user_profiles up
   WHERE up.id <> p_user_id
     AND up.is_producer_active = true
@@ -133,8 +129,7 @@ RETURNS TABLE (
   battle_wins integer,
   battle_losses integer,
   battle_draws integer,
-  elo_diff integer,
-  role public.user_role
+  elo_diff integer
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
