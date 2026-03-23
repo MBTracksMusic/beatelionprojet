@@ -242,7 +242,9 @@ GRANT EXECUTE ON FUNCTION public.get_beats_with_priority() TO anon;
 GRANT EXECUTE ON FUNCTION public.get_beats_with_priority() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_beats_with_priority() TO service_role;
 
-CREATE OR REPLACE FUNCTION public.get_public_home_featured_beats(p_limit integer DEFAULT 10)
+DROP FUNCTION IF EXISTS public.get_public_home_featured_beats(integer);
+
+CREATE FUNCTION public.get_public_home_featured_beats(p_limit integer DEFAULT 10)
 RETURNS TABLE (
   id uuid,
   title text,
