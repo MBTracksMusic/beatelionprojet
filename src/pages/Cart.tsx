@@ -99,23 +99,7 @@ export function CartPage() {
       return;
     }
 
-    if (!firstItem) {
-      setCheckoutError('Item not found in cart');
-      return;
-    }
-
-    if (!firstItem.product_id) {
-      setCheckoutError('Product ID missing');
-      console.error('Product ID is missing:', firstItem);
-      return;
-    }
-
-    if (!firstItem.product) {
-      setCheckoutError('Product details not loaded. Please try again.');
-      console.error('Product details missing:', firstItem);
-      return;
-    }
-
+    if (!firstItem) return;
     const selectedPrice = firstItem.product?.price ?? 0;
 
     trackBeginCheckout({
@@ -131,16 +115,11 @@ export function CartPage() {
       const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
 
       if (refreshError || !refreshData.session) {
-        setCheckoutError('Session refresh failed. Please try again.');
+        alert('Session refresh failed');
         return;
       }
 
       const token = refreshData.session.access_token;
-
-      console.log('[Checkout] Sending request with:', {
-        beatId: firstItem.product_id,
-        productTitle: firstItem.product.title,
-      });
 
       const { data, error } = await supabase.functions.invoke<{ url?: string }>('create-checkout', {
         body: {
@@ -149,33 +128,26 @@ export function CartPage() {
           cancelUrl: `${window.location.origin}/cart`,
         },
         headers: {
-          Authorization: `Bearer ${token}`, // main auth fix
+          Authorization: `Bearer ${token}`,
         },
       });
 
       if (error) {
-        console.error('Checkout error (full):', error);
-
+        console.error('Checkout error:', error);
         let message = 'Checkout failed';
-        let details = '';
 
         try {
           const parsed = await (error as {
             context?: { json?: () => Promise<{ error?: string; message?: string }> };
           }).context?.json?.();
 
-          console.log('[Checkout] Backend error response:', parsed);
-          details = JSON.stringify(parsed);
           message = parsed?.error || parsed?.message || message;
-        } catch (parseErr) {
-          console.log('[Checkout] Could not parse error response:', parseErr);
-          message = error instanceof Error ? error.message : String(error);
+        } catch {
+          // ignore
         }
 
-        console.error(`[Checkout] Final error message: "${message}"`);
-        if (details) console.error('[Checkout] Error details:', details);
-
         setCheckoutError(message);
+        alert(message);
         return;
       }
 
@@ -188,7 +160,7 @@ export function CartPage() {
       alert('Checkout failed');
       return;
     } catch (err) {
-      console.error('CATCH ERROR:', err);
+      console.error('Error:', err);
       setCheckoutError((err as Error).message);
     } finally {
       setIsCheckoutLoading(false);
