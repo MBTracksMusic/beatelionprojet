@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { requireAuthUser } from "../_shared/auth.ts";
 import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 interface CheckoutBody {
@@ -192,25 +192,7 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const stripeSecret = Deno.env.get("STRIPE_SECRET_KEY");
-
-    if (!supabaseUrl || !supabaseServiceRoleKey || !supabaseAnonKey) {
-      console.error("ENV_ERROR", {
-        function: "producer-checkout",
-        hasSupabaseUrl: Boolean(supabaseUrl),
-        hasSupabaseServiceRoleKey: Boolean(supabaseServiceRoleKey),
-        hasSupabaseAnonKey: Boolean(supabaseAnonKey),
-      });
-      return new Response(JSON.stringify({
-        error: "Supabase not configured (SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing)",
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
 
     if (!stripeSecret) {
       console.error("ENV_ERROR", {
@@ -223,48 +205,12 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
       });
     }
 
-    const authorizationHeader = req.headers.get("Authorization");
-
-    const supabaseAdmin = createClient(
-      supabaseUrl,
-      supabaseServiceRoleKey,
-    );
-
-    if (!authorizationHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized: missing bearer token" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const authResult = await requireAuthUser(req, corsHeaders);
+    if ("error" in authResult) {
+      return authResult.error;
     }
 
-    const supabaseUser = createClient(
-      supabaseUrl,
-      supabaseAnonKey,
-      {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-        },
-        global: {
-          headers: {
-            Authorization: authorizationHeader,
-          },
-        },
-      },
-    );
-
-    const { data: { user }, error: authError } = await supabaseUser.auth.getUser();
-    if (authError || !user) {
-      console.error("AUTH_ERROR", {
-        function: "producer-checkout",
-        hasAuthorizationHeader: Boolean(authorizationHeader),
-        message: authError?.message ?? null,
-      });
-      return new Response(JSON.stringify({ error: authError?.message || "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const { supabaseAdmin, user } = authResult;
     console.log("JWT_USER", user?.id);
 
     const { data: profile, error: profileError } = await supabaseAdmin

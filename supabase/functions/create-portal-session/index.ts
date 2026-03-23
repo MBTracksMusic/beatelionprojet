@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { requireAuthUser } from "../_shared/auth.ts";
 import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 interface PortalRequestBody {
@@ -149,67 +149,22 @@ serveWithErrorHandling("create-portal-session", async (req: Request) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const stripeSecret = Deno.env.get("STRIPE_SECRET_KEY");
 
-    if (!supabaseUrl || !supabaseServiceRoleKey || !supabaseAnonKey || !stripeSecret) {
+    if (!stripeSecret) {
       console.error("ENV_ERROR", {
         function: "create-portal-session",
-        hasSupabaseUrl: Boolean(supabaseUrl),
-        hasSupabaseServiceRoleKey: Boolean(supabaseServiceRoleKey),
-        hasSupabaseAnonKey: Boolean(supabaseAnonKey),
         hasStripeSecretKey: Boolean(stripeSecret),
       });
       return jsonResponse({ error: "Server not configured" }, 500);
     }
 
-    const authorizationHeader = req.headers.get("Authorization");
-    if (!authorizationHeader) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
+    const authResult = await requireAuthUser(req, corsHeaders);
+    if ("error" in authResult) {
+      return authResult.error;
     }
 
-    const supabaseUser = createClient(
-      supabaseUrl,
-      supabaseAnonKey,
-      {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-        },
-        global: {
-          headers: {
-            Authorization: authorizationHeader,
-          },
-        },
-      },
-    );
-
-    const {
-      data: { user },
-      error: authError,
-    } = await supabaseUser.auth.getUser();
-
-    if (!user || authError) {
-      console.error("AUTH_ERROR", {
-        function: "create-portal-session",
-        hasAuthorizationHeader: Boolean(authorizationHeader),
-        message: authError?.message ?? null,
-      });
-      return jsonResponse({ error: authError?.message || "Unauthorized" }, 401);
-    }
-
-    const supabaseAdmin = createClient(
-      supabaseUrl,
-      supabaseServiceRoleKey,
-      {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-        },
-      },
-    );
+    const { user, supabaseAdmin } = authResult;
 
     let body: PortalRequestBody = {};
     try {

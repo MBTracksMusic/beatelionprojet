@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireAuthUser } from "../_shared/auth.ts";
 import { ApiError, serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const DEFAULT_ALLOWED_CORS_ORIGINS = [
@@ -251,7 +251,7 @@ function parseSuggestionSettings(value: unknown): BattleSuggestionSettings {
 }
 
 async function loadSuggestionSettings(
-  supabase: ReturnType<typeof createClient<any>>,
+  supabase: any,
 ): Promise<BattleSuggestionSettings> {
   const { data, error } = await supabase
     .from("system_settings")
@@ -268,7 +268,7 @@ async function loadSuggestionSettings(
 }
 
 async function persistSuggestions(
-  supabase: ReturnType<typeof createClient<any>>,
+  supabase: any,
   requestId: string,
   requesterId: string,
   suggestions: CandidateSuggestion[],
@@ -612,40 +612,17 @@ serveWithErrorHandling("generate-battle-suggestions", async (req: Request) => {
     throw new ApiError(405, "method_not_allowed", "Method not allowed");
   }
 
-  const supabaseUrl = asNonEmptyString(Deno.env.get("SUPABASE_URL"));
-  const serviceRoleKey = asNonEmptyString(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
-  const anonKey = asNonEmptyString(Deno.env.get("SUPABASE_ANON_KEY"));
-
-  if (!supabaseUrl || !serviceRoleKey || !anonKey) {
-    throw new ApiError(500, "server_not_configured", "Missing Supabase runtime configuration");
+  const authResult = await requireAuthUser(req, corsHeaders);
+  if ("error" in authResult) {
+    const status = authResult.error.status;
+    throw new ApiError(
+      status,
+      status >= 500 ? "server_not_configured" : "unauthorized",
+      status >= 500 ? "Server not configured" : "Unauthorized",
+    );
   }
 
-  const authorizationHeader = req.headers.get("Authorization");
-  if (!authorizationHeader) {
-    throw new ApiError(401, "unauthorized", "Unauthorized");
-  }
-
-  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  const supabaseUser = createClient(supabaseUrl, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: {
-      headers: {
-        Authorization: authorizationHeader,
-      },
-    },
-  });
-
-  const {
-    data: { user },
-    error: authError,
-  } = await supabaseUser.auth.getUser();
-
-  if (authError || !user) {
-    throw new ApiError(401, "unauthorized", "Unauthorized");
-  }
+  const { supabaseAdmin, user } = authResult;
 
   let body: GenerateSuggestionsRequest = {};
   try {

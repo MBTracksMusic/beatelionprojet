@@ -7,10 +7,24 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 type SupabaseAdmin = ReturnType<typeof createClient>;
 
-export type AuthUser = { id: string; email: string | null };
+export type JwtClaims = Record<string, unknown> & {
+  sub: string;
+  email?: string | null;
+};
+
+export type AuthUser = {
+  id: string;
+  email: string | null;
+  claims: JwtClaims;
+};
 
 export type AuthSuccess = {
   user: AuthUser;
+  supabaseAdmin: SupabaseAdmin;
+};
+
+export type OptionalAuthSuccess = {
+  user: AuthUser | null;
   supabaseAdmin: SupabaseAdmin;
 };
 
@@ -19,12 +33,13 @@ export type AuthError = {
 };
 
 export type AuthResult = AuthSuccess | AuthError;
+export type OptionalAuthResult = OptionalAuthSuccess | AuthError;
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-function createAdminClient(): SupabaseAdmin {
+export function createAdminClient(): SupabaseAdmin {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceRoleKey) {
@@ -40,7 +55,7 @@ function createAdminClient(): SupabaseAdmin {
  * Returns null if the header is absent or does not match the pattern.
  * Case-insensitive "Bearer" prefix per RFC 6750.
  */
-function extractBearerToken(req: Request): string | null {
+export function extractBearerToken(req: Request): string | null {
   const header =
     req.headers.get("authorization") ?? req.headers.get("Authorization");
   if (!header) return null;
@@ -48,7 +63,7 @@ function extractBearerToken(req: Request): string | null {
   return match ? match[1] : null;
 }
 
-function makeErrorResponse(
+export function makeErrorResponse(
   corsHeaders: Record<string, string>,
   payload: unknown,
   status: number,
@@ -57,6 +72,35 @@ function makeErrorResponse(
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+function asNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function extractEmailClaim(claims: Record<string, unknown>): string | null {
+  return asNonEmptyString(claims.email);
+}
+
+async function loadAuthUserFromToken(
+  token: string,
+  supabaseAdmin: SupabaseAdmin,
+): Promise<AuthUser | null> {
+  const { data, error } = await supabaseAdmin.auth.getClaims(token);
+  const claims = data?.claims as JwtClaims | undefined;
+  const userId = claims?.sub;
+
+  if (error || !claims || typeof userId !== "string" || userId.trim().length === 0) {
+    return null;
+  }
+
+  return {
+    id: userId,
+    email: extractEmailClaim(claims),
+    claims,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -86,15 +130,44 @@ export async function requireAuthUser(
     return { error: makeErrorResponse(corsHeaders, { error: "Server not configured" }, 500) };
   }
 
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data?.user) {
+  const user = await loadAuthUserFromToken(token, supabaseAdmin);
+  if (!user) {
     return { error: makeErrorResponse(corsHeaders, { error: "Unauthorized" }, 401) };
   }
 
   return {
-    user: { id: data.user.id, email: data.user.email ?? null },
+    user,
     supabaseAdmin,
   };
+}
+
+export async function getAuthUserIfPresent(
+  req: Request,
+  corsHeaders: Record<string, string>,
+  options: { rejectInvalidToken?: boolean } = {},
+): Promise<OptionalAuthResult> {
+  let supabaseAdmin: SupabaseAdmin;
+  try {
+    supabaseAdmin = createAdminClient();
+  } catch {
+    return { error: makeErrorResponse(corsHeaders, { error: "Server not configured" }, 500) };
+  }
+
+  const token = extractBearerToken(req);
+  if (!token) {
+    return { user: null, supabaseAdmin };
+  }
+
+  const user = await loadAuthUserFromToken(token, supabaseAdmin);
+  if (!user) {
+    if (options.rejectInvalidToken !== false) {
+      return { error: makeErrorResponse(corsHeaders, { error: "Unauthorized" }, 401) };
+    }
+
+    return { user: null, supabaseAdmin };
+  }
+
+  return { user, supabaseAdmin };
 }
 
 /**

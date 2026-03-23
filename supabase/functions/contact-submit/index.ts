@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { getAuthUserIfPresent } from "../_shared/auth.ts";
 import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const BASE_CORS_HEADERS = {
@@ -524,18 +524,8 @@ serveWithErrorHandling("contact-submit", async (req: Request) => {
     });
   }
 
-  const supabaseUrl = asNonEmptyString(Deno.env.get("SUPABASE_URL"));
-  const serviceRoleKey = asNonEmptyString(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
-  const anonKey = asNonEmptyString(Deno.env.get("SUPABASE_ANON_KEY"));
   const captchaSecret = asNonEmptyString(Deno.env.get("HCAPTCHA_SECRET_KEY"))
     ?? asNonEmptyString(Deno.env.get("HCAPTCHA_SECRET"));
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    return new Response(JSON.stringify({ error: "Server not configured" }), {
-      status: 500,
-      headers: corsHeaders,
-    });
-  }
 
   if (!captchaSecret) {
     console.error("[contact-submit] CAPTCHA_CONFIG_ERROR", {
@@ -547,33 +537,18 @@ serveWithErrorHandling("contact-submit", async (req: Request) => {
     });
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  const authorizationHeader = asNonEmptyString(req.headers.get("authorization"))
-    ?? asNonEmptyString(req.headers.get("Authorization"));
-  let authenticatedUser: { id: string; email: string | null } | null = null;
-
-  const userClientKey = anonKey ?? serviceRoleKey;
-  if (authorizationHeader) {
-    const supabaseUser = createClient(supabaseUrl, userClientKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-      global: {
-        headers: {
-          Authorization: authorizationHeader,
-        },
-      },
-    });
-
-    const { data: userData, error: userError } = await supabaseUser.auth.getUser();
-    if (!userError && userData.user) {
-      authenticatedUser = {
-        id: userData.user.id,
-        email: asNonEmptyString(userData.user.email),
-      };
-    }
+  const authResult = await getAuthUserIfPresent(req, corsHeaders, { rejectInvalidToken: false });
+  if ("error" in authResult) {
+    return authResult.error;
   }
+
+  const { supabaseAdmin: supabase, user: authUser } = authResult;
+  const authenticatedUser = authUser
+    ? {
+      id: authUser.id,
+      email: authUser.email,
+    }
+    : null;
 
   const userAgent = asNonEmptyString(req.headers.get("user-agent"));
   const ipAddress = extractIpAddress(req);

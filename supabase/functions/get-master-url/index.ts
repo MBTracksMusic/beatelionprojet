@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { requireAuthUser } from "../_shared/auth.ts";
 import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const BASE_CORS_HEADERS = {
@@ -89,13 +89,6 @@ const asNonEmptyString = (value: unknown) => {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 };
-
-const extractAuthorizationHeader = (req: Request) =>
-  req.headers.get("authorization") ?? req.headers.get("Authorization");
-
-const isBearerAuthorizationHeader = (value: string | null): value is string => (
-  typeof value === "string" && /^Bearer\s+\S+$/i.test(value.trim())
-);
 
 const normalizeExpiresIn = (value: unknown) => {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -329,48 +322,13 @@ serveWithErrorHandling("get-master-url", async (req: Request) => {
     });
   }
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-
-  if (!supabaseUrl || !serviceRoleKey || !anonKey) {
-    console.error("[get-master-url] Missing Supabase env vars");
-    return new Response(JSON.stringify({ error: "Server not configured" }), {
-      status: 500,
-      headers: jsonHeaders,
-    });
-  }
-
   try {
-    const authHeader = extractAuthorizationHeader(req);
-    if (!isBearerAuthorizationHeader(authHeader)) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: jsonHeaders,
-      });
+    const authResult = await requireAuthUser(req, corsHeaders);
+    if ("error" in authResult) {
+      return authResult.error;
     }
 
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
-    const supabaseUser = createClient(supabaseUrl, anonKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-      global: {
-        headers: {
-          Authorization: authHeader,
-        },
-      },
-    });
-
-    const { data: authData, error: authError } = await supabaseUser.auth.getUser();
-    if (authError || !authData.user) {
-      console.warn("[get-master-url] Invalid auth token", { authError });
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: jsonHeaders,
-      });
-    }
+    const { supabaseAdmin, user } = authResult;
 
     const body = (await req.json().catch(() => null)) as {
       beatId?: unknown;
@@ -394,14 +352,14 @@ serveWithErrorHandling("get-master-url", async (req: Request) => {
     const { data: rateLimitAllowed, error: rateLimitError } = await supabaseAdmin.rpc(
       "check_rpc_rate_limit",
       {
-        p_user_id: authData.user.id,
+        p_user_id: user.id,
         p_rpc_name: GET_MASTER_URL_RATE_LIMIT_RPC,
       },
     );
 
     if (rateLimitError) {
       console.error("[get-master-url] Rate limit check failed", {
-        userId: authData.user.id,
+        userId: user.id,
         productId,
         rateLimitError,
       });
@@ -424,16 +382,16 @@ serveWithErrorHandling("get-master-url", async (req: Request) => {
     const expiresIn = normalizeExpiresIn(body?.expires_in);
 
     console.log("[get-master-url] Request", {
-      userId: authData.user.id,
+      userId: user.id,
       productId,
       expiresIn,
       bucket: MASTER_BUCKET,
     });
 
-    const hasCompletedPurchase = await userHasCompletedPurchase(supabaseAdmin, authData.user.id, productId);
+    const hasCompletedPurchase = await userHasCompletedPurchase(supabaseAdmin, user.id, productId);
     if (!hasCompletedPurchase) {
       console.warn("[get-master-url] Forbidden: no completed purchase", {
-        userId: authData.user.id,
+        userId: user.id,
         productId,
       });
       return new Response(JSON.stringify({ error: "Forbidden" }), {
@@ -486,7 +444,7 @@ serveWithErrorHandling("get-master-url", async (req: Request) => {
     if (masterPathCandidates.length === 0) {
       console.warn("[get-master-url] Invalid master path: both master_path and master_url empty", {
         productId,
-        userId: authData.user.id,
+        userId: user.id,
       });
       return new Response(JSON.stringify({
         error: "Invalid master path",
@@ -518,7 +476,7 @@ serveWithErrorHandling("get-master-url", async (req: Request) => {
 
     if (!resolvedMaster) {
       console.warn("[get-master-url] Invalid master path: no candidate passed validation", {
-        userId: authData.user.id,
+        userId: user.id,
         productId,
         producerId,
         candidatesTried: masterPathCandidates.length,
@@ -535,7 +493,7 @@ serveWithErrorHandling("get-master-url", async (req: Request) => {
 
     const successfulGrantRateLimit = await checkSuccessfulGrantRateLimits(
       supabaseAdmin,
-      authData.user.id,
+      user.id,
       productId,
     );
     if (!successfulGrantRateLimit.allowed) {
@@ -582,7 +540,7 @@ serveWithErrorHandling("get-master-url", async (req: Request) => {
     if (!signedData?.signedUrl || !signedFrom) {
       console.error("[get-master-url] Failed to sign URL", {
         productId,
-        userId: authData.user.id,
+        userId: user.id,
         resolvedMaster,
         signingCandidates: uniqueSigningCandidates,
         signedError,
@@ -594,7 +552,7 @@ serveWithErrorHandling("get-master-url", async (req: Request) => {
     }
 
     await logSuccessfulGrant(supabaseAdmin, {
-      userId: authData.user.id,
+      userId: user.id,
       productId,
       ipAddress: extractClientIp(req),
       userAgent: asNonEmptyString(req.headers.get("user-agent")),

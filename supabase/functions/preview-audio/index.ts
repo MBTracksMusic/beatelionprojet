@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { getAuthUserIfPresent } from "../_shared/auth.ts";
 import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 import { resolveCorsHeaders } from "../_shared/cors.ts";
 
@@ -134,7 +134,13 @@ const extractProductId = (url: URL) => {
 
 serveWithErrorHandling("preview-audio", async (req: Request) => {
   const origin = req.headers.get("origin");
-  const corsHeaders = resolveCorsHeaders(origin);
+  const resolvedCorsHeaders = resolveCorsHeaders(origin);
+  const corsHeaders: Record<string, string> = {
+    "Access-Control-Allow-Origin": resolvedCorsHeaders["Access-Control-Allow-Origin"],
+    "Access-Control-Allow-Headers": resolvedCorsHeaders["Access-Control-Allow-Headers"] ??
+      "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": resolvedCorsHeaders["Access-Control-Allow-Methods"] ?? "GET, POST, OPTIONS",
+  };
   const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
 
   if (req.method === "OPTIONS") {
@@ -148,18 +154,6 @@ serveWithErrorHandling("preview-audio", async (req: Request) => {
     });
   }
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    console.error("[preview-audio] Missing Supabase env vars");
-    return new Response(JSON.stringify({ error: "Server not configured" }), {
-      status: 500,
-      headers: jsonHeaders,
-    });
-  }
-
   const url = new URL(req.url);
   const productId = extractProductId(url);
   if (!productId || !UUID_RE.test(productId)) {
@@ -169,41 +163,13 @@ serveWithErrorHandling("preview-audio", async (req: Request) => {
     });
   }
 
-  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
-
-  const authHeader = req.headers.get("Authorization");
-  let authenticatedUserId: string | null = null;
-  if (authHeader) {
-    if (!anonKey) {
-      console.error("[preview-audio] Missing SUPABASE_ANON_KEY for auth validation");
-      return new Response(JSON.stringify({ error: "Server not configured" }), {
-        status: 500,
-        headers: jsonHeaders,
-      });
-    }
-
-    const supabaseUser = createClient(supabaseUrl, anonKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-      global: {
-        headers: {
-          Authorization: authHeader,
-        },
-      },
-    });
-
-    const { data: authData, error: authError } = await supabaseUser.auth.getUser();
-    if (authError || !authData.user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: jsonHeaders,
-      });
-    }
-
-    authenticatedUserId = authData.user.id;
+  const authResult = await getAuthUserIfPresent(req, corsHeaders);
+  if ("error" in authResult) {
+    return authResult.error;
   }
+
+  const { supabaseAdmin, user } = authResult;
+  const authenticatedUserId = user?.id ?? null;
 
   const requesterIp = getRequesterIp(req);
   const rateLimitKey = authenticatedUserId ? `user:${authenticatedUserId}` : `ip:${requesterIp}`;

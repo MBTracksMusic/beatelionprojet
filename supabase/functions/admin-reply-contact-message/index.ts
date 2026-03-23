@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { requireAdminUser } from "../_shared/auth.ts";
 import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const BASE_CORS_HEADERS = {
@@ -106,75 +106,6 @@ const escapeHtml = (input: string): string =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
-const createAdminClient = () => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("Missing Supabase env vars");
-  }
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-};
-
-const createUserClient = (authorizationHeader: string) => {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-
-  if (!supabaseUrl || !anonKey) {
-    throw new Error("Missing Supabase auth env vars");
-  }
-
-  return createClient(supabaseUrl, anonKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-    global: {
-      headers: {
-        Authorization: authorizationHeader,
-      },
-    },
-  });
-};
-
-const requireAdmin = async (req: Request) => {
-  const authorizationHeader = req.headers.get("Authorization") ?? req.headers.get("authorization");
-  if (!authorizationHeader) {
-    return { error: new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: jsonHeaders }) };
-  }
-
-  const supabaseAdmin = createAdminClient();
-  const supabaseUser = createUserClient(authorizationHeader);
-  const { data: authData, error: authError } = await supabaseUser.auth.getUser();
-  if (authError || !authData.user) {
-    console.error("[admin-reply-contact-message] invalid auth token", authError);
-    return { error: new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: jsonHeaders }) };
-  }
-
-  const { data: profile, error: profileError } = await supabaseAdmin
-    .from("user_profiles")
-    .select("id, role")
-    .eq("id", authData.user.id)
-    .maybeSingle();
-
-  if (profileError) {
-    console.error("[admin-reply-contact-message] failed to load profile", profileError);
-    return { error: new Response(JSON.stringify({ error: "Failed to verify admin" }), { status: 500, headers: jsonHeaders }) };
-  }
-
-  if (!profile || profile.role !== "admin") {
-    return { error: new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: jsonHeaders }) };
-  }
-
-  return { supabaseAdmin, userId: authData.user.id };
-};
-
 serveWithErrorHandling("admin-reply-contact-message", async (req: Request): Promise<Response> => {
   const requestOrigin = resolveRequestOrigin(req);
   const corsHeaders = buildCorsHeaders(requestOrigin);
@@ -192,12 +123,13 @@ serveWithErrorHandling("admin-reply-contact-message", async (req: Request): Prom
   }
 
   try {
-    const authContext = await requireAdmin(req);
+    const authContext = await requireAdminUser(req, corsHeaders);
     if ("error" in authContext) {
-      return authContext.error as Response;
+      return authContext.error;
     }
 
-    const { supabaseAdmin, userId } = authContext;
+    const { supabaseAdmin, user } = authContext;
+    const userId = user.id;
 
     const { data: rateLimitAllowed, error: rateLimitError } = await supabaseAdmin.rpc(
       "check_rpc_rate_limit",

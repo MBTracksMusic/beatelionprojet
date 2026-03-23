@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireAdminUser } from "../_shared/auth.ts";
 import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const DEFAULT_ALLOWED_CORS_ORIGINS = [
@@ -124,45 +124,12 @@ serveWithErrorHandling("ai-moderate-comment", async (req: Request) => {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-
-  if (!supabaseUrl || !serviceRoleKey || !anonKey) {
-    return jsonResponse({ error: "Server not configured" }, 500);
+  const authResult = await requireAdminUser(req, corsHeaders);
+  if ("error" in authResult) {
+    return authResult.error;
   }
 
-  const authorizationHeader = req.headers.get("Authorization");
-  if (!authorizationHeader) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
-  }
-
-  const supabase = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  const supabaseUser = createClient(supabaseUrl, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: {
-      headers: {
-        Authorization: authorizationHeader,
-      },
-    },
-  });
-
-  const {
-    data: { user },
-    error: authError,
-  } = await supabaseUser.auth.getUser();
-
-  if (authError || !user) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
-  }
-
-  const { data: isAdmin, error: isAdminError } = await supabase.rpc("is_admin", { p_user_id: user.id });
-  if (isAdminError || isAdmin !== true) {
-    return jsonResponse({ error: "Admin required" }, 403);
-  }
+  const { supabaseAdmin: supabase } = authResult;
 
   let body: ModerateCommentRequest;
   try {

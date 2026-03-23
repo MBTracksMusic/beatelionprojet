@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { requireAuthUser } from "./auth.ts";
 
 const DEFAULT_ALLOWED_CORS_ORIGINS = [
   "https://beatelion.com",
@@ -122,27 +123,6 @@ export function createAdminClient(): SupabaseAdminClient {
   }) as SupabaseAdminClient;
 }
 
-export function createUserClient(authorizationHeader: string) {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-
-  if (!supabaseUrl || !anonKey) {
-    throw new Error("Missing SUPABASE_URL or SUPABASE_ANON_KEY");
-  }
-
-  return createClient(supabaseUrl, anonKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-    global: {
-      headers: {
-        Authorization: authorizationHeader,
-      },
-    },
-  }) as SupabaseAdminClient;
-}
-
 export async function requireUser(req: Request) {
   const corsHeaders = buildCorsHeaders(resolveRequestCorsOrigin(req));
   const errorResponse = (payload: unknown, status: number) =>
@@ -151,24 +131,13 @@ export async function requireUser(req: Request) {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
-  const authorizationHeader = asNonEmptyString(req.headers.get("Authorization"));
-  if (!authorizationHeader) {
-    return { error: errorResponse({ error: "Unauthorized", code: "unauthorized" }, 401) };
-  }
-
   try {
-    const supabaseAdmin = createAdminClient();
-    const supabaseUser = createUserClient(authorizationHeader);
-    const {
-      data: { user },
-      error: authError,
-    } = await supabaseUser.auth.getUser();
-
-    if (authError || !user) {
-      console.error("[forum-agents] requireUser auth failed", authError);
-      return { error: errorResponse({ error: "Unauthorized", code: "unauthorized" }, 401) };
+    const authResult = await requireAuthUser(req, corsHeaders);
+    if ("error" in authResult) {
+      return authResult;
     }
 
+    const { supabaseAdmin, user } = authResult;
     const { data: profile, error: profileError } = await supabaseAdmin
       .from("user_profiles")
       .select("id, email, role")

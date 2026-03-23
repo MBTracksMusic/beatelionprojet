@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
 import { PDFDocument, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
+import { requireAuthUser } from "../_shared/auth.ts";
 import { invokeContractGeneration, resolveContractGenerateEndpoint } from "../_shared/contract-generation.js";
 import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
@@ -85,13 +85,6 @@ const asNonEmptyString = (value: unknown) => {
 };
 
 const isUuid = (value: string) => UUID_RE.test(value);
-
-const extractAuthorizationHeader = (req: Request) =>
-  req.headers.get("authorization") ?? req.headers.get("Authorization");
-
-const isBearerAuthorizationHeader = (value: string | null): value is string => (
-  typeof value === "string" && /^Bearer\s+\S+$/i.test(value.trim())
-);
 
 type MaybeMany<T> = T | T[] | null | undefined;
 
@@ -528,47 +521,13 @@ serveWithErrorHandling("get-contract-url", async (req: Request) => {
     });
   }
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-
-  if (!supabaseUrl || !serviceRoleKey || !anonKey) {
-    console.error("[get-contract-url] Missing Supabase env vars");
-    return new Response(JSON.stringify({ error: "Server not configured" }), {
-      status: 500,
-      headers: jsonHeaders,
-    });
-  }
-
   try {
-    const authHeader = extractAuthorizationHeader(req);
-    if (!isBearerAuthorizationHeader(authHeader)) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: jsonHeaders,
-      });
+    const authResult = await requireAuthUser(req, corsHeaders);
+    if ("error" in authResult) {
+      return authResult.error;
     }
 
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey) as any;
-    const supabaseUser = createClient(supabaseUrl, anonKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-      global: {
-        headers: {
-          Authorization: authHeader,
-        },
-      },
-    });
-
-    const { data: authData, error: authError } = await supabaseUser.auth.getUser();
-    if (authError || !authData.user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: jsonHeaders,
-      });
-    }
+    const { supabaseAdmin, user } = authResult;
 
     const body = await req.json().catch(() => null) as {
       purchase_id?: unknown;
@@ -613,7 +572,7 @@ serveWithErrorHandling("get-contract-url", async (req: Request) => {
       });
     }
 
-    if (purchase.user_id !== authData.user.id) {
+    if (purchase.user_id !== user.id) {
       return new Response(JSON.stringify({ error: "Forbidden" }), {
         status: 403,
         headers: jsonHeaders,
@@ -634,7 +593,7 @@ serveWithErrorHandling("get-contract-url", async (req: Request) => {
       });
     }
 
-    const userRateLimit = await enforceUserRateLimit(supabaseAdmin, authData.user.id);
+    const userRateLimit = await enforceUserRateLimit(supabaseAdmin, user.id);
     if (!userRateLimit.allowed) {
       return new Response(JSON.stringify({ error: userRateLimit.error }), {
         status: userRateLimit.status,
@@ -645,7 +604,7 @@ serveWithErrorHandling("get-contract-url", async (req: Request) => {
     const purchaseRateLimit = await enforcePurchaseRateLimit(
       supabaseAdmin,
       purchaseId,
-      authData.user.id,
+      user.id,
     );
     if (!purchaseRateLimit.allowed) {
       return new Response(JSON.stringify({ error: purchaseRateLimit.error }), {
