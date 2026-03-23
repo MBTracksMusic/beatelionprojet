@@ -427,6 +427,11 @@ async function resolveProfileForStripeCustomer<TProfile extends { id: string; st
 
     const customerEmail = asNonEmptyString(customer.email);
     if (!customerEmail) {
+      console.error(`[${logContext}] CRITICAL: Stripe customer has no email — cannot fallback to email lookup`, {
+        customerId,
+        subscriptionId,
+        timestamp: new Date().toISOString(),
+      });
       return null;
     }
 
@@ -441,6 +446,12 @@ async function resolveProfileForStripeCustomer<TProfile extends { id: string; st
     }
 
     if (!profileByEmail) {
+      console.error(`[${logContext}] CRITICAL: User not found after all fallback attempts (no email match)`, {
+        customerId,
+        subscriptionId,
+        customerEmail,
+        timestamp: new Date().toISOString(),
+      });
       return null;
     }
 
@@ -459,10 +470,11 @@ async function resolveProfileForStripeCustomer<TProfile extends { id: string; st
 
     return profileByEmail as TProfile;
   } catch (error) {
-    console.error(`[${logContext}] Stripe customer fallback lookup failed`, {
+    console.error(`[${logContext}] CRITICAL: Stripe customer retrieval failed — email fallback unavailable`, {
       customerId,
       subscriptionId,
       message: error instanceof Error ? error.message : String(error),
+      timestamp: new Date().toISOString(),
     });
     return null;
   }
@@ -1751,7 +1763,28 @@ async function handlePaymentSucceeded(
     subscriptionPriceIds: extractSubscriptionPriceIds(stripeSubscription),
   });
 
+  // STRICT: Validate user exists BEFORE attempting subscription sync
   if (subscriptionKind === "user") {
+    const userProfileCheck = await resolveProfileForStripeCustomer<{ id: string; stripe_customer_id: string | null }>(
+      supabase,
+      stripe,
+      {
+        customerId: subscriptionCustomerId,
+        subscriptionId,
+        selectClause: "id, stripe_customer_id",
+        logContext: "handlePaymentSucceeded_userValidation",
+      },
+    );
+
+    if (!userProfileCheck?.id) {
+      // RULE 1: NEVER swallow critical errors — THROW to force Stripe retry
+      throw new WebhookError(
+        `User validation failed for Stripe customer ${subscriptionCustomerId} (subscription ${subscriptionId})`,
+        400,
+        false, // markProcessed=false: will retry
+      );
+    }
+
     await upsertUserSubscriptionFromStripe(supabase, stripe, subscriptionId, stripeSubscription);
   } else {
     await upsertProducerSubscriptionFromStripe(supabase, stripe, subscriptionId, stripeSubscription);
@@ -1777,6 +1810,7 @@ async function handlePaymentSucceeded(
       invoiceId: invoice.id,
       customerId,
       subscriptionId,
+      timestamp: new Date().toISOString(),
     });
     await allocateMonthlyCredits(supabase, {
       customerId,
@@ -1889,14 +1923,33 @@ async function allocateMonthlyCredits(
   });
 
   if (error) {
-    console.error("[allocateMonthlyCredits] Allocation failed", {
-      invoiceId,
-      subscriptionId,
-      customerId,
-      code: error.code,
-      message: error.message,
-      details: error.details,
-    });
+    // RULE 2: Distinguish transient vs permanent failures
+    const isTransientUserMappingError = error.message?.includes("user_subscription_not_found");
+
+    if (isTransientUserMappingError) {
+      // Log as TRANSIENT — Stripe MUST retry
+      console.warn("[allocateMonthlyCredits] ⚠️  TRANSIENT: User subscription not found — Stripe will retry", {
+        invoiceId,
+        subscriptionId,
+        customerId,
+        code: error.code,
+        message: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      // Log other RPC errors for investigation
+      console.error("[allocateMonthlyCredits] RPC error (non-transient)", {
+        invoiceId,
+        subscriptionId,
+        customerId,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // RULE 2: ALWAYS throw — ensures Stripe retries and prevents permanent credit loss
     throw new Error(`allocate_monthly_user_credits_for_invoice failed: ${error.message}`);
   }
 
@@ -1907,50 +1960,54 @@ async function allocateMonthlyCredits(
     new_balance?: number;
   };
 
+  // RULE 3: Log all RPC outcomes for forensics
+  console.log("[allocateMonthlyCredits] RPC result", {
+    invoiceId,
+    subscriptionId,
+    customerId,
+    status: payload.status,
+    allocatedCredits: payload.allocated_credits ?? 0,
+    previousBalance: payload.previous_balance ?? null,
+    newBalance: payload.new_balance ?? null,
+    timestamp: new Date().toISOString(),
+  });
+
   if (payload.status === "processed") {
-    console.log("[allocateMonthlyCredits] CREDITS ALLOCATION RESULT", {
+    console.log("[allocateMonthlyCredits] ✅ PROCESSED", {
       invoiceId,
-      subscriptionId,
       allocatedCredits: payload.allocated_credits ?? 0,
-      previousBalance: payload.previous_balance ?? null,
       newBalance: payload.new_balance ?? null,
     });
     return;
   }
 
   if (payload.status === "skipped_max_balance") {
-    console.log("[allocateMonthlyCredits] CREDITS ALLOCATION RESULT", {
+    console.log("[allocateMonthlyCredits] ⏭️  SKIPPED (max balance)", {
       invoiceId,
-      subscriptionId,
-      status: payload.status,
-      previousBalance: payload.previous_balance ?? null,
       newBalance: payload.new_balance ?? null,
     });
     return;
   }
 
   if (payload.status === "duplicate") {
-    console.log("[allocateMonthlyCredits] CREDITS ALLOCATION RESULT", {
+    console.log("[allocateMonthlyCredits] ⏭️  SKIPPED (duplicate invoice)", {
       invoiceId,
-      subscriptionId,
-      status: payload.status,
     });
     return;
   }
 
   if (payload.status === "skipped_inactive_subscription") {
-    console.log("[allocateMonthlyCredits] CREDITS ALLOCATION RESULT", {
+    console.log("[allocateMonthlyCredits] ⏭️  SKIPPED (subscription inactive)", {
       invoiceId,
       subscriptionId,
-      status: payload.status,
     });
     return;
   }
 
-  console.log("[allocateMonthlyCredits] Allocation returned unexpected status", {
+  console.warn("[allocateMonthlyCredits] ⚠️  Unexpected status from RPC", {
     invoiceId,
     subscriptionId,
-    payload,
+    status: payload.status,
   });
 }
 
