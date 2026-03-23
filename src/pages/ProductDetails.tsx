@@ -321,22 +321,8 @@ export function ProductDetailsPage() {
   };
 
   const handleAddToCart = async () => {
-    console.log("=== BUTTON CLICKED ===");
-    console.log("product:", product);
-    console.log("product.is_sold:", product?.is_sold);
-    console.log("isAuthenticated:", isAuthenticated);
-
-    if (!product) {
-      console.log("❌ NO PRODUCT");
-      return;
-    }
-    if (product.is_sold) {
-      console.log("❌ PRODUCT IS SOLD");
-      return;
-    }
-
-    console.log("✅ PROCEEDING WITH ADD TO CART");
-    console.log("product.id:", product.id);
+    if (!product) return;
+    if (product.is_sold) return;
 
     trackClickBuy({
       productId: product.id,
@@ -348,12 +334,10 @@ export function ProductDetailsPage() {
       navigate('/login', { state: { from: { pathname: location.pathname } } });
       return;
     }
-    console.log("🔄 STARTING ADD TO CART ASYNC");
+
     setIsAddingToCart(true);
     try {
-      console.log("📡 Calling addToCart with productId:", product.id);
       await addToCart(product.id);
-      console.log("✅ addToCart SUCCESS");
       trackAddToCart({
         productId: product.id,
         productName: product.title,
@@ -366,11 +350,7 @@ export function ProductDetailsPage() {
         });
       }
     } catch (e) {
-      console.error('❌ Error adding to cart from details page:', e);
-      console.error('Error details:', {
-        message: e instanceof Error ? e.message : String(e),
-        stack: e instanceof Error ? e.stack : undefined,
-      });
+      console.error('Error adding to cart:', e);
     } finally {
       setIsAddingToCart(false);
     }
