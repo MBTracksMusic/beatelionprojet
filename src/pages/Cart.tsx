@@ -99,7 +99,23 @@ export function CartPage() {
       return;
     }
 
-    if (!firstItem) return;
+    if (!firstItem) {
+      setCheckoutError('Item not found in cart');
+      return;
+    }
+
+    if (!firstItem.product_id) {
+      setCheckoutError('Product ID missing');
+      console.error('Product ID is missing:', firstItem);
+      return;
+    }
+
+    if (!firstItem.product) {
+      setCheckoutError('Product details not loaded. Please try again.');
+      console.error('Product details missing:', firstItem);
+      return;
+    }
+
     const selectedPrice = firstItem.product?.price ?? 0;
 
     trackBeginCheckout({
@@ -115,12 +131,16 @@ export function CartPage() {
       const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
 
       if (refreshError || !refreshData.session) {
-        alert('Session refresh failed');
+        setCheckoutError('Session refresh failed. Please try again.');
         return;
       }
 
       const token = refreshData.session.access_token;
 
+      console.log('[Checkout] Sending request with:', {
+        beatId: firstItem.product_id,
+        productTitle: firstItem.product.title,
+      });
 
       const { data, error } = await supabase.functions.invoke<{ url?: string }>('create-checkout', {
         body: {
@@ -134,26 +154,28 @@ export function CartPage() {
       });
 
       if (error) {
-        console.error('Checkout error:', error);
+        console.error('Checkout error (full):', error);
 
         let message = 'Checkout failed';
+        let details = '';
 
         try {
           const parsed = await (error as {
             context?: { json?: () => Promise<{ error?: string; message?: string }> };
           }).context?.json?.();
 
-          if (import.meta.env.DEV) {
-            console.log('BACKEND ERROR:', parsed);
-          }
-
+          console.log('[Checkout] Backend error response:', parsed);
+          details = JSON.stringify(parsed);
           message = parsed?.error || parsed?.message || message;
-        } catch {
-          // ignore
+        } catch (parseErr) {
+          console.log('[Checkout] Could not parse error response:', parseErr);
+          message = error instanceof Error ? error.message : String(error);
         }
 
+        console.error(`[Checkout] Final error message: "${message}"`);
+        if (details) console.error('[Checkout] Error details:', details);
+
         setCheckoutError(message);
-        alert(message);
         return;
       }
 
