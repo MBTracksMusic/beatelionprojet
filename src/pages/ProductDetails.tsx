@@ -321,7 +321,8 @@ export function ProductDetailsPage() {
   };
 
   const handleAddToCart = async () => {
-    if (!product || product.is_sold || isEarlyAccessPurchaseLocked) return;
+    if (!product || product.is_sold) return;
+    console.log("Add to cart clicked", product?.id);
 
     trackClickBuy({
       productId: product.id,
@@ -562,16 +563,14 @@ export function ProductDetailsPage() {
               {!product.is_sold && (
                 <Button
                   onClick={handleAddToCart}
-                  disabled={isEarlyAccessPurchaseLocked}
+                  disabled={false}
                   isLoading={isAddingToCart}
                   leftIcon={<ShoppingCart className="w-4 h-4" />}
                   variant={isAuthenticated ? (ctaVariant === 'A' ? 'primary' : 'secondary') : 'outline'}
                 >
-                  {isEarlyAccessPurchaseLocked
-                    ? t('products.availableSoon')
-                    : isAuthenticated
-                      ? t('products.addToCart')
-                      : t('auth.loginButton')}
+                  {isAuthenticated
+                    ? t('products.addToCart')
+                    : t('auth.loginButton')}
                 </Button>
               )}
             </div>
