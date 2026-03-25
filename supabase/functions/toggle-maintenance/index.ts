@@ -103,10 +103,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     // === 5. Extract and verify JWT
     const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
+
     console.log('[toggle-maintenance] Authorization header received:', {
       hasAuthHeader: !!authHeader,
       authHeaderPrefix: authHeader?.slice(0, 20) + '...',
     });
+
+    // Debug: log if header is missing
+    if (!authHeader) {
+      console.warn('[AUTH ERROR] Missing Authorization header - frontend may not be sending token');
+      console.log('[AUTH ERROR] Expected "Authorization: Bearer <token>" header');
+    }
 
     if (!authHeader?.startsWith('Bearer ')) {
       return new Response(JSON.stringify({
