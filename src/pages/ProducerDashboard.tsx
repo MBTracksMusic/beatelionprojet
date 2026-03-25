@@ -659,6 +659,12 @@ export function ProducerDashboardPage() {
             >
               {t('producerDashboard.myBattles')}
             </Link>
+            <Link
+              to="/producer/stripe-connect"
+              className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-zinc-200 border border-zinc-700 hover:border-zinc-500 hover:text-white transition"
+            >
+              Connecter Stripe
+            </Link>
             <UploadBeatButton label={t('producer.uploadBeat')} />
           </div>
         </header>
