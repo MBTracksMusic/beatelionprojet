@@ -1,19 +1,24 @@
 import { useEffect, useState } from 'react';
 import { AuthApiError } from '@supabase/supabase-js';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Mail, CheckCircle, XCircle } from 'lucide-react';
-import { Button } from '../../components/ui';
+import { Mail, CheckCircle, XCircle, Copy } from 'lucide-react';
+import { Button, ToastContainer } from '../../components/ui';
 import { useTranslation } from '../../lib/i18n';
 import { supabase } from '@/lib/supabase/client';
 import { getAuthRedirectUrl } from '../../lib/auth/redirects';
+import { useToast, useToastStore } from '../../lib/toast';
 
 export default function EmailConfirmation() {
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const toast = useToast();
+  const toasts = useToastStore((state) => state.toasts);
+  const removeToast = useToastStore((state) => state.removeToast);
   const [status, setStatus] = useState<'pending' | 'success' | 'error'>('pending');
   const [errorMessage, setErrorMessage] = useState('');
   const [cooldown, setCooldown] = useState(0);
+  const [isResending, setIsResending] = useState(false);
   const email = searchParams.get('email');
 
   // Prevents users from spamming the resend endpoint and hitting Supabase rate limits.
@@ -111,8 +116,9 @@ export default function EmailConfirmation() {
   }, [navigate]);
 
   const handleResendEmail = async () => {
-    if (!email || cooldown > 0) return;
+    if (!email || cooldown > 0 || isResending) return;
 
+    setIsResending(true);
     try {
       const { error } = await supabase.auth.resend({
         type: 'signup',
@@ -124,22 +130,32 @@ export default function EmailConfirmation() {
 
       if (error) throw error;
       setCooldown(60);
-      alert(t('auth.emailConfirmationResent'));
+      toast.success(t('auth.emailConfirmationResent'), 4000);
     } catch (error) {
       console.error('Error resending email:', error);
       if (error instanceof AuthApiError && error.status === 429) {
         setCooldown(60);
-        alert(t('auth.emailConfirmationRateLimited'));
+        toast.warning(t('auth.emailConfirmationRateLimited'), 5000);
         return;
       }
-      alert(t('auth.emailConfirmationResendError'));
+      toast.error(t('auth.emailConfirmationResendError'), 5000);
+    } finally {
+      setIsResending(false);
+    }
+  };
+
+  const copyEmailToClipboard = () => {
+    if (email) {
+      navigator.clipboard.writeText(email);
+      toast.success('Email copied to clipboard', 2000);
     }
   };
 
   if (status === 'success') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 px-4">
-        <div className="max-w-md w-full bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-8 text-center">
+        <ToastContainer toasts={toasts} onClose={removeToast} />
+        <div className="max-w-md w-full bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-8 text-center animate-in fade-in duration-300">
           <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
             <CheckCircle className="w-10 h-10 text-green-400" />
           </div>
@@ -149,6 +165,9 @@ export default function EmailConfirmation() {
           <p className="text-gray-300 mb-6">
             {t('auth.emailConfirmationSuccessBody')}
           </p>
+          <p className="text-xs text-gray-400">
+            Redirecting...
+          </p>
         </div>
       </div>
     );
@@ -157,7 +176,8 @@ export default function EmailConfirmation() {
   if (status === 'error') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 px-4">
-        <div className="max-w-md w-full bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-8 text-center">
+        <ToastContainer toasts={toasts} onClose={removeToast} />
+        <div className="max-w-md w-full bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-8 text-center animate-in fade-in duration-300">
           <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
             <XCircle className="w-10 h-10 text-red-400" />
           </div>
@@ -167,9 +187,14 @@ export default function EmailConfirmation() {
           <p className="text-gray-300 mb-6">
             {errorMessage || t('auth.emailConfirmationErrorBody')}
           </p>
-          <Button onClick={() => navigate('/login')} className="w-full">
-            {t('auth.backToLogin')}
-          </Button>
+          <div className="space-y-3">
+            <Button onClick={() => navigate('/register')} variant="outline" className="w-full">
+              {t('auth.registerTitle')}
+            </Button>
+            <Button onClick={() => navigate('/login')} className="w-full">
+              {t('auth.backToLogin')}
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -177,30 +202,58 @@ export default function EmailConfirmation() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 px-4">
-      <div className="max-w-md w-full bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-8 text-center">
-        <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+      <ToastContainer toasts={toasts} onClose={removeToast} />
+      <div className="max-w-md w-full bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-lg p-8 text-center animate-in fade-in duration-300">
+        <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
           <Mail className="w-10 h-10 text-blue-400" />
         </div>
-        <h1 className="text-2xl font-bold text-white mb-4">
+        <h1 className="text-2xl font-bold text-white mb-2">
           {t('auth.emailConfirmationPendingTitle')}
         </h1>
-        <p className="text-gray-300 mb-6">
+        <p className="text-gray-400 text-sm mb-6">
           {t('auth.emailConfirmationPendingBody', { email: email ?? '' })}
         </p>
+
+        {email && (
+          <div className="bg-gray-700/30 rounded-lg p-3 mb-6 flex items-center justify-between">
+            <span className="text-sm text-gray-300 break-all text-left flex-1">{email}</span>
+            <button
+              type="button"
+              onClick={copyEmailToClipboard}
+              className="ml-2 p-2 hover:bg-gray-600 rounded transition-colors flex-shrink-0"
+              aria-label="Copy email"
+              title="Copy email"
+            >
+              <Copy className="w-4 h-4 text-gray-400 hover:text-gray-200" />
+            </button>
+          </div>
+        )}
+
         <div className="space-y-3">
-          <Button
-            onClick={handleResendEmail}
-            variant="outline"
-            className="w-full"
-            disabled={cooldown > 0}
-          >
-            {cooldown > 0 ? t('auth.emailConfirmationRetryIn', { count: cooldown }) : t('auth.emailConfirmationResend')}
-          </Button>
+          <div>
+            <Button
+              onClick={handleResendEmail}
+              variant="outline"
+              className="w-full"
+              disabled={cooldown > 0 || isResending}
+            >
+              {isResending ? 'Sending...' : cooldown > 0 ? t('auth.emailConfirmationRetryIn', { count: cooldown }) : t('auth.emailConfirmationResend')}
+            </Button>
+            {cooldown > 0 && (
+              <div className="mt-2 w-full bg-gray-700 rounded-full h-1 overflow-hidden">
+                <div
+                  className="bg-blue-500 h-full transition-all duration-1000"
+                  style={{ width: `${((60 - cooldown) / 60) * 100}%` }}
+                />
+              </div>
+            )}
+          </div>
           <Button onClick={() => navigate('/login')} variant="outline" className="w-full">
             {t('auth.backToLogin')}
           </Button>
         </div>
-        <p className="text-sm text-gray-400 mt-6">
+
+        <p className="text-xs text-gray-500 mt-6 leading-relaxed">
           {t('auth.emailConfirmationSpamHint')}
         </p>
       </div>
