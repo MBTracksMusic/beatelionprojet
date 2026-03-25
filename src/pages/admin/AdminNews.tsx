@@ -101,7 +101,16 @@ export function AdminNewsPage() {
 
   const invokeBroadcast = useCallback(
     async (row: NewsRow, options?: { silentSuccess?: boolean }) => {
+      // Get session token for authorization
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error(t('admin.news.authenticationExpired'));
+      }
+
       const { data, error } = await supabase.functions.invoke('broadcast-news', {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: { news_id: row.id },
       });
 

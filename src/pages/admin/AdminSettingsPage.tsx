@@ -477,7 +477,19 @@ export function AdminSettingsPage() {
     if (isEnqueueingReprocess) return;
 
     setIsEnqueueingReprocess(true);
+
+    // Get fresh session token for authorization
+    const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+    if (refreshError || !refreshed?.session?.access_token) {
+      toast.error(t('admin.settingsPage.authenticationExpired'));
+      setIsEnqueueingReprocess(false);
+      return;
+    }
+
     const { data, error } = await supabase.functions.invoke('enqueue-preview-reprocess', {
+      headers: {
+        Authorization: `Bearer ${refreshed.session.access_token}`,
+      },
       body: {},
     });
 
