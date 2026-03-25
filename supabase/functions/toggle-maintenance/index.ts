@@ -150,7 +150,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     // === 7. Get current user via token
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
 
     console.log('[toggle-maintenance] getUser() result:', {
       hasUser: !!user,
