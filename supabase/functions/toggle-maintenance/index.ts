@@ -49,13 +49,6 @@ const corsHeaders = {
  */
 
 Deno.serve(async (req: Request): Promise<Response> => {
-  // === DEBUG: Log all incoming headers
-  console.log('[DEBUG] All request headers:', {
-    headers: Array.from(req.headers.entries()),
-    authHeader_lowercase: req.headers.get('authorization'),
-    authHeader_capitalized: req.headers.get('Authorization'),
-  });
-
   // === 1. CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, {
@@ -101,36 +94,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
       });
     }
 
-    // === 5. Extract and verify JWT
-    const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
-
-    console.log('[toggle-maintenance] Authorization header received:', {
-      hasAuthHeader: !!authHeader,
-      authHeaderPrefix: authHeader?.slice(0, 20) + '...',
-    });
-
-    // Debug: log if header is missing
-    if (!authHeader) {
-      console.warn('[AUTH ERROR] Missing Authorization header - frontend may not be sending token');
-      console.log('[AUTH ERROR] Expected "Authorization: Bearer <token>" header');
-    }
-
-    if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({
-        error: 'no_auth',
-        message: 'Missing or invalid Authorization header',
-      } as ErrorResponse), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders },
-      });
-    }
-
-    const token = authHeader.slice(7);
-
-    // === 6. Initialize Supabase clients
+    // === 5. Get current user from Supabase context
+    // Supabase automatically provides user context via headers/JWT
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
     if (!supabaseUrl || !supabaseServiceKey || !supabaseAnonKey) {
       console.error('[toggle-maintenance] Missing Supabase config');
@@ -143,23 +111,37 @@ Deno.serve(async (req: Request): Promise<Response> => {
       });
     }
 
-    // ✅ FIXED: Client with PUBLIC key for auth verification (user level)
-    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+    // === 6. Create admin client (for auth verification and admin operations)
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { persistSession: false },
-      global: { headers: { authorization: `Bearer ${token}` } },
     });
 
-    // === 7. Get current user via token
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
+    // === 7. Extract and verify JWT token from Authorization header
+    const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
 
-    console.log('[toggle-maintenance] getUser() result:', {
-      hasUser: !!user,
-      userId: user?.id,
-      authError: authError?.message,
+    if (!authHeader?.startsWith('Bearer ')) {
+      console.warn('[toggle-maintenance] No or invalid authorization header');
+      return new Response(JSON.stringify({
+        error: 'auth_failed',
+        message: 'Missing or invalid authorization header',
+      } as ErrorResponse), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+
+    const { data, error: authError } = await supabaseAdmin.auth.getUser(token);
+    const user = data?.user;
+
+    console.log('[toggle-maintenance] Token verification:', {
+      userExists: !!user,
+      authError: authError?.message || null,
     });
 
     if (authError || !user?.id) {
-      console.warn('[toggle-maintenance] Auth verification failed', authError?.message);
+      console.warn('[toggle-maintenance] Token verification failed', { authError: authError?.message });
       return new Response(JSON.stringify({
         error: 'auth_failed',
         message: 'Invalid or expired JWT token',
@@ -172,10 +154,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const userId = user.id;
 
     // === 8. Verify admin status using SERVICE_ROLE
-    // This bypasses RLS and checks user_profiles.role directly
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false },
-    });
 
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('user_profiles')

@@ -69,7 +69,13 @@ async function invokeAuthFunction<T>(functionName: string, body: Record<string, 
     url: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${functionName}`
   });
 
+  const { data: { session } } = await supabase.auth.getSession();
+  console.log(`[auth] token present:`, !!session?.access_token);
+
   const { data, error } = await supabase.functions.invoke<T>(functionName, {
+    headers: session?.access_token ? {
+      Authorization: `Bearer ${session.access_token}`,
+    } : {},
     body,
     method: 'POST',
   });

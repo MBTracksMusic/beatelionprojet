@@ -118,7 +118,19 @@ const invokeForumFunction = async <T,>(
   fallbackMessage: string,
   sessionExpiredMessage: string,
 ): Promise<T> => {
+  // Get session and Authorization header
+  const { data: { session } } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new Error('User is not authenticated.');
+  }
+
+  console.log(`🔍 ${functionName.toUpperCase()} TOKEN:`, `Bearer ${session.access_token.substring(0, 20)}...`);
+
   const { data, error } = await supabase.functions.invoke<T>(functionName, {
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
     body,
   });
 

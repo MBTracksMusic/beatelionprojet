@@ -363,9 +363,23 @@ export function ProducerBattlesPage() {
 
     setIsMatchmakingLoading(true);
 
+    // Get session for Authorization header
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      console.error('User is not authenticated for battle suggestions');
+      setIsMatchmakingLoading(false);
+      return;
+    }
+
+    console.log('🔍 GENERATE-BATTLE-SUGGESTIONS TOKEN:', `Bearer ${session.access_token.substring(0, 20)}...`);
+
     const { data: suggestionData, error: suggestionError } = await supabase.functions.invoke(
       'generate-battle-suggestions',
       {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: { limit: 5 },
       }
     );

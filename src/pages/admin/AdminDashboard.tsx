@@ -28,7 +28,6 @@ import {
 import { getFunnelData } from '../../lib/funnelService';
 import { useTranslation } from '../../lib/i18n';
 import { supabase } from '../../lib/supabase/client';
-import { invokeWithAuth } from '../../lib/supabase/invokeWithAuth';
 import { useMaintenanceModeContext } from '../../lib/supabase/MaintenanceModeContext';
 
 type AiBattleSuggestionMode = 'ai_only' | 'hybrid' | 'sql_only';
@@ -370,10 +369,30 @@ export function AdminDashboardPage() {
     try {
       const nextValue = !maintenance;
 
-      // Use invokeWithAuth helper which automatically includes Authorization header
-      const { data, error } = await invokeWithAuth('toggle-maintenance', {
-        maintenance_mode: nextValue,
+      // DEBUG: Verify token is being sent
+      const { data: { session } } = await supabase.auth.getSession();
+      console.log('🔍 TOKEN CHECK:', {
+        hasSession: !!session,
+        hasToken: !!session?.access_token,
+        tokenLength: session?.access_token?.length,
+        TOKEN_SENT: session?.access_token ? `Bearer ${session.access_token.substring(0, 20)}...` : 'NO TOKEN',
       });
+
+      if (!session?.access_token) {
+        throw new Error('User is not authenticated. Please sign in first.');
+      }
+
+      // Send explicit Authorization header
+      const { data, error } = await supabase.functions.invoke('toggle-maintenance', {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: {
+          maintenance_mode: nextValue,
+        },
+      });
+
+      console.log('📤 RESPONSE:', { data, error });
 
       if (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
@@ -443,12 +462,26 @@ export function AdminDashboardPage() {
     setIsSendingWaitlistCampaign(true);
 
     try {
+      // Get session for Authorization header
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        throw new Error('User is not authenticated.');
+      }
+
+      console.log('🔍 SEND-CAMPAIGN TOKEN:', `Bearer ${session.access_token.substring(0, 20)}...`);
+
       const { data, error } = await supabase.functions.invoke<{
         success?: boolean;
         error?: string;
         sent?: number;
       }>(
         'send-waitlist-campaign',
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }
       );
       console.log("DATA:", data);
       console.log("ERROR:", error);

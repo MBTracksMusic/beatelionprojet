@@ -57,7 +57,19 @@ export async function invokeProtectedEdgeFunction<TData>(
   functionName: string,
   options: InvokeProtectedEdgeFunctionOptions = {},
 ) {
+  // Get session and Authorization header
+  const { data: { session } } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new Error('User is not authenticated.');
+  }
+
+  console.log(`🔍 ${functionName.toUpperCase()} TOKEN:`, `Bearer ${session.access_token.substring(0, 20)}...`);
+
   const result = await supabase.functions.invoke<TData>(functionName, {
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
     body: options.body ?? {},
   });
 

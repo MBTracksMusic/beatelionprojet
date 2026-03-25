@@ -91,7 +91,13 @@ export function ContactPage() {
         form_started_at: formStartedAt,
       };
 
+      const { data: { session } } = await supabase.auth.getSession();
+      console.log('contact-submit token:', session?.access_token ? 'YES' : 'NO');
+
       const { data, error } = await supabase.functions.invoke<ContactSubmitResponse>('contact-submit', {
+        headers: session?.access_token ? {
+          Authorization: `Bearer ${session.access_token}`,
+        } : {},
         body: payload,
       });
 

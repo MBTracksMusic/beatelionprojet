@@ -301,7 +301,18 @@ async function invokeEdge(
   functionName: 'ai-evaluate-battle' | 'ai-moderate-comment',
   body: Record<string, unknown>
 ) {
+  const { data: { session } } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new Error('User is not authenticated.');
+  }
+
+  console.log(`🔍 ${functionName.toUpperCase()} TOKEN:`, `Bearer ${session.access_token.substring(0, 20)}...`);
+
   return await supabase.functions.invoke(functionName, {
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
     body,
   });
 }
