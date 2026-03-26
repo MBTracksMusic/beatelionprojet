@@ -9,6 +9,7 @@ import { PRODUCT_SAFE_COLUMNS } from '../lib/supabase/selects';
 import type { Database, Product, ProducerTier } from '../lib/supabase/types';
 import { formatDate, formatPrice } from '../lib/utils/format';
 import { extractStoragePathFromCandidate } from '../lib/utils/storage';
+import { isProducerSafe, isStripeReady } from '../lib/auth/producer';
 
 interface ProducerStatsRow {
   total_revenue: number | null;
@@ -155,6 +156,7 @@ export function ProducerDashboardPage() {
   const { t } = useTranslation();
   const { profile } = useAuth();
   const navigate = useNavigate();
+  const isProducerUser = isProducerSafe(profile);
   const currentTier = toProducerTier(profile?.producer_tier);
   const hasAdvancedAccess = currentTier === 'pro' || currentTier === 'elite';
   const [products, setProducts] = useState<ProducerProduct[]>([]);
@@ -711,10 +713,10 @@ export function ProducerDashboardPage() {
     if (!stripeConnectStatus?.stripe_account_id) {
       return 'not_configured';
     }
-    if (!stripeConnectStatus.stripe_account_charges_enabled) {
-      if (!stripeConnectStatus.stripe_account_details_submitted) {
-        return 'not_started';
-      }
+    if (!stripeConnectStatus.stripe_account_details_submitted) {
+      return 'not_started';
+    }
+    if (!isStripeReady(stripeConnectStatus)) {
       return 'in_progress';
     }
     return 'active';
@@ -796,7 +798,7 @@ export function ProducerDashboardPage() {
                 {t('stripeConnect.pendingVerification')}
               </span>
             )}
-            {stripeConnectState === 'not_configured' && (
+            {(stripeConnectState === 'not_configured' || stripeConnectState === 'not_started') && (
               <span className="text-xs text-red-400 uppercase tracking-wide font-semibold">
                 {t('stripeConnect.actionRequired')}
               </span>
@@ -819,6 +821,32 @@ export function ProducerDashboardPage() {
                     className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-rose-500 to-orange-500 shadow-lg shadow-rose-500/20 hover:shadow-rose-500/30 transition"
                   >
                     {t('stripeConnect.ctaSetup')}
+                  </Link>
+                </div>
+              )}
+
+              {stripeConnectState === 'not_started' && (
+                <div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                    <div className="rounded-lg bg-zinc-800 p-3">
+                      <p className="text-xs text-zinc-400 mb-1">{t('stripeConnect.accountCreated')}</p>
+                      <p className="text-sm text-zinc-200">
+                        {stripeConnectStatus?.stripe_account_id?.slice(0, 12)}...
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-zinc-800 p-3">
+                      <p className="text-xs text-zinc-400 mb-1">{t('stripeConnect.status')}</p>
+                      <p className="text-sm text-amber-300">{t('stripeConnect.actionRequired')}</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-zinc-400 mb-4">
+                    {t('stripeConnect.inProgressDescription')}
+                  </p>
+                  <Link
+                    to="/producer/stripe-connect"
+                    className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-zinc-200 border border-zinc-700 hover:border-zinc-500 hover:text-white transition"
+                  >
+                    {t('stripeConnect.ctaContinue')}
                   </Link>
                 </div>
               )}
@@ -916,7 +944,7 @@ export function ProducerDashboardPage() {
           )}
           {!isLoading && !error && products.length === 0 && (
             <p className="text-zinc-400 text-sm">
-              {profile?.is_producer_active ? t('producerDashboard.noProducts') : t('producer.subscriptionRequired')}
+              {isProducerUser ? t('producerDashboard.noProducts') : t('producer.subscriptionRequired')}
             </p>
           )}
           {!isLoading && !error && products.length > 0 && (

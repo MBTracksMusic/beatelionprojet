@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Menu,
@@ -28,6 +28,7 @@ import { useCartStore } from '../../lib/stores/cart';
 import { BRAND } from '../../config/branding';
 import beatelionIcon from '../../assets/beatelion-icon.svg';
 import { CreditBadge } from '../credits/CreditBadge';
+import { isProducerSafe } from '../../lib/auth/producer';
 
 export function Header() {
   const { t, language, updateLanguage, languages } = useTranslation();
@@ -40,15 +41,15 @@ export function Header() {
   const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
 
   const cartItemCount = items.length;
-  const canAccessProducer =
-    profile?.is_producer_active === true ||
-    profile?.role === 'producer' ||
-    profile?.role === 'admin';
+  const canAccessProducer = isProducerSafe(profile) || profile?.role === 'admin';
 
-  console.log('Header visibility:', {
-    role: profile?.role,
-    is_producer_active: profile?.is_producer_active,
-  });
+  useEffect(() => {
+    console.log('Header visibility:', {
+      role: profile?.role,
+      is_producer_active: profile?.is_producer_active,
+      can_access_producer: canAccessProducer,
+    });
+  }, [canAccessProducer, profile?.is_producer_active, profile?.role]);
 
   const handleSignOut = async () => {
     await signOut();

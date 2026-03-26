@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase/client';
 import { Button } from '../components/ui/Button';
 import { AlertCircle, CheckCircle, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { isProducerSafe, isStripeReady } from '../lib/auth/producer';
 
 interface StripeConnectStatus {
   stripe_account_id: string | null;
@@ -17,6 +18,11 @@ export function ProducerStripeConnectPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isFetching, setIsFetching] = useState(false);
   const isAdmin = profile?.role === 'admin';
+  const isProducerSafeUser = isProducerSafe(profile);
+  const canAccessStripeConnect = isProducerSafeUser || isAdmin;
+  const stripeReady = isStripeReady({
+    stripe_account_charges_enabled: status?.charges_enabled,
+  });
 
   useEffect(() => {
     loadStatus();
@@ -25,13 +31,19 @@ export function ProducerStripeConnectPage() {
   useEffect(() => {
     if (!user?.id) return;
 
+    console.log('Producer logic:', {
+      role: profile?.role ?? null,
+      is_producer_active: profile?.is_producer_active ?? false,
+      stripe_ready: stripeReady,
+    });
+
     console.log("Stripe state:", {
       account_id: status?.stripe_account_id ?? null,
       charges_enabled: status?.charges_enabled ?? false,
       details_submitted: status?.details_submitted ?? false,
       role: profile?.role ?? null,
     });
-  }, [user?.id, status, profile?.role]);
+  }, [user?.id, stripeReady, status, profile?.is_producer_active, profile?.role]);
 
   const loadStatus = async () => {
     if (!user?.id) return;
@@ -112,6 +124,21 @@ export function ProducerStripeConnectPage() {
           <div className="h-8 w-48 bg-zinc-800 rounded mb-6 animate-pulse" />
           <div className="space-y-4">
             <div className="h-32 w-full bg-zinc-800 rounded animate-pulse" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!canAccessStripeConnect) {
+    return (
+      <div className="min-h-screen bg-zinc-950 pt-8 pb-32">
+        <div className="max-w-2xl mx-auto px-4">
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-6">
+            <h1 className="text-2xl font-bold text-white mb-3">Stripe Connect</h1>
+            <p className="text-sm text-zinc-400">
+              Producer access is required to manage Stripe Connect.
+            </p>
           </div>
         </div>
       </div>
@@ -208,7 +235,7 @@ export function ProducerStripeConnectPage() {
                   </Button>
                 )}
               </div>
-            ) : !status?.details_submitted ? (
+            ) : !stripeReady && !status?.details_submitted ? (
               <div>
                 <p className="text-sm text-zinc-400 mb-4">
                   Click below to continue filling out your Stripe Connect details.
@@ -228,7 +255,7 @@ export function ProducerStripeConnectPage() {
                   </Button>
                 )}
               </div>
-            ) : !status?.charges_enabled ? (
+            ) : !stripeReady ? (
               <div>
                 <p className="text-sm text-zinc-400 mb-4">
                   Your details have been submitted. Stripe is reviewing your account.

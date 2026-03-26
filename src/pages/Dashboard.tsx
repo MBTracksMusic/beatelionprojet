@@ -20,6 +20,7 @@ import { ProductCard } from '../components/products/ProductCard';
 import { useWishlistStore } from '../lib/stores/wishlist';
 import { useCreditBalance } from '../lib/credits/useCreditBalance';
 import { useUserSubscriptionStatus } from '../lib/subscriptions/useUserSubscriptionStatus';
+import { isProducerSafe } from '../lib/auth/producer';
 
 interface DashboardPurchase extends Purchase {
   product: ProductWithRelations | null;
@@ -152,6 +153,7 @@ const roleColors: Record<string, string> = {
 
 export function DashboardPage() {
   const { user, profile } = useAuth();
+  const isProducerUser = isProducerSafe(profile);
   const { reputation } = useMyReputation();
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -491,7 +493,7 @@ export function DashboardPage() {
           onClick: () => navigate('/admin/battles'),
         }]
       : []),
-    ...((profile?.is_producer_active || profile?.role === 'producer' || producerSubscriptionStatus)
+    ...((isProducerUser || producerSubscriptionStatus)
       ? [{
           label: t('dashboard.statsProducerStatus'),
           value: producerSubscriptionStatusLabel,
@@ -814,11 +816,11 @@ export function DashboardPage() {
               </div>
               <div className="flex items-center justify-between py-2 border-b border-zinc-800">
                 <span className="text-zinc-400">{t('dashboard.activeProducer')}</span>
-                <Badge className={profile?.is_producer_active ? 'bg-green-600' : 'bg-zinc-700'}>
-                  {profile?.is_producer_active ? t('common.yes') : t('common.no')}
+                <Badge className={isProducerUser ? 'bg-green-600' : 'bg-zinc-700'}>
+                  {isProducerUser ? t('common.yes') : t('common.no')}
                 </Badge>
               </div>
-              {(profile?.role === 'producer' || producerSubscription || isProducerSubscriptionLoading) && (
+              {(isProducerUser || producerSubscription || isProducerSubscriptionLoading) && (
                 <>
                   <div className="flex items-center justify-between py-2 border-b border-zinc-800">
                     <span className="text-zinc-400">{t('dashboard.subscriptionStatus')}</span>

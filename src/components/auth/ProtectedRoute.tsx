@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../lib/auth/hooks';
+import { isProducerSafe } from '../../lib/auth/producer';
 import { LogoLoader } from '../ui/LogoLoader';
 
 interface ProtectedRouteProps {
@@ -16,7 +17,7 @@ export function ProtectedRoute({
   const { user, profile, isInitialized, isLoading } = useAuth();
   const location = useLocation();
   const isProducerAllowed =
-    profile?.is_producer_active === true ||
+    isProducerSafe(profile) ||
     (profile?.role === 'admin' && location.pathname.startsWith('/producer'));
 
   if (isLoading) {

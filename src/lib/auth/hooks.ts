@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from './store';
 import { supabase } from '@/lib/supabase/client';
 import type { UserProfile, UserRole } from '../supabase/types';
+import { isProducer, isProducerSafe } from './producer';
 
 const isConfirmedProfile = (profile: Pick<UserProfile, 'role' | 'is_confirmed'> | null | undefined) => {
   if (!profile) return false;
@@ -30,7 +31,7 @@ export function useUserRole(): UserRole | null {
 
 export function useIsProducer(): boolean {
   const { profile } = useAuthStore();
-  return profile?.is_producer_active ?? false;
+  return isProducer(profile);
 }
 
 export function useIsConfirmedUser(): boolean {
@@ -90,7 +91,7 @@ export function useIsEmailVerified(): boolean {
 
 export function useCanSell(): boolean {
   const { profile } = useAuthStore();
-  return profile?.is_producer_active ?? false;
+  return isProducerSafe(profile);
 }
 
 export function useCanAccessExclusivePreview(): boolean {
@@ -103,7 +104,7 @@ export function usePermissions() {
 
   return useMemo(() => {
     const role = profile?.role ?? 'visitor';
-    const isProducerActive = profile?.is_producer_active ?? false;
+    const isProducerActive = isProducerSafe(profile);
     const isConfirmed = isConfirmedProfile(profile);
 
     return {
