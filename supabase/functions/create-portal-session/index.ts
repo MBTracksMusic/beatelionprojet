@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { requireAuthUser } from "../_shared/auth.ts";
+import { requireAuthUser, type AuthSuccess } from "../_shared/auth.ts";
 import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 interface PortalRequestBody {
@@ -132,6 +132,77 @@ const truncateUserId = (userId: string) => {
   return `${userId.slice(0, 8)}...`;
 };
 
+const resolveStripeCustomerId = async (
+  supabaseAdmin: AuthSuccess["supabaseAdmin"],
+  userId: string,
+) => {
+  const logContext = {
+    function: "create-portal-session",
+    userId: truncateUserId(userId),
+  };
+
+  const { data: producerSubscription, error: producerSubscriptionError } = await supabaseAdmin
+    .from("producer_subscriptions")
+    .select("stripe_customer_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (producerSubscriptionError) {
+    console.error("DB_ERROR", {
+      ...logContext,
+      stage: "load_producer_subscription",
+      message: producerSubscriptionError.message,
+    });
+    throw new Error("Unable to resolve subscription");
+  }
+
+  const producerStripeCustomerId = asNonEmptyString(
+    (producerSubscription as { stripe_customer_id?: unknown } | null)?.stripe_customer_id,
+  );
+  if (producerStripeCustomerId) {
+    return producerStripeCustomerId;
+  }
+
+  const { data: userSubscription, error: userSubscriptionError } = await supabaseAdmin
+    .from("user_subscriptions")
+    .select("stripe_customer_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (userSubscriptionError) {
+    console.error("DB_ERROR", {
+      ...logContext,
+      stage: "load_user_subscription",
+      message: userSubscriptionError.message,
+    });
+    throw new Error("Unable to resolve subscription");
+  }
+
+  const userStripeCustomerId = asNonEmptyString(
+    (userSubscription as { stripe_customer_id?: unknown } | null)?.stripe_customer_id,
+  );
+  if (userStripeCustomerId) {
+    return userStripeCustomerId;
+  }
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from("user_profiles")
+    .select("stripe_customer_id")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (profileError) {
+    console.error("DB_ERROR", {
+      ...logContext,
+      stage: "load_user_profile",
+      message: profileError.message,
+    });
+    throw new Error("Unable to resolve subscription");
+  }
+
+  return asNonEmptyString((profile as { stripe_customer_id?: unknown } | null)?.stripe_customer_id);
+};
+
 serveWithErrorHandling("create-portal-session", async (req: Request) => {
   const corsHeaders = buildCorsHeaders(resolveRequestCorsOrigin(req));
   const jsonResponse = (payload: unknown, status = 200) =>
@@ -189,23 +260,16 @@ serveWithErrorHandling("create-portal-session", async (req: Request) => {
       return jsonResponse({ error: "invalid_return_url" }, 400);
     }
 
-    const { data: subscription, error: subscriptionError } = await supabaseAdmin
-      .from("producer_subscriptions")
-      .select("stripe_customer_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (subscriptionError) {
-      console.error("DB_ERROR", {
-        function: "create-portal-session",
-        stage: "load_subscription",
-        userId: truncateUserId(user.id),
-        message: subscriptionError.message,
-      });
-      return jsonResponse({ error: "Unable to resolve subscription" }, 500);
+    let stripeCustomerId: string | null = null;
+    try {
+      stripeCustomerId = await resolveStripeCustomerId(supabaseAdmin, user.id);
+    } catch (error) {
+      return jsonResponse(
+        { error: error instanceof Error ? error.message : "Unable to resolve subscription" },
+        500,
+      );
     }
 
-    const stripeCustomerId = asNonEmptyString(subscription?.stripe_customer_id);
     if (!stripeCustomerId) {
       return jsonResponse({ error: "no_stripe_customer" }, 400);
     }

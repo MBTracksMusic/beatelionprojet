@@ -5,8 +5,10 @@ import { useCreditBalance } from '../lib/credits/useCreditBalance';
 import { useTranslation } from '../lib/i18n';
 import { updateProfile, updatePassword } from '../lib/auth/service';
 import { supabase } from '@/lib/supabase/client';
+import { invokeProtectedEdgeFunction } from '../lib/supabase/edgeAuth';
+import { useUserSubscriptionStatus } from '../lib/subscriptions/useUserSubscriptionStatus';
 import { extractStoragePathFromCandidate } from '../lib/utils/storage';
-import { formatPrice } from '../lib/utils/format';
+import { formatDate, formatPrice } from '../lib/utils/format';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
@@ -72,6 +74,7 @@ export function SettingsPage() {
   const { profile, user, refreshProfile, signOut } = useAuth();
   const { t, language, updateLanguage } = useTranslation();
   const { balance: creditBalance, isLoading: isCreditBalanceLoading } = useCreditBalance(user?.id);
+  const { subscription: userSubscription } = useUserSubscriptionStatus(user?.id);
   const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'preferences'>('profile');
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
@@ -97,6 +100,8 @@ export function SettingsPage() {
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(null);
   const [localAvatarObjectUrl, setLocalAvatarObjectUrl] = useState<string | null>(null);
+  const [portalError, setPortalError] = useState<string | null>(null);
+  const [isPortalLoading, setIsPortalLoading] = useState(false);
   const [socialLinksData, setSocialLinksData] = useState<Record<SocialLinkKey, string>>(() => {
     const links = profile?.social_links || {};
     return {
@@ -410,6 +415,56 @@ export function SettingsPage() {
   const creditValueCents = typeof creditBalance === 'number'
     ? Math.max(creditBalance, 0) * CREDIT_VALUE_CENTS
     : null;
+  const hasActiveUserSubscription = userSubscription?.subscription_status === 'active';
+  const subscriptionPlanLabel = userSubscription?.plan_code === 'user_monthly'
+    ? t('pricing.userPremiumTitle')
+    : userSubscription?.plan_code ?? t('dashboard.userSubscriptionStatus');
+  const nextRenewalLabel = userSubscription?.current_period_end
+    ? formatDate(userSubscription.current_period_end, language)
+    : null;
+
+  const openPortal = async () => {
+    setPortalError(null);
+    setIsPortalLoading(true);
+
+    try {
+      const returnUrl = `${window.location.origin}/settings`;
+      const data = await invokeProtectedEdgeFunction<{ url?: string; error?: string }>(
+        'create-portal-session',
+        {
+          body: { returnUrl },
+        }
+      );
+
+      if (data?.error?.includes('no_stripe_customer')) {
+        setPortalError(t('producerDashboard.noLinkedSubscription'));
+        return;
+      }
+
+      if (!data?.url) {
+        throw new Error(t('producerDashboard.portalUrlMissing'));
+      }
+
+      window.location.assign(data.url);
+    } catch (error) {
+      console.error('Error opening Stripe billing portal', error);
+      const rawMessage = error instanceof Error ? error.message : '';
+      if (rawMessage.includes('no_stripe_customer')) {
+        setPortalError(t('producerDashboard.noLinkedSubscription'));
+        return;
+      }
+      const isFunctionNetworkError = rawMessage.includes('Failed to send a request to the Edge Function');
+      setPortalError(
+        isFunctionNetworkError
+          ? t('producerDashboard.portalFunctionUnavailable')
+          : error instanceof Error
+            ? error.message
+            : t('producerDashboard.portalSubscriptionError')
+      );
+    } finally {
+      setIsPortalLoading(false);
+    }
+  };
 
   return (
     <div className="pt-20 pb-12 px-4">
@@ -437,13 +492,56 @@ export function SettingsPage() {
         </div>
 
         {activeTab === 'profile' && (
-          <Card className="p-6">
-            <form onSubmit={handleProfileUpdate} className="space-y-6">
-              <div>
-                <h2 className="text-xl font-semibold text-white mb-4">
-                  {t('settings.profileSectionTitle')}
-                </h2>
+          <div className="space-y-6">
+            {hasActiveUserSubscription && (
+              <Card className="p-6">
                 <div className="space-y-4">
+                  <div>
+                    <h2 className="text-xl font-semibold text-white">{t('dashboard.userSubscriptionStatus')}</h2>
+                    <p className="mt-1 text-sm text-zinc-400">{subscriptionPlanLabel}</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+                      <p className="text-sm font-medium text-zinc-300">{t('dashboard.subscriptionStatus')}</p>
+                      <p className="mt-1 text-sm text-emerald-300">{t('dashboard.userSubscriptionActive')}</p>
+                    </div>
+                    {nextRenewalLabel && (
+                      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+                        <p className="text-sm font-medium text-zinc-300">{t('dashboard.userSubscriptionRenewalLabel')}</p>
+                        <p className="mt-1 text-sm text-zinc-200">{nextRenewalLabel}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <p className="text-sm text-zinc-400">
+                      {t('producerDashboard.cancellationAnytime', { date: nextRenewalLabel ?? '-' })}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      isLoading={isPortalLoading}
+                      onClick={() => void openPortal()}
+                    >
+                      {t('producerDashboard.manageSubscription')}
+                    </Button>
+                  </div>
+
+                  {portalError && (
+                    <p className="text-sm text-red-400">{portalError}</p>
+                  )}
+                </div>
+              </Card>
+            )}
+
+            <Card className="p-6">
+              <form onSubmit={handleProfileUpdate} className="space-y-6">
+                <div>
+                  <h2 className="text-xl font-semibold text-white mb-4">
+                    {t('settings.profileSectionTitle')}
+                  </h2>
+                  <div className="space-y-4">
                   <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
                     <p className="text-sm font-medium text-zinc-300 mb-3">{t('settings.avatarTitle')}</p>
                     <div className="flex items-center gap-4">
@@ -585,15 +683,16 @@ export function SettingsPage() {
                     }
                     placeholder={t('settings.websitePlaceholder')}
                   />
+                  </div>
                 </div>
-              </div>
 
-              <Button type="submit" isLoading={isLoading || isAvatarUploading} className="flex items-center gap-2">
-                <Save className="w-4 h-4" />
-                {t('settings.saveChanges')}
-              </Button>
-            </form>
-          </Card>
+                <Button type="submit" isLoading={isLoading || isAvatarUploading} className="flex items-center gap-2">
+                  <Save className="w-4 h-4" />
+                  {t('settings.saveChanges')}
+                </Button>
+              </form>
+            </Card>
+          </div>
         )}
 
         {activeTab === 'security' && (
