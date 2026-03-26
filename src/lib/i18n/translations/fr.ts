@@ -1665,6 +1665,23 @@ export const fr = {
       producerStats: 'Refus: {refusals} | Participations: {participated} | Completees: {completed}',
     },
   },
+  stripeConnect: {
+    paymentAccount: 'Compte de Paiement',
+    actionRequired: 'Action Requise',
+    pendingVerification: 'En Attente de Vérification',
+    notConfiguredDescription: 'Connectez votre compte Stripe pour recevoir les paiements automatiques de vos ventes. Sans cela, vous ne recevrez pas les transferts automatiques.',
+    ctaSetup: 'Connecter Stripe',
+    accountCreated: 'Compte Créé',
+    status: 'Statut',
+    awaitingVerification: 'En Attente de Vérification',
+    inProgressDescription: 'Votre compte Stripe est en cours de vérification. Cela prend généralement 1-3 jours.',
+    ctaContinue: 'Continuer',
+    activeDescription: 'Votre compte Stripe est actif. Les revenus sont transférés automatiquement.',
+    accountId: 'ID du Compte',
+    statusLabel: 'Statut',
+    ready: 'Prêt à Recevoir',
+    ctaManage: 'Gérer le Compte',
+  },
 } as const;
 
 type DeepStringify<T> = {

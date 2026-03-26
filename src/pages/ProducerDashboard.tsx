@@ -30,6 +30,12 @@ interface ProducerSubscriptionSummary {
   stripe_subscription_id: string | null;
 }
 
+interface StripeConnectStatus {
+  stripe_account_id: string | null;
+  stripe_account_charges_enabled: boolean;
+  stripe_account_details_submitted: boolean;
+}
+
 type ProductSalesCountMap = Record<string, number>;
 
 interface ProducerProduct extends Product {
@@ -168,6 +174,9 @@ export function ProducerDashboardPage() {
   const [isSubscriptionLoading, setIsSubscriptionLoading] = useState(false);
   const [isPortalLoading, setIsPortalLoading] = useState(false);
   const [portalError, setPortalError] = useState<string | null>(null);
+  const [stripeConnectStatus, setStripeConnectStatus] = useState<StripeConnectStatus | null>(null);
+  const [isStripeConnectLoading, setIsStripeConnectLoading] = useState(false);
+  const [stripeConnectError, setStripeConnectError] = useState<string | null>(null);
 
   useEffect(() => {
     // Scroll to top when arriving on dashboard
@@ -429,6 +438,61 @@ export function ProducerDashboardPage() {
       isCancelled = true;
     };
   }, [profile?.id]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadStripeConnectStatus() {
+      if (!profile?.id) {
+        if (!isCancelled) {
+          setStripeConnectStatus(null);
+          setIsStripeConnectLoading(false);
+        }
+        return;
+      }
+
+      setIsStripeConnectLoading(true);
+      setStripeConnectError(null);
+
+      try {
+        const { data, error: stripeError } = await supabase
+          .from('user_profiles')
+          .select('stripe_account_id, stripe_account_charges_enabled, stripe_account_details_submitted')
+          .eq('id', profile.id)
+          .single();
+
+        if (stripeError) throw stripeError;
+
+        if (!isCancelled) {
+          setStripeConnectStatus(
+            data
+              ? {
+                  stripe_account_id: data.stripe_account_id as string | null,
+                  stripe_account_charges_enabled: (data.stripe_account_charges_enabled as boolean) || false,
+                  stripe_account_details_submitted: (data.stripe_account_details_submitted as boolean) || false,
+                }
+              : null
+          );
+        }
+      } catch (err) {
+        console.error('Failed to load Stripe Connect status:', err);
+        if (!isCancelled) {
+          setStripeConnectError('Failed to load payment account status');
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsStripeConnectLoading(false);
+        }
+      }
+    }
+
+    void loadStripeConnectStatus();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [profile?.id]);
+
   const WATERMARKED_BUCKET = import.meta.env.VITE_SUPABASE_WATERMARKED_BUCKET || 'beats-watermarked';
   const COVER_BUCKET = import.meta.env.VITE_SUPABASE_COVER_BUCKET || 'beats-covers';
   const producerSubscriptionStatus = producerSubscription?.subscription_status ?? null;
@@ -643,6 +707,21 @@ export function ProducerDashboardPage() {
     navigate(`/producer/upload?editProductId=${encodeURIComponent(product.id)}`);
   };
 
+  const getStripeConnectState = () => {
+    if (!stripeConnectStatus?.stripe_account_id) {
+      return 'not_configured';
+    }
+    if (!stripeConnectStatus.stripe_account_charges_enabled) {
+      if (!stripeConnectStatus.stripe_account_details_submitted) {
+        return 'not_started';
+      }
+      return 'in_progress';
+    }
+    return 'active';
+  };
+
+  const stripeConnectState = getStripeConnectState();
+
   return (
     <div className="min-h-screen bg-zinc-950 text-white pt-24 pb-16 px-4">
       <div className="max-w-6xl mx-auto space-y-10">
@@ -658,12 +737,6 @@ export function ProducerDashboardPage() {
               className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-zinc-200 border border-zinc-700 hover:border-zinc-500 hover:text-white transition"
             >
               {t('producerDashboard.myBattles')}
-            </Link>
-            <Link
-              to="/producer/stripe-connect"
-              className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-zinc-200 border border-zinc-700 hover:border-zinc-500 hover:text-white transition"
-            >
-              Connecter Stripe
             </Link>
             <UploadBeatButton label={t('producer.uploadBeat')} />
           </div>
@@ -705,6 +778,103 @@ export function ProducerDashboardPage() {
 
               {portalError && (
                 <p className="text-sm text-red-400">{portalError}</p>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-6 shadow-xl">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">{t('stripeConnect.paymentAccount')}</h2>
+            {stripeConnectState === 'active' && (
+              <span className="text-xs text-emerald-400 uppercase tracking-wide font-semibold">
+                {t('common.active')}
+              </span>
+            )}
+            {stripeConnectState === 'in_progress' && (
+              <span className="text-xs text-amber-400 uppercase tracking-wide font-semibold">
+                {t('stripeConnect.pendingVerification')}
+              </span>
+            )}
+            {stripeConnectState === 'not_configured' && (
+              <span className="text-xs text-red-400 uppercase tracking-wide font-semibold">
+                {t('stripeConnect.actionRequired')}
+              </span>
+            )}
+          </div>
+
+          {isStripeConnectLoading ? (
+            <p className="text-zinc-400 text-sm">{t('common.loading')}</p>
+          ) : stripeConnectError ? (
+            <p className="text-red-400 text-sm">{stripeConnectError}</p>
+          ) : (
+            <div className="space-y-4">
+              {stripeConnectState === 'not_configured' && (
+                <div>
+                  <p className="text-sm text-zinc-300 mb-4">
+                    {t('stripeConnect.notConfiguredDescription')}
+                  </p>
+                  <Link
+                    to="/producer/stripe-connect"
+                    className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-rose-500 to-orange-500 shadow-lg shadow-rose-500/20 hover:shadow-rose-500/30 transition"
+                  >
+                    {t('stripeConnect.ctaSetup')}
+                  </Link>
+                </div>
+              )}
+
+              {stripeConnectState === 'in_progress' && (
+                <div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                    <div className="rounded-lg bg-zinc-800 p-3">
+                      <p className="text-xs text-zinc-400 mb-1">{t('stripeConnect.accountCreated')}</p>
+                      <p className="text-sm text-zinc-200">
+                        {stripeConnectStatus?.stripe_account_id?.slice(0, 12)}...
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-zinc-800 p-3">
+                      <p className="text-xs text-zinc-400 mb-1">{t('stripeConnect.status')}</p>
+                      <p className="text-sm text-amber-300">{t('stripeConnect.awaitingVerification')}</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-zinc-400 mb-4">
+                    {t('stripeConnect.inProgressDescription')}
+                  </p>
+                  <Link
+                    to="/producer/stripe-connect"
+                    className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-zinc-200 border border-zinc-700 hover:border-zinc-500 hover:text-white transition"
+                  >
+                    {t('stripeConnect.ctaContinue')}
+                  </Link>
+                </div>
+              )}
+
+              {stripeConnectState === 'active' && (
+                <div>
+                  <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-4 mb-4">
+                    <p className="text-sm text-emerald-300 font-medium">
+                      ✅ {t('stripeConnect.activeDescription')}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                    <div className="rounded-lg bg-zinc-800 p-3">
+                      <p className="text-xs text-zinc-400 mb-1">{t('stripeConnect.accountId')}</p>
+                      <p className="text-sm text-zinc-200 font-mono">
+                        {stripeConnectStatus?.stripe_account_id?.slice(0, 12)}...
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-zinc-800 p-3">
+                      <p className="text-xs text-zinc-400 mb-1">{t('stripeConnect.statusLabel')}</p>
+                      <p className="text-sm text-emerald-300">{t('stripeConnect.ready')}</p>
+                    </div>
+                  </div>
+                  <Link
+                    to="/producer/stripe-connect"
+                    className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-zinc-200 border border-zinc-700 hover:border-zinc-500 hover:text-white transition"
+                  >
+                    {t('stripeConnect.ctaManage')}
+                  </Link>
+                </div>
               )}
             </div>
           )}
