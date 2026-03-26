@@ -139,9 +139,19 @@ serveWithErrorHandling("enqueue-preview-reprocess", async (req: Request): Promis
       });
     }
 
-    const { error: workerError } = await supabaseAdmin.functions.invoke("process-audio-jobs");
-    if (workerError) {
-      console.error("[enqueue-preview-reprocess] worker invoke failed", workerError);
+    const audioWorkerSecret = Deno.env.get("AUDIO_WORKER_SECRET")?.trim();
+    if (audioWorkerSecret) {
+      const { error: workerError } = await supabaseAdmin.functions.invoke("process-audio-jobs", {
+        headers: {
+          "x-audio-worker-secret": audioWorkerSecret,
+        },
+        body: {},
+      });
+      if (workerError) {
+        console.error("[enqueue-preview-reprocess] worker invoke failed", workerError);
+      }
+    } else {
+      console.warn("[enqueue-preview-reprocess] AUDIO_WORKER_SECRET not configured, jobs will not be processed immediately");
     }
 
     const payload = (data ?? {}) as { enqueued_count?: number; skipped_count?: number };
