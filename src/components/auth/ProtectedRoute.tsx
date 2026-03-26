@@ -15,7 +15,9 @@ export function ProtectedRoute({
 }: ProtectedRouteProps) {
   const { user, profile, isInitialized, isLoading } = useAuth();
   const location = useLocation();
-  const isProducerAllowed = profile?.is_producer_active === true && profile?.role === 'producer';
+  const isProducerAllowed =
+    profile?.is_producer_active === true ||
+    (profile?.role === 'admin' && location.pathname.startsWith('/producer'));
 
   if (isLoading) {
     return null;

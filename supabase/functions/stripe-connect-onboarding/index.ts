@@ -116,6 +116,10 @@ async function handleCreateAccountLink(
   corsHeaders: any
 ): Promise<Response> {
   let stripeAccountId = profile.stripe_account_id;
+  const APP_URL =
+    Deno.env.get("APP_URL") ||
+    Deno.env.get("SITE_URL") ||
+    "http://localhost:5173";
 
   // If no account exists, create one
   if (!stripeAccountId) {
@@ -167,6 +171,8 @@ async function handleCreateAccountLink(
   }
 
   // Create account link
+  console.log("[stripe-connect-onboarding] Using APP_URL", { appUrl: APP_URL });
+
   const linkResponse = await fetch(
     `https://api.stripe.com/v1/account_links`,
     {
@@ -178,8 +184,8 @@ async function handleCreateAccountLink(
       body: new URLSearchParams({
         account: stripeAccountId,
         type: "account_onboarding",
-        refresh_url: `${getBaseUrl()}/producer/stripe-connect?status=refresh`,
-        return_url: `${getBaseUrl()}/producer/stripe-connect?status=success`,
+        refresh_url: `${APP_URL}/producer`,
+        return_url: `${APP_URL}/producer`,
       }).toString(),
     }
   );
@@ -218,15 +224,4 @@ async function handleGetStatus(
     JSON.stringify(response),
     { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
   );
-}
-
-function getBaseUrl(): string {
-  const env = Deno.env.get("ENVIRONMENT") || "development";
-  if (env === "production") {
-    return "https://beatelion.com";
-  } else if (env === "staging") {
-    return "https://staging.beatelion.com";
-  } else {
-    return "http://localhost:3000";
-  }
 }

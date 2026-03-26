@@ -12,14 +12,26 @@ interface StripeConnectStatus {
 }
 
 export function ProducerStripeConnectPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [status, setStatus] = useState<StripeConnectStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isFetching, setIsFetching] = useState(false);
+  const isAdmin = profile?.role === 'admin';
 
   useEffect(() => {
     loadStatus();
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    console.log("Stripe state:", {
+      account_id: status?.stripe_account_id ?? null,
+      charges_enabled: status?.charges_enabled ?? false,
+      details_submitted: status?.details_submitted ?? false,
+      role: profile?.role ?? null,
+    });
+  }, [user?.id, status, profile?.role]);
 
   const loadStatus = async () => {
     if (!user?.id) return;
@@ -181,28 +193,40 @@ export function ProducerStripeConnectPage() {
                 <p className="text-sm text-zinc-400 mb-4">
                   Click below to create your Stripe Connect account and start receiving payments.
                 </p>
-                <Button
-                  onClick={handleStartOnboarding}
-                  isLoading={isFetching}
-                  variant="primary"
-                  className="w-full md:w-auto"
-                >
-                  Create Stripe Connect Account
-                </Button>
+                {isAdmin ? (
+                  <div className="text-sm text-gray-400">
+                    Admin view: onboarding disabled
+                  </div>
+                ) : (
+                  <Button
+                    onClick={handleStartOnboarding}
+                    isLoading={isFetching}
+                    variant="primary"
+                    className="w-full md:w-auto"
+                  >
+                    Create Stripe Connect Account
+                  </Button>
+                )}
               </div>
             ) : !status?.details_submitted ? (
               <div>
                 <p className="text-sm text-zinc-400 mb-4">
                   Click below to continue filling out your Stripe Connect details.
                 </p>
-                <Button
-                  onClick={handleStartOnboarding}
-                  isLoading={isFetching}
-                  variant="primary"
-                  className="w-full md:w-auto"
-                >
-                  Complete Onboarding
-                </Button>
+                {isAdmin ? (
+                  <div className="text-sm text-gray-400">
+                    Admin view: onboarding disabled
+                  </div>
+                ) : (
+                  <Button
+                    onClick={handleStartOnboarding}
+                    isLoading={isFetching}
+                    variant="primary"
+                    className="w-full md:w-auto"
+                  >
+                    Complete Onboarding
+                  </Button>
+                )}
               </div>
             ) : !status?.charges_enabled ? (
               <div>
