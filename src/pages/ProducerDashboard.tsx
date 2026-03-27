@@ -735,6 +735,12 @@ export function ProducerDashboardPage() {
           </div>
           <div className="flex items-center gap-2">
             <Link
+              to="/producer/earnings"
+              className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-zinc-200 border border-zinc-700 hover:border-zinc-500 hover:text-white transition"
+            >
+              {t('producer.earnings')}
+            </Link>
+            <Link
               to="/producer/battles"
               className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-zinc-200 border border-zinc-700 hover:border-zinc-500 hover:text-white transition"
             >

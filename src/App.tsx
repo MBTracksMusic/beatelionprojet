@@ -53,6 +53,7 @@ const ProducerDashboardPage = lazyNamed(() => import('./pages/ProducerDashboard'
 const ProducerBattlesPage = lazyNamed(() => import('./pages/ProducerBattles'), 'ProducerBattlesPage');
 const UploadBeatPage = lazyNamed(() => import('./pages/UploadBeat'), 'UploadBeatPage');
 const ProducerStripeConnect = lazyNamed(() => import('./pages/ProducerStripeConnect'), 'ProducerStripeConnectPage');
+const ProducerEarnings = lazyNamed(() => import('./pages/ProducerEarnings'), 'ProducerEarnings');
 const CartPage = lazyNamed(() => import('./pages/Cart'), 'CartPage');
 const WishlistPage = lazyNamed(() => import('./pages/Wishlist'), 'WishlistPage');
 const ProductDetailsPage = lazyNamed(() => import('./pages/ProductDetails'), 'ProductDetailsPage');
@@ -255,6 +256,14 @@ function AppContent() {
             element={
               <ProtectedRoute requireProducer>
                 <ProducerStripeConnect />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="producer/earnings"
+            element={
+              <ProtectedRoute requireProducer>
+                <ProducerEarnings />
               </ProtectedRoute>
             }
           />
