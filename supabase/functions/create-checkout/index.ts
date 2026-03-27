@@ -696,6 +696,11 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
     const productRow = product as ProductRow;
 
     if (productRow.producer_id === user.id) {
+      console.warn("SECURITY: self_purchase_attempt", {
+        user_id: user.id,
+        product_id: productRow.id,
+      });
+
       return new Response(JSON.stringify({
         error: "Forbidden: self purchase",
         code: "self_purchase_forbidden",
