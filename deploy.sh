@@ -46,7 +46,13 @@ else
 fi
 
 # =========================
-# 4. BUILD CHECK
+# 4. PRODUCER EARNINGS VIEW CHECK
+# =========================
+echo "🔍 Checking producer_revenue_view..."
+node scripts/checkProducerRevenueViewExists.mjs || echo "⚠️ View missing (fallback will be used)"
+
+# =========================
+# 5. BUILD CHECK
 # =========================
 echo "🧪 Vérification build..."
 
@@ -55,7 +61,7 @@ npm run build
 echo "✅ Build OK"
 
 # =========================
-# 5. COMMIT PROPRE
+# 6. COMMIT PROPRE
 # =========================
 echo "📦 Commit & Push Git..."
 
@@ -70,7 +76,7 @@ git commit -m "$commit_message" || echo "⚠️ Rien à commit"
 git push origin main
 
 # =========================
-# 6. SUPABASE DB
+# 7. SUPABASE DB
 # =========================
 echo "🧠 Vérification migrations..."
 
@@ -82,7 +88,7 @@ else
 fi
 
 # =========================
-# 7. EDGE FUNCTIONS
+# 8. EDGE FUNCTIONS
 # =========================
 echo "⚡ Vérification functions..."
 
@@ -94,7 +100,7 @@ else
 fi
 
 # =========================
-# 8. VERCEL
+# 9. VERCEL
 # =========================
 echo "🌐 Déploiement frontend..."
 vercel --prod
