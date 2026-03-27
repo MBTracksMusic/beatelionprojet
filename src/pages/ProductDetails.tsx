@@ -301,6 +301,7 @@ export function ProductDetailsPage() {
   const isPlayingCurrent = hasPreview && isCurrentTrack && isPlaying;
   const isEarlyAccess = isEarlyAccessActive(product?.early_access_until);
   const isEarlyAccessPurchaseLocked = isEarlyAccessLocked(product?.early_access_until, hasPremiumAccess);
+  const isProductAvailable = !product?.is_sold;
   const isCreditEligible = product?.product_type === 'beat' && !product?.is_exclusive && !product?.is_sold;
   const hasEnoughCredits = typeof creditBalance === 'number' && creditBalance >= requiredCredits;
   const isCreditPurchaseDisabled =
@@ -612,7 +613,7 @@ export function ProductDetailsPage() {
               {!product.is_sold && (
                 <Button
                   onClick={handleAddToCart}
-                  disabled={false}
+                  disabled={!isProductAvailable}
                   isLoading={isAddingToCart}
                   leftIcon={<ShoppingCart className="w-4 h-4" />}
                   variant={isAuthenticated ? (ctaVariant === 'A' ? 'primary' : 'secondary') : 'outline'}
