@@ -24,6 +24,7 @@ import { formatRankTier } from '../reputation/ReputationBadge';
 import { useAuth } from '../../lib/auth/hooks';
 import { useMyReputation } from '../../lib/reputation/hooks';
 import { useTranslation, languageNames } from '../../lib/i18n';
+import { useUserSubscriptionStatus } from '../../lib/subscriptions/useUserSubscriptionStatus';
 import { useCartStore } from '../../lib/stores/cart';
 import { BRAND } from '../../config/branding';
 import beatelionIcon from '../../assets/beatelion-icon.svg';
@@ -34,6 +35,7 @@ export function Header() {
   const { t, language, updateLanguage, languages } = useTranslation();
   const { user, profile, signOut } = useAuth();
   const { reputation } = useMyReputation();
+  const { isActive: hasActiveUserSubscription } = useUserSubscriptionStatus(user?.id);
   const { items } = useCartStore();
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -212,6 +214,19 @@ export function Header() {
                       <User className="w-4 h-4 text-zinc-400" />
                     </div>
                   )}
+                  <div className="hidden lg:flex max-w-[170px] flex-col items-start leading-tight">
+                    <span className="max-w-full truncate text-sm font-medium text-white">
+                      {profile?.username || profile?.email || t('nav.profile')}
+                    </span>
+                    {hasActiveUserSubscription && (
+                      <span
+                        title={t('dashboard.premiumBadgeHint')}
+                        className="mt-1 inline-flex items-center rounded-full bg-gradient-to-r from-fuchsia-500 via-rose-500 to-amber-400 px-2.5 py-0.5 text-[10px] font-semibold text-white shadow-lg shadow-rose-500/20"
+                      >
+                        {t('dashboard.premiumBadgeLabel')}
+                      </span>
+                    )}
+                  </div>
                 </button>
                 {isUserMenuOpen && (
                   <>

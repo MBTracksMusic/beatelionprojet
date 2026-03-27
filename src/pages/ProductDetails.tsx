@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Coins, Pause, Play, ShoppingCart } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Button } from '../components/ui/Button';
+import { Modal } from '../components/ui/Modal';
 import { useAudioPlayer } from '../context/AudioPlayerContext';
 import { hasPlayableTrackSource, toTrack } from '../lib/audio/track';
 import { useTranslation, type TranslateFn } from '../lib/i18n';
@@ -74,6 +75,7 @@ export function ProductDetailsPage() {
   const [creditPurchaseError, setCreditPurchaseError] = useState<string | null>(null);
   const [hasPurchasedProduct, setHasPurchasedProduct] = useState(false);
   const [isOwnershipLoading, setIsOwnershipLoading] = useState(false);
+  const [isCreditConfirmOpen, setIsCreditConfirmOpen] = useState(false);
   const { balance: creditBalance, isLoading: isCreditBalanceLoading, error: creditBalanceError, refetch: refetchCreditBalance } =
     useCreditBalance(user?.id);
 
@@ -195,6 +197,10 @@ export function ProductDetailsPage() {
     typeof creditBalance === 'number'
       ? Math.max(requiredCredits - creditBalance, 0)
       : requiredCredits;
+  const creditConfirmSpendText =
+    language === 'fr' && requiredCredits === 1
+      ? t('productDetails.creditConfirmSpendSingular')
+      : t('productDetails.creditConfirmSpend', { count: requiredCredits });
 
   useEffect(() => {
     if (!product) {
@@ -371,7 +377,15 @@ export function ProductDetailsPage() {
     }
   };
 
-  const handleCreditPurchase = async () => {
+  const closeCreditConfirm = () => {
+    if (isPurchasingWithCredits) {
+      return;
+    }
+
+    setIsCreditConfirmOpen(false);
+  };
+
+  const handleCreditPurchase = () => {
     if (!product || isEarlyAccessPurchaseLocked) return;
 
     if (!isAuthenticated) {
@@ -379,7 +393,15 @@ export function ProductDetailsPage() {
       return;
     }
 
+    if (isCreditPurchaseDisabled) return;
+
     setCreditPurchaseError(null);
+    setIsCreditConfirmOpen(true);
+  };
+
+  const confirmCreditPurchase = async () => {
+    if (!product || isEarlyAccessPurchaseLocked || isCreditPurchaseDisabled) return;
+
     setIsPurchasingWithCredits(true);
 
     try {
@@ -399,6 +421,7 @@ export function ProductDetailsPage() {
         throw new Error('credit_purchase_failed');
       }
       setHasPurchasedProduct(true);
+      setIsCreditConfirmOpen(false);
       trackPurchase({
         transactionId: purchaseResult.purchase_id,
         value: product.price / 100,
@@ -414,6 +437,7 @@ export function ProductDetailsPage() {
       const friendlyMessage = mapCreditPurchaseError(message, t);
       setCreditPurchaseError(friendlyMessage);
       toast.error(friendlyMessage);
+      setIsCreditConfirmOpen(false);
     } finally {
       setIsPurchasingWithCredits(false);
     }
@@ -517,6 +541,15 @@ export function ProductDetailsPage() {
               </div>
             </div>
 
+            <div className="mb-6 rounded-xl border border-zinc-800 bg-zinc-900/70 p-4">
+              <p className={`text-sm font-medium ${isCreditEligible ? 'text-emerald-300' : 'text-zinc-200'}`}>
+                {isCreditEligible
+                  ? t('productDetails.creditEligibleStatus')
+                  : t('productDetails.creditUnavailableStatus')}
+              </p>
+              <p className="mt-2 text-xs text-zinc-500">{t('productDetails.creditEligibilityRule')}</p>
+            </div>
+
             {!hasPreview && (
               <p className="mb-6 text-sm text-zinc-500">{t('audio.previewUnavailable')}</p>
             )}
@@ -591,6 +624,16 @@ export function ProductDetailsPage() {
               )}
             </div>
 
+            {isCreditEligible && (
+              <p className="mt-3 text-xs text-emerald-200/90">
+                {t('productDetails.creditValueHint', {
+                  count: requiredCredits,
+                  plural: requiredCredits > 1 ? 's' : '',
+                  price: formatPrice(displayPrice),
+                })}
+              </p>
+            )}
+
             {!isAuthenticated && (
               <p className="mt-3 text-xs text-zinc-500">{t('productDetails.creditPurchaseLogin')}</p>
             )}
@@ -606,6 +649,45 @@ export function ProductDetailsPage() {
           </div>
         </div>
       </div>
+      <Modal
+        isOpen={isCreditConfirmOpen}
+        onClose={closeCreditConfirm}
+        title={t('productDetails.creditConfirmTitle')}
+        description={product?.title}
+        size="md"
+        showCloseButton={!isPurchasingWithCredits}
+      >
+        <div className="space-y-4">
+          <div className="rounded-xl border border-zinc-800 bg-zinc-950/80 p-4">
+            <p className="text-sm text-zinc-100">
+              {creditConfirmSpendText}
+            </p>
+            <p className="mt-3 text-sm text-zinc-300">
+              {t('productDetails.creditConfirmRule')}
+            </p>
+            <p className="mt-3 text-sm text-zinc-300">
+              {t('productDetails.creditConfirmDebit')}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap justify-end gap-3">
+            <Button
+              variant="ghost"
+              onClick={closeCreditConfirm}
+              disabled={isPurchasingWithCredits}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={confirmCreditPurchase}
+              isLoading={isPurchasingWithCredits}
+            >
+              {t('productDetails.creditConfirmAction')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

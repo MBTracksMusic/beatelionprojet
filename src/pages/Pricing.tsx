@@ -649,6 +649,15 @@ export function PricingPage() {
               <span className="text-zinc-400"> {t('subscription.perMonth')}</span>
             </div>
 
+            <div className="mb-6 rounded-xl border border-sky-400/20 bg-sky-500/10 p-4">
+              <p className="text-sm font-semibold text-white">
+                {t('pricing.userPremiumValueLine')}
+              </p>
+              <p className="mt-1 text-xs text-sky-100/80">
+                {t('pricing.userPremiumValueHint')}
+              </p>
+            </div>
+
             <div className="mb-3 flex items-center gap-2">
               <Check className="w-5 h-5 text-emerald-400" />
               <p className="text-xl font-bold text-white">{t('pricing.includedShort')}</p>

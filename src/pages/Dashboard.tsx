@@ -50,6 +50,7 @@ const toProducerPreview = (
 };
 
 const EXPIRED_SUBSCRIPTION_STATUSES = new Set(['canceled', 'cancelled', 'incomplete_expired']);
+const MAX_CREDITS = 6;
 
 const getSubscriptionDateLabel = (
   subscriptionStatus: string | null | undefined,
@@ -171,6 +172,11 @@ export function DashboardPage() {
   const [licenseDownloadingPurchaseId, setLicenseDownloadingPurchaseId] = useState<string | null>(null);
   const { balance: creditBalance, isLoading: isCreditBalanceLoading, error: creditBalanceError } = useCreditBalance(user?.id);
   const { subscription: userSubscription, isActive: hasActiveUserSubscription } = useUserSubscriptionStatus(user?.id);
+  const normalizedCreditBalance = typeof creditBalance === 'number'
+    ? Math.max(0, Math.min(creditBalance, MAX_CREDITS))
+    : 0;
+  const creditProgressPercent = Math.round((normalizedCreditBalance / MAX_CREDITS) * 100);
+  const isCreditCapReached = normalizedCreditBalance >= MAX_CREDITS;
 
   useEffect(() => {
     let isCancelled = false;
@@ -740,11 +746,11 @@ export function DashboardPage() {
                 <h2 className="text-xl font-semibold text-white mb-2">{t('dashboard.creditsTitle')}</h2>
                 <p className="text-sm text-zinc-400">{t('dashboard.creditsSubtitle')}</p>
               </div>
-              <Badge className="bg-emerald-900/50 text-emerald-300 border border-emerald-800">
+              <Badge className={isCreditCapReached ? 'bg-amber-500/15 text-amber-200 border border-amber-400/30' : 'bg-emerald-900/50 text-emerald-300 border border-emerald-800'}>
                 {isCreditBalanceLoading
                   ? t('common.loading')
                   : typeof creditBalance === 'number'
-                    ? `${creditBalance} ${t('dashboard.creditsUnit')}`
+                    ? `🎧 ${t('dashboard.creditsProgressLabel', { count: normalizedCreditBalance, max: MAX_CREDITS })}${isCreditCapReached ? ` • ${t('dashboard.creditsCapReached')}` : ''}`
                     : '—'}
               </Badge>
             </div>
@@ -781,6 +787,33 @@ export function DashboardPage() {
               {creditBalanceError && (
                 <p className="text-xs text-zinc-500">{t('dashboard.creditBalanceLoadError')}</p>
               )}
+            </div>
+
+            <div className="mt-5 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-white">{t('dashboard.creditsProgressTitle')}</p>
+                <span className={`text-xs font-medium ${isCreditCapReached ? 'text-amber-200' : 'text-emerald-300'}`}>
+                  {t('dashboard.creditsProgressLabel', { count: normalizedCreditBalance, max: MAX_CREDITS })}
+                </span>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-800">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    isCreditCapReached
+                      ? 'bg-gradient-to-r from-amber-400 to-rose-400 shadow-[0_0_18px_rgba(251,191,36,0.35)]'
+                      : 'bg-gradient-to-r from-emerald-400 to-sky-400'
+                  }`}
+                  style={{ width: `${creditProgressPercent}%` }}
+                />
+              </div>
+              <p className="mt-3 text-xs text-zinc-300">
+                {hasActiveUserSubscription
+                  ? isCreditCapReached
+                    ? t('dashboard.creditsProgressCapHint')
+                    : t('dashboard.creditsProgressHint')
+                  : t('dashboard.creditsProgressHintInactive')}
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">{t('dashboard.creditsMonthlyHint')}</p>
             </div>
 
             <div className="mt-6">

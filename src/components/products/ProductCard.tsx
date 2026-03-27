@@ -141,6 +141,8 @@ export function ProductCard({
     : `/beats/${product.slug}`;
 
   const canAccessExclusive = product.is_exclusive ? permissions.canPurchaseExclusive : true;
+  const isCreditEligible = product.product_type === 'beat' && !product.is_exclusive && !product.is_sold;
+  const shouldShowCashOnlyBadge = !product.is_sold && !isCreditEligible && (product.is_exclusive || product.product_type !== 'beat');
 
   return (
     <Link
@@ -259,6 +261,17 @@ export function ProductCard({
           )}
           {isEarlyAccessPurchaseLocked && (
             <p className="mb-3 text-xs text-amber-300">{t('products.availableSoon')}</p>
+          )}
+
+          {(isCreditEligible || shouldShowCashOnlyBadge) && (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {isCreditEligible && (
+                <Badge variant="success">{t('products.creditEligibleBadge')}</Badge>
+              )}
+              {shouldShowCashOnlyBadge && (
+                <Badge variant="default">{t('products.cashOnlyBadge')}</Badge>
+              )}
+            </div>
           )}
 
           <div className="flex items-center justify-between">
