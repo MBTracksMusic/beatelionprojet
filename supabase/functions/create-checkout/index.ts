@@ -37,6 +37,7 @@ interface ProductRow {
   is_published: boolean;
   deleted_at: string | null;
   product_type: string;
+  status: string;
 }
 
 interface LicenseRow {
@@ -677,7 +678,7 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
 
     const { data: product, error: productError } = await supabaseAdmin
       .from("products")
-      .select("id, title, slug, price, early_access_until, cover_image_url, producer_id, is_exclusive, is_sold, is_published, deleted_at, product_type")
+      .select("id, title, slug, price, early_access_until, cover_image_url, producer_id, is_exclusive, is_sold, is_published, deleted_at, product_type, status")
       .eq("id", resolvedBeatId)
       .maybeSingle();
 
@@ -694,7 +695,24 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
 
     const productRow = product as ProductRow;
 
+    if (productRow.producer_id === user.id) {
+      return new Response(JSON.stringify({
+        error: "Forbidden: self purchase",
+        code: "self_purchase_forbidden",
+      }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (!productRow.is_published || productRow.deleted_at !== null) {
+      return new Response(JSON.stringify({ error: "Beat introuvable ou indisponible." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (productRow.status !== "active") {
       return new Response(JSON.stringify({ error: "Beat introuvable ou indisponible." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
