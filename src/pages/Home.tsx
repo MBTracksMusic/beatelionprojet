@@ -20,10 +20,9 @@ import { HomeWeeklyTopProducers } from '../components/home/HomeWeeklyTopProducer
 import { HomeNewsVideos } from '../components/home/HomeNewsVideos';
 import { useTranslation } from '../lib/i18n';
 import { supabase } from '@/lib/supabase/client';
-import { fetchPublicProducerProfilesMap } from '../lib/supabase/publicProfiles';
 import { useAuth } from '../lib/auth/hooks';
 import { useWishlistStore } from '../lib/stores/wishlist';
-import { GENRE_SAFE_COLUMNS, MOOD_SAFE_COLUMNS, PRODUCT_SAFE_COLUMNS } from '../lib/supabase/selects';
+import { fetchCatalogProducts } from '../lib/supabase/catalog';
 import type { ProductWithRelations } from '../lib/supabase/types';
 import { formatNumber } from '../lib/utils/format';
 
@@ -69,39 +68,24 @@ export function HomePage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const { data } = await supabase
-          .from('products')
-          .select(`
-            ${PRODUCT_SAFE_COLUMNS},
-            genre:genres(${GENRE_SAFE_COLUMNS}),
-            mood:moods(${MOOD_SAFE_COLUMNS})
-          ` as any)
-          .eq('is_published', true)
-          .eq('is_exclusive', true)
-          .eq('is_sold', false)
-          .order('created_at', { ascending: false })
-          .limit(4);
+        const nextExclusives = await fetchCatalogProducts({
+          mode: 'exclusives',
+          filters: {
+            search: '',
+            genre: '',
+            mood: '',
+            bpmMin: '',
+            bpmMax: '',
+            priceMin: '',
+            priceMax: '',
+            sort: 'newest',
+          },
+          limit: 4,
+          restrictToActiveProducers: false,
+          hasPremiumAccess: false,
+        });
 
-        if (data) {
-          const rows = (data as unknown as ProductWithRelations[]) ?? [];
-          const producerProfilesMap = await fetchPublicProducerProfilesMap(
-            rows.map((row) => row.producer_id)
-          );
-          const withProducer = rows.map((row) => {
-            const producer = producerProfilesMap.get(row.producer_id);
-            return {
-              ...row,
-              producer: producer
-                ? {
-                    id: producer.user_id,
-                    username: producer.username,
-                    avatar_url: producer.avatar_url,
-                  }
-                : undefined,
-            };
-          });
-          setExclusives(withProducer as ProductWithRelations[]);
-        }
+        setExclusives(nextExclusives as ProductWithRelations[]);
       } catch (error) {
         console.error('Error fetching home data:', error);
       }

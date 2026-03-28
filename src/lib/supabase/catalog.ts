@@ -3,7 +3,6 @@ import type { Database, Json } from './database.types';
 import { attachProductLicenses } from '../pricing';
 import { isEarlyAccessActive } from '../products/earlyAccess';
 import { fetchPublicProducerProfilesMap } from './publicProfiles';
-import { GENRE_SAFE_COLUMNS, MOOD_SAFE_COLUMNS, PRODUCT_SAFE_COLUMNS } from './selects';
 import type { ProductWithRelations } from './types';
 
 export type CatalogMode = 'beats' | 'exclusives' | 'kits';
@@ -277,13 +276,8 @@ const fetchLegacyCatalogProducts = async ({
   hasPremiumAccess,
 }: FetchCatalogProductsParams): Promise<ProductWithRelations[]> => {
   let query = supabase
-    .from('products')
-    .select(`
-      ${PRODUCT_SAFE_COLUMNS},
-      genre:genres(${GENRE_SAFE_COLUMNS}),
-      mood:moods(${MOOD_SAFE_COLUMNS})
-    ` as any)
-    .eq('is_published', true);
+    .from('public_catalog_products')
+    .select(CATALOG_SELECT_COLUMNS);
 
   if (mode === 'exclusives') {
     query = query.eq('product_type', 'exclusive').eq('is_sold', false);
@@ -336,7 +330,7 @@ const fetchLegacyCatalogProducts = async ({
     throw error;
   }
 
-  const rows = (data as unknown as ProductWithRelations[] | null) ?? [];
+  const rows = ((data as unknown as CatalogProductRow[] | null) ?? []).map(toProduct);
   const earlyAccessFilteredRows = hasPremiumAccess
     ? rows
     : rows.filter((row) => !isEarlyAccessActive(row.early_access_until));
@@ -349,14 +343,9 @@ const fetchLegacyCatalogProductBySlug = async ({
   routePrefix,
 }: FetchCatalogProductBySlugParams): Promise<ProductWithRelations | null> => {
   let query = supabase
-    .from('products')
-    .select(`
-      ${PRODUCT_SAFE_COLUMNS},
-      genre:genres(${GENRE_SAFE_COLUMNS}),
-      mood:moods(${MOOD_SAFE_COLUMNS})
-    ` as any)
-    .eq('slug', slug)
-    .eq('is_published', true);
+    .from('public_catalog_products')
+    .select(CATALOG_SELECT_COLUMNS)
+    .eq('slug', slug);
 
   if (routePrefix === 'exclusives') {
     query = query.eq('is_exclusive', true);
@@ -371,12 +360,13 @@ const fetchLegacyCatalogProductBySlug = async ({
     throw error;
   }
 
-  const row = (data as unknown as ProductWithRelations | null) ?? null;
+  const row = (data as unknown as CatalogProductRow | null) ?? null;
   if (!row) return null;
 
-  const [enriched] = await enrichMissingProducerIdentities([row]);
-  const [withLicenses] = await attachProductLicenses([enriched ?? row]);
-  return withLicenses ?? enriched ?? row;
+  const product = toProduct(row);
+  const [enriched] = await enrichMissingProducerIdentities([product]);
+  const [withLicenses] = await attachProductLicenses([enriched ?? product]);
+  return withLicenses ?? enriched ?? product;
 };
 
 export async function fetchCatalogProducts({
@@ -388,8 +378,7 @@ export async function fetchCatalogProducts({
 }: FetchCatalogProductsParams): Promise<ProductWithRelations[]> {
   let query = supabase
     .from('public_catalog_products')
-    .select(CATALOG_SELECT_COLUMNS)
-    .eq('is_published', true);
+    .select(CATALOG_SELECT_COLUMNS);
 
   if (mode === 'exclusives') {
     query = query.eq('product_type', 'exclusive').eq('is_sold', false);
@@ -468,8 +457,7 @@ export async function fetchCatalogProductBySlug({
   let query = supabase
     .from('public_catalog_products')
     .select(CATALOG_SELECT_COLUMNS)
-    .eq('slug', slug)
-    .eq('is_published', true);
+    .eq('slug', slug);
 
   if (routePrefix === 'exclusives') {
     query = query.eq('is_exclusive', true);

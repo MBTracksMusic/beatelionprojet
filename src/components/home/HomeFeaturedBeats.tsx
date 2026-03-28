@@ -103,10 +103,9 @@ export function HomeFeaturedBeats() {
 
         if (missingPreviewIds.length > 0) {
           const { data: previewRows, error: previewError } = await supabase
-            .from('products')
+            .from('public_catalog_products')
             .select('id, preview_url, watermarked_path, exclusive_preview_url, watermarked_bucket')
-            .in('id', missingPreviewIds)
-            .eq('is_published', true);
+            .in('id', missingPreviewIds);
 
           if (previewError) {
             console.error('Error hydrating featured beat previews:', previewError);

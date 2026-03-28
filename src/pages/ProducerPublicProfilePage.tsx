@@ -280,11 +280,10 @@ export function ProducerPublicProfilePage() {
             p_producer_id: producerRow.user_id,
           }),
           supabase
-            .from('products')
+            .from('public_catalog_products')
             .select('id, title, slug, cover_image_url, preview_url, watermarked_path, exclusive_preview_url, watermarked_bucket, price, bpm, key_signature, created_at')
             .eq('producer_id', producerRow.user_id)
             .eq('product_type', 'beat')
-            .eq('is_published', true)
             .is('deleted_at', null)
             .order('created_at', { ascending: false })
             .limit(12),
