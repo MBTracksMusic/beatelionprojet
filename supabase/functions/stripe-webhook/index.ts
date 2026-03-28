@@ -43,6 +43,14 @@ const asNonEmptyString = (value: unknown): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+const asJsonObject = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+};
+
 type ProducerTier = "user" | "producteur" | "elite";
 type SubscriptionKind = "producer" | "user";
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
@@ -1284,6 +1292,151 @@ async function claimStripeEventProcessingLock(
   return staleClaim;
 }
 
+async function processStripeEvent(
+  supabase: ReturnType<typeof createClient>,
+  stripe: Stripe,
+  event: Stripe.Event,
+) {
+  switch (event.type) {
+    case "checkout.session.completed":
+    case "checkout.session.async_payment_succeeded": {
+      if (!isCheckoutSession(event.data.object)) {
+        throw new WebhookError(`Invalid payload for ${event.type}`, 400, true);
+      }
+      await handleCheckoutCompleted(supabase, stripe, event.data.object, event.id);
+      break;
+    }
+    case "checkout.session.async_payment_failed":
+      console.warn("[stripe-webhook] Async payment failed", {
+        eventId: event.id,
+        eventType: event.type,
+      });
+      break;
+    case "customer.subscription.created":
+    case "customer.subscription.updated": {
+      if (!isSubscription(event.data.object)) {
+        throw new WebhookError(`Invalid payload for ${event.type}`, 400, true);
+      }
+      await handleSubscriptionUpdate(supabase, stripe, event.data.object);
+      break;
+    }
+    case "customer.subscription.deleted": {
+      if (!isSubscription(event.data.object)) {
+        throw new WebhookError("Invalid payload for customer.subscription.deleted", 400, true);
+      }
+      await handleSubscriptionDeleted(supabase, stripe, event.data.object);
+      break;
+    }
+    case "invoice.payment_succeeded":
+    case "invoice.paid": {
+      if (!isInvoice(event.data.object)) {
+        throw new WebhookError(`Invalid payload for ${event.type}`, 400, true);
+      }
+      await handlePaymentSucceeded(supabase, stripe, event.data.object, event.id);
+      break;
+    }
+    case "invoice.payment_failed": {
+      if (!isInvoice(event.data.object)) {
+        throw new WebhookError("Invalid payload for invoice.payment_failed", 400, true);
+      }
+      await handlePaymentFailed(supabase, event.data.object);
+      break;
+    }
+    case "payout.failed": {
+      const payout = event.data.object as Stripe.Payout;
+
+      console.log("[stripe-webhook] payout.failed", {
+        payout_id: payout.id,
+        amount: payout.amount,
+        currency: payout.currency,
+        failure_code: payout.failure_code,
+        failure_message: payout.failure_message,
+        arrival_date: payout.arrival_date,
+      });
+
+      const stripeAccountId = event.account;
+
+      if (!stripeAccountId) {
+        console.warn("[stripe-webhook] payout.failed without account, skipped");
+        break;
+      }
+
+      const { data: producer, error: producerError } = await supabase
+        .from("user_profiles")
+        .select("id, email, full_name")
+        .eq("stripe_account_id", stripeAccountId)
+        .single();
+
+      if (producerError || !producer) {
+        console.error("[stripe-webhook] Producer not found for payout.failed", {
+          stripeAccountId,
+          error: producerError?.message,
+        });
+        break;
+      }
+
+      await supabase.from("stripe_payout_failures").insert({
+        user_id: producer.id,
+        stripe_account_id: stripeAccountId,
+        payout_id: payout.id,
+        amount: payout.amount,
+        currency: payout.currency,
+        failure_code: payout.failure_code ?? "unknown",
+        failure_message: payout.failure_message ?? "Unknown error",
+        arrival_date: payout.arrival_date ? new Date(payout.arrival_date * 1000).toISOString() : null,
+      });
+
+      console.log("[stripe-webhook] payout.failed processed", {
+        producerId: producer.id,
+        payoutId: payout.id,
+        failureCode: payout.failure_code,
+      });
+
+      break;
+    }
+    case "account.application.deauthorized": {
+      const stripeAccountId = event.account;
+
+      console.log("[stripe-webhook] account.application.deauthorized", {
+        stripe_account_id: stripeAccountId,
+      });
+
+      if (!stripeAccountId) {
+        console.warn("[stripe-webhook] deauthorized event without account ID, skipped");
+        break;
+      }
+
+      const { data: updated, error: updateError } = await supabase
+        .from("user_profiles")
+        .update({
+          stripe_account_id: null,
+          stripe_account_charges_enabled: false,
+          stripe_account_details_submitted: false,
+        })
+        .eq("stripe_account_id", stripeAccountId)
+        .select("id, email")
+        .single();
+
+      if (updateError || !updated) {
+        console.error("[stripe-webhook] Failed to clear deauthorized account", {
+          account: stripeAccountId,
+          error: updateError?.message,
+        });
+        break;
+      }
+
+      console.log("[stripe-webhook] Stripe Connect account cleared after deauthorization", {
+        producerId: updated.id,
+        stripeAccountId: stripeAccountId,
+      });
+
+      break;
+    }
+    default:
+      console.log("[stripe-webhook] Unhandled event type", { eventId: event.id, eventType: event.type });
+  }
+}
+
 serveWithErrorHandling("stripe-webhook", async (req: Request, context: RequestContext) => {
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
@@ -1296,6 +1449,7 @@ serveWithErrorHandling("stripe-webhook", async (req: Request, context: RequestCo
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
   const stripeWebhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
+  const internalPipelineSecret = asNonEmptyString(Deno.env.get("INTERNAL_PIPELINE_SECRET"));
 
   if (!supabaseUrl || !serviceRoleKey || !stripeSecretKey || !stripeWebhookSecret) {
     console.error("[stripe-webhook] Missing required environment variables");
@@ -1306,12 +1460,7 @@ serveWithErrorHandling("stripe-webhook", async (req: Request, context: RequestCo
   }
 
   const stripeSignature = req.headers.get("Stripe-Signature");
-  if (!stripeSignature) {
-    return new Response(JSON.stringify({ error: "Missing Stripe-Signature header" }), {
-      status: 400,
-      headers: jsonHeaders,
-    });
-  }
+  const providedInternalSecret = asNonEmptyString(req.headers.get("x-internal-secret"));
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
   const stripe = new Stripe(stripeSecretKey, {
@@ -1323,17 +1472,40 @@ serveWithErrorHandling("stripe-webhook", async (req: Request, context: RequestCo
 
   let event: Stripe.Event;
   try {
-    event = await stripe.webhooks.constructEventAsync(
-      rawBody,
-      stripeSignature,
-      stripeWebhookSecret,
-      undefined,
-      cryptoProvider,
-    );
+    if (stripeSignature) {
+      event = await stripe.webhooks.constructEventAsync(
+        rawBody,
+        stripeSignature,
+        stripeWebhookSecret,
+        undefined,
+        cryptoProvider,
+      );
+    } else if (internalPipelineSecret && providedInternalSecret === internalPipelineSecret) {
+      const parsedBody = rawBody.trim().length > 0 ? asJsonObject(JSON.parse(rawBody)) : null;
+      const replayEventId = asNonEmptyString(parsedBody?.replay_event_id);
+
+      if (!replayEventId) {
+        return new Response(JSON.stringify({ error: "Missing replay_event_id" }), {
+          status: 400,
+          headers: jsonHeaders,
+        });
+      }
+
+      event = await stripe.events.retrieve(replayEventId);
+      console.log("[stripe-webhook] Internal replay request", {
+        replayEventId,
+        replayReason: asNonEmptyString(parsedBody?.replay_reason),
+      });
+    } else {
+      return new Response(JSON.stringify({ error: "Missing Stripe-Signature header" }), {
+        status: 400,
+        headers: jsonHeaders,
+      });
+    }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Invalid webhook signature";
-    console.error("[stripe-webhook] Signature verification failed", { message });
-    return new Response(JSON.stringify({ error: "Invalid webhook signature" }), {
+    const message = error instanceof Error ? error.message : "Invalid webhook payload";
+    console.error("[stripe-webhook] Event loading failed", { message });
+    return new Response(JSON.stringify({ error: "Invalid webhook payload" }), {
       status: 400,
       headers: jsonHeaders,
     });
@@ -1400,144 +1572,7 @@ serveWithErrorHandling("stripe-webhook", async (req: Request, context: RequestCo
     }
 
     try {
-      switch (event.type) {
-        case "checkout.session.completed":
-        case "checkout.session.async_payment_succeeded": {
-          if (!isCheckoutSession(event.data.object)) {
-            throw new WebhookError(`Invalid payload for ${event.type}`, 400, true);
-          }
-          await handleCheckoutCompleted(supabase, stripe, event.data.object, event.id);
-          break;
-        }
-        case "checkout.session.async_payment_failed":
-          console.warn("[stripe-webhook] Async payment failed", {
-            eventId: event.id,
-            eventType: event.type,
-          });
-          break;
-        case "customer.subscription.created":
-        case "customer.subscription.updated": {
-          if (!isSubscription(event.data.object)) {
-            throw new WebhookError(`Invalid payload for ${event.type}`, 400, true);
-          }
-          await handleSubscriptionUpdate(supabase, stripe, event.data.object);
-          break;
-        }
-        case "customer.subscription.deleted": {
-          if (!isSubscription(event.data.object)) {
-            throw new WebhookError("Invalid payload for customer.subscription.deleted", 400, true);
-          }
-          await handleSubscriptionDeleted(supabase, stripe, event.data.object);
-          break;
-        }
-        case "invoice.payment_succeeded":
-        case "invoice.paid": {
-          if (!isInvoice(event.data.object)) {
-            throw new WebhookError(`Invalid payload for ${event.type}`, 400, true);
-          }
-          await handlePaymentSucceeded(supabase, stripe, event.data.object, event.id);
-          break;
-        }
-        case "invoice.payment_failed": {
-          if (!isInvoice(event.data.object)) {
-            throw new WebhookError("Invalid payload for invoice.payment_failed", 400, true);
-          }
-          await handlePaymentFailed(supabase, event.data.object);
-          break;
-        }
-        case "payout.failed": {
-          const payout = event.data.object as Stripe.Payout;
-
-          console.log("[stripe-webhook] payout.failed", {
-            payout_id: payout.id,
-            amount: payout.amount,
-            currency: payout.currency,
-            failure_code: payout.failure_code,
-            failure_message: payout.failure_message,
-            arrival_date: payout.arrival_date,
-          });
-
-          const stripeAccountId = event.account;
-
-          if (!stripeAccountId) {
-            console.warn("[stripe-webhook] payout.failed without account, skipped");
-            break;
-          }
-
-          const { data: producer, error: producerError } = await supabase
-            .from("user_profiles")
-            .select("id, email, full_name")
-            .eq("stripe_account_id", stripeAccountId)
-            .single();
-
-          if (producerError || !producer) {
-            console.error("[stripe-webhook] Producer not found for payout.failed", {
-              stripeAccountId,
-              error: producerError?.message,
-            });
-            break;
-          }
-
-          await supabase.from("stripe_payout_failures").insert({
-            user_id: producer.id,
-            stripe_account_id: stripeAccountId,
-            payout_id: payout.id,
-            amount: payout.amount,
-            currency: payout.currency,
-            failure_code: payout.failure_code ?? "unknown",
-            failure_message: payout.failure_message ?? "Unknown error",
-            arrival_date: payout.arrival_date ? new Date(payout.arrival_date * 1000).toISOString() : null,
-          });
-
-          console.log("[stripe-webhook] payout.failed processed", {
-            producerId: producer.id,
-            payoutId: payout.id,
-            failureCode: payout.failure_code,
-          });
-
-          break;
-        }
-        case "account.application.deauthorized": {
-          const stripeAccountId = event.account;
-
-          console.log("[stripe-webhook] account.application.deauthorized", {
-            stripe_account_id: stripeAccountId,
-          });
-
-          if (!stripeAccountId) {
-            console.warn("[stripe-webhook] deauthorized event without account ID, skipped");
-            break;
-          }
-
-          const { data: updated, error: updateError } = await supabase
-            .from("user_profiles")
-            .update({
-              stripe_account_id: null,
-              stripe_account_charges_enabled: false,
-              stripe_account_details_submitted: false,
-            })
-            .eq("stripe_account_id", stripeAccountId)
-            .select("id, email")
-            .single();
-
-          if (updateError || !updated) {
-            console.error("[stripe-webhook] Failed to clear deauthorized account", {
-              account: stripeAccountId,
-              error: updateError?.message,
-            });
-            break;
-          }
-
-          console.log("[stripe-webhook] Stripe Connect account cleared after deauthorization", {
-            producerId: updated.id,
-            stripeAccountId: stripeAccountId,
-          });
-
-          break;
-        }
-        default:
-          console.log("[stripe-webhook] Unhandled event type", { eventId: event.id, eventType: event.type });
-      }
+      await processStripeEvent(supabase, stripe, event);
 
       await markStripeEvent(supabase, event.id, { processed: true, error: null });
 

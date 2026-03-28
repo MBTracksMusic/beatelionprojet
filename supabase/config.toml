@@ -129,3 +129,6 @@ verify_jwt = false
 
 [functions.sync-connect-account]
 verify_jwt = false
+
+[functions.process-stripe-recovery]
+verify_jwt = false
