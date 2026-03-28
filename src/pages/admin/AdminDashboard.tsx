@@ -342,6 +342,8 @@ export function AdminDashboardPage() {
     return 'text-rose-300';
   };
   const getGrowthClassName = (growth: number) => (growth >= 0 ? 'text-emerald-300' : 'text-rose-300');
+  const getProductRevenue = (productId: string) =>
+    topProducts.find((product) => product.productId === productId)?.revenue;
 
   const viewToCheckoutRate = getSafeConversion(funnelViews, funnelCheckouts);
   const checkoutToPurchaseRate = getSafeConversion(funnelCheckouts, funnelPurchases);
@@ -730,27 +732,31 @@ export function AdminDashboardPage() {
             ) : bestPerformers.length === 0 ? (
               <p className="text-sm text-zinc-400">Aucune donnée produit disponible.</p>
             ) : (
-              bestPerformers.map((product) => (
-                <div
-                  key={`best-${product.productId}`}
-                  className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-4"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-white">{product.productName}</p>
-                      <p className="mt-1 text-xs text-zinc-500">/{product.slug}</p>
+              bestPerformers.map((product) => {
+                console.log('DEBUG PRODUCT', product);
+
+                return (
+                  <div
+                    key={`best-${product.productId}`}
+                    className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-4"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-white">{product.productName}</p>
+                        <p className="mt-1 text-xs text-zinc-500">/{product.slug}</p>
+                      </div>
+                      <span className="text-sm font-semibold text-emerald-300">
+                        {formatPercent(product.conversionRate)}
+                      </span>
                     </div>
-                    <span className="text-sm font-semibold text-emerald-300">
-                      {formatPercent(product.conversionRate)}
-                    </span>
+                    <div className="mt-3 flex flex-wrap gap-4 text-xs text-zinc-400">
+                      <span>{product.views} vues</span>
+                      <span>{product.purchases} achats</span>
+                      <span>{formatCurrency(getProductRevenue(product.productId) ?? 0)}</span>
+                    </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-4 text-xs text-zinc-400">
-                    <span>{product.views} vues</span>
-                    <span>{product.purchases} achats</span>
-                    <span>{formatCurrency(product.price)}</span>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 
@@ -761,34 +767,38 @@ export function AdminDashboardPage() {
             ) : worstPerformers.length === 0 ? (
               <p className="text-sm text-zinc-400">Aucune donnée produit disponible.</p>
             ) : (
-              worstPerformers.map((product) => (
-                <div
-                  key={`worst-${product.productId}`}
-                  className={`rounded-xl border px-4 py-4 ${
-                    product.lowConversion
-                      ? 'border-rose-500/30 bg-rose-500/5'
-                      : 'border-zinc-800 bg-zinc-950/60'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-white">{product.productName}</p>
-                      <p className="mt-1 text-xs text-zinc-500">/{product.slug}</p>
+              worstPerformers.map((product) => {
+                console.log('DEBUG PRODUCT', product);
+
+                return (
+                  <div
+                    key={`worst-${product.productId}`}
+                    className={`rounded-xl border px-4 py-4 ${
+                      product.lowConversion
+                        ? 'border-rose-500/30 bg-rose-500/5'
+                        : 'border-zinc-800 bg-zinc-950/60'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-white">{product.productName}</p>
+                        <p className="mt-1 text-xs text-zinc-500">/{product.slug}</p>
+                      </div>
+                      <span className={product.lowConversion ? 'text-sm font-semibold text-rose-300' : 'text-sm font-semibold text-amber-300'}>
+                        {formatPercent(product.conversionRate)}
+                      </span>
                     </div>
-                    <span className={product.lowConversion ? 'text-sm font-semibold text-rose-300' : 'text-sm font-semibold text-amber-300'}>
-                      {formatPercent(product.conversionRate)}
-                    </span>
+                    <div className="mt-3 flex flex-wrap gap-4 text-xs text-zinc-400">
+                      <span>{product.views} vues</span>
+                      <span>{product.purchases} achats</span>
+                      <span>{formatCurrency(getProductRevenue(product.productId) ?? 0)}</span>
+                    </div>
+                    {product.lowConversion ? (
+                      <p className="mt-2 text-xs font-medium text-rose-300">Low conversion: plus de 100 vues sans achat.</p>
+                    ) : null}
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-4 text-xs text-zinc-400">
-                    <span>{product.views} vues</span>
-                    <span>{product.purchases} achats</span>
-                    <span>{formatCurrency(product.price)}</span>
-                  </div>
-                  {product.lowConversion ? (
-                    <p className="mt-2 text-xs font-medium text-rose-300">Low conversion: plus de 100 vues sans achat.</p>
-                  ) : null}
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </CardContent>
