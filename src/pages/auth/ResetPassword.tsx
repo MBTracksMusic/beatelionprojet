@@ -185,11 +185,8 @@ export function ResetPasswordPage() {
             return;
           }
 
-          const { error } = await supabase.auth.setSession({
-            access_token: initialRecoveryContext.accessToken,
-            refresh_token: initialRecoveryContext.refreshToken,
-          });
-          if (error) throw error;
+          settleValidationError(t('auth.resetPasswordInvalidLink'));
+          return;
         }
 
         const session = await getExistingSession();
