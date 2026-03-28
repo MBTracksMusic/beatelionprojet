@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Menu,
@@ -53,6 +53,59 @@ export function Header() {
       can_access_producer: canAccessProducer,
     });
   }, [canAccessProducer, profile?.is_producer_active, profile?.role]);
+
+  const closeAllMenus = useCallback(() => {
+    setIsLangMenuOpen(false);
+    setIsUserMenuOpen(false);
+    setIsMenuOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isLangMenuOpen && !isUserMenuOpen && !isMenuOpen) {
+      return;
+    }
+
+    const handleDocumentMouseDown = (event: MouseEvent) => {
+      const target = event.target;
+
+      if (!(target instanceof Element)) {
+        return;
+      }
+
+      if (
+        target.closest('[data-menu-button]') ||
+        target.closest('[data-menu-dropdown]')
+      ) {
+        return;
+      }
+
+      closeAllMenus();
+    };
+
+    document.addEventListener('mousedown', handleDocumentMouseDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentMouseDown);
+    };
+  }, [closeAllMenus, isLangMenuOpen, isMenuOpen, isUserMenuOpen]);
+
+  useEffect(() => {
+    if (!isLangMenuOpen && !isUserMenuOpen && !isMenuOpen) {
+      return;
+    }
+
+    const handleDocumentKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeAllMenus();
+      }
+    };
+
+    document.addEventListener('keydown', handleDocumentKeyDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleDocumentKeyDown);
+    };
+  }, [closeAllMenus, isLangMenuOpen, isMenuOpen, isUserMenuOpen]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -138,34 +191,36 @@ export function Header() {
 
             <div className="relative">
               <button
-                onClick={() => setIsLangMenuOpen(!isLangMenuOpen)}
+                data-menu-button
+                onClick={() => {
+                  const nextIsLangMenuOpen = !isLangMenuOpen;
+                  closeAllMenus();
+                  setIsLangMenuOpen(nextIsLangMenuOpen);
+                }}
                 className="p-2 text-zinc-400 hover:text-white transition-colors"
               >
                 <Globe className="w-5 h-5" />
               </button>
               {isLangMenuOpen && (
-                <>
-                  <div
-                    className="fixed inset-0"
-                    onClick={() => setIsLangMenuOpen(false)}
-                  />
-                  <div className="absolute right-0 top-full mt-2 w-32 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl overflow-hidden">
-                    {languages.map((lang) => (
-                      <button
-                        key={lang}
-                        onClick={() => {
-                          handleLanguageChange(lang);
-                          setIsLangMenuOpen(false);
-                        }}
-                        className={`w-full px-4 py-2 text-left text-sm hover:bg-zinc-800 transition-colors ${
-                          language === lang ? 'text-rose-400' : 'text-zinc-300'
-                        }`}
-                      >
-                        {languageNames[lang]}
-                      </button>
-                    ))}
-                  </div>
-                </>
+                <div
+                  data-menu-dropdown
+                  className="absolute right-0 top-full mt-2 w-32 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl overflow-hidden"
+                >
+                  {languages.map((lang) => (
+                    <button
+                      key={lang}
+                      onClick={() => {
+                        handleLanguageChange(lang);
+                        closeAllMenus();
+                      }}
+                      className={`w-full px-4 py-2 text-left text-sm hover:bg-zinc-800 transition-colors ${
+                        language === lang ? 'text-rose-400' : 'text-zinc-300'
+                      }`}
+                    >
+                      {languageNames[lang]}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
 
@@ -195,7 +250,12 @@ export function Header() {
             {user ? (
               <div className="relative">
                 <button
-                  onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                  data-menu-button
+                  onClick={() => {
+                    const nextIsUserMenuOpen = !isUserMenuOpen;
+                    closeAllMenus();
+                    setIsUserMenuOpen(nextIsUserMenuOpen);
+                  }}
                   className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-zinc-800 transition-colors"
                 >
                   {reputation && (
@@ -230,133 +290,130 @@ export function Header() {
                   </div>
                 </button>
                 {isUserMenuOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0"
-                      onClick={() => setIsUserMenuOpen(false)}
-                    />
-                    <div className="absolute right-0 top-full mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl overflow-hidden">
-                      <div className="px-4 py-3 border-b border-zinc-800">
-                        <p className="text-sm font-medium text-white">
-                          {profile?.username || profile?.email}
-                        </p>
-                        <p className="text-xs text-zinc-500 mt-0.5">
-                          {profile?.email}
-                        </p>
-                      </div>
-                      <div className="py-1">
-                        <Link
-                          to="/dashboard"
-                          onClick={() => setIsUserMenuOpen(false)}
-                          className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
-                        >
-                          <LayoutDashboard className="w-4 h-4" />
-                          {t('nav.dashboard')}
-                        </Link>
-                        <Link
-                          to="/dashboard#purchases"
-                          onClick={() => setIsUserMenuOpen(false)}
-                          className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
-                        >
-                          <ShoppingBag className="w-4 h-4" />
-                          {t('nav.myPurchases')}
-                        </Link>
-                        <Link
-                          to="/dashboard/messages"
-                          onClick={() => setIsUserMenuOpen(false)}
-                          className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
-                        >
-                          <MessageSquareText className="w-4 h-4" />
-                          {t('myMessages.title')}
-                        </Link>
-                        <Link
-                          to="/notifications"
-                          onClick={() => setIsUserMenuOpen(false)}
-                          className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
-                        >
-                          <Bell className="w-4 h-4" />
-                          {t('user.notifications')}
-                        </Link>
-                        {canAccessProducer && (
-                          <>
-                            <Link
-                              to="/producer"
-                              onClick={() => setIsUserMenuOpen(false)}
-                              className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
-                            >
-                              <Music className="w-4 h-4" />
-                              {t('producer.dashboard')}
-                            </Link>
-                            <Link
-                              to="/producer/stripe-connect"
-                              onClick={() => setIsUserMenuOpen(false)}
-                              className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
-                            >
-                              <Sparkles className="w-4 h-4" />
-                              Stripe Connect
-                            </Link>
-                          </>
-                        )}
-                        <Link
-                          to="/leaderboard"
-                          onClick={() => setIsUserMenuOpen(false)}
-                          className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
-                        >
-                          <Trophy className="w-4 h-4" />
-                          {t('leaderboard.title')}
-                        </Link>
-                        <Link
-                          to="/settings"
-                          onClick={() => setIsUserMenuOpen(false)}
-                          className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
-                        >
-                          <Settings className="w-4 h-4" />
-                          {t('nav.settings')}
-                        </Link>
-                      </div>
-                      <div className="border-t border-zinc-800 py-1">
-                        {profile?.role === 'admin' && (
-                          <>
-                            <Link
-                              to="/admin"
-                              onClick={() => setIsUserMenuOpen(false)}
-                              className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
-                            >
-                              <Shield className="w-4 h-4" />
-                              {t('admin.layout.title')}
-                            </Link>
-                            <Link
-                              to="/admin/revenue"
-                              onClick={() => setIsUserMenuOpen(false)}
-                              className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
-                            >
-                              <Euro className="w-4 h-4" />
-                              {t('admin.sidebar.revenue')}
-                            </Link>
-                            <Link
-                              to="/admin/payouts"
-                              onClick={() => setIsUserMenuOpen(false)}
-                              className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
-                            >
-                              <ShoppingBag className="w-4 h-4" />
-                              Admin Payouts
-                            </Link>
-                            <div className="my-1 border-t border-zinc-800" />
-                          </>
-                        )}
-                        <button
-                          onClick={() => {
-                            setIsUserMenuOpen(false);
-                            handleSignOut();
-                          }}
-                          className="flex items-center gap-3 w-full px-4 py-2 text-sm text-red-400 hover:bg-zinc-800 transition-colors"
-                        >
-                          <LogOut className="w-4 h-4" />
-                          {t('nav.logout')}
-                        </button>
-                      </div>
+                  <div
+                    data-menu-dropdown
+                    className="absolute right-0 top-full mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-lg shadow-xl overflow-hidden"
+                  >
+                    <div className="px-4 py-3 border-b border-zinc-800">
+                      <p className="text-sm font-medium text-white">
+                        {profile?.username || profile?.email}
+                      </p>
+                      <p className="text-xs text-zinc-500 mt-0.5">
+                        {profile?.email}
+                      </p>
                     </div>
-                  </>
+                    <div className="py-1">
+                      <Link
+                        to="/dashboard"
+                        onClick={closeAllMenus}
+                        className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
+                      >
+                        <LayoutDashboard className="w-4 h-4" />
+                        {t('nav.dashboard')}
+                      </Link>
+                      <Link
+                        to="/dashboard#purchases"
+                        onClick={closeAllMenus}
+                        className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
+                      >
+                        <ShoppingBag className="w-4 h-4" />
+                        {t('nav.myPurchases')}
+                      </Link>
+                      <Link
+                        to="/dashboard/messages"
+                        onClick={closeAllMenus}
+                        className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
+                      >
+                        <MessageSquareText className="w-4 h-4" />
+                        {t('myMessages.title')}
+                      </Link>
+                      <Link
+                        to="/notifications"
+                        onClick={closeAllMenus}
+                        className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
+                      >
+                        <Bell className="w-4 h-4" />
+                        {t('user.notifications')}
+                      </Link>
+                      {canAccessProducer && (
+                        <>
+                          <Link
+                            to="/producer"
+                            onClick={closeAllMenus}
+                            className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
+                          >
+                            <Music className="w-4 h-4" />
+                            {t('producer.dashboard')}
+                          </Link>
+                          <Link
+                            to="/producer/stripe-connect"
+                            onClick={closeAllMenus}
+                            className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
+                          >
+                            <Sparkles className="w-4 h-4" />
+                            Stripe Connect
+                          </Link>
+                        </>
+                      )}
+                      <Link
+                        to="/leaderboard"
+                        onClick={closeAllMenus}
+                        className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
+                      >
+                        <Trophy className="w-4 h-4" />
+                        {t('leaderboard.title')}
+                      </Link>
+                      <Link
+                        to="/settings"
+                        onClick={closeAllMenus}
+                        className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
+                      >
+                        <Settings className="w-4 h-4" />
+                        {t('nav.settings')}
+                      </Link>
+                    </div>
+                    <div className="border-t border-zinc-800 py-1">
+                      {profile?.role === 'admin' && (
+                        <>
+                          <Link
+                            to="/admin"
+                            onClick={closeAllMenus}
+                            className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
+                          >
+                            <Shield className="w-4 h-4" />
+                            {t('admin.layout.title')}
+                          </Link>
+                          <Link
+                            to="/admin/revenue"
+                            onClick={closeAllMenus}
+                            className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
+                          >
+                            <Euro className="w-4 h-4" />
+                            {t('admin.sidebar.revenue')}
+                          </Link>
+                          <Link
+                            to="/admin/payouts"
+                            onClick={closeAllMenus}
+                            className="flex items-center gap-3 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
+                          >
+                            <ShoppingBag className="w-4 h-4" />
+                            Admin Payouts
+                          </Link>
+                          <div className="my-1 border-t border-zinc-800" />
+                        </>
+                      )}
+                      <button
+                        onClick={() => {
+                          closeAllMenus();
+                          handleSignOut();
+                        }}
+                        className="flex items-center gap-3 w-full px-4 py-2 text-sm text-red-400 hover:bg-zinc-800 transition-colors"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        {t('nav.logout')}
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             ) : (
@@ -373,7 +430,12 @@ export function Header() {
             )}
 
             <button
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              data-menu-button
+              onClick={() => {
+                const nextIsMenuOpen = !isMenuOpen;
+                closeAllMenus();
+                setIsMenuOpen(nextIsMenuOpen);
+              }}
               className="lg:hidden p-2 text-zinc-400 hover:text-white"
             >
               {isMenuOpen ? (
@@ -387,40 +449,43 @@ export function Header() {
       </div>
 
       {isMenuOpen && (
-        <div className="lg:hidden border-t border-zinc-800 bg-zinc-950">
+        <div
+          data-menu-dropdown
+          className="lg:hidden border-t border-zinc-800 bg-zinc-950"
+        >
           <nav className="px-4 py-4 space-y-1">
             {/* TODO(levelup): sections exclusives/kits temporairement desactivees. */}
             <Link
               to="/beats"
-              onClick={() => setIsMenuOpen(false)}
+              onClick={closeAllMenus}
               className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg"
             >
               {t('nav.beats')}
             </Link>
             <Link
               to="/battles"
-              onClick={() => setIsMenuOpen(false)}
+              onClick={closeAllMenus}
               className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg"
             >
               {t('nav.battles')}
             </Link>
             <Link
               to="/producers"
-              onClick={() => setIsMenuOpen(false)}
+              onClick={closeAllMenus}
               className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg"
             >
               {t('nav.producers')}
             </Link>
             <Link
               to="/forum"
-              onClick={() => setIsMenuOpen(false)}
+              onClick={closeAllMenus}
               className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg"
             >
               {t('forum.title')}
             </Link>
             <Link
               to="/pricing"
-              onClick={() => setIsMenuOpen(false)}
+              onClick={closeAllMenus}
               className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg"
             >
               {t('nav.pricing')}
