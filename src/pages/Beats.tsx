@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Search, SlidersHorizontal, X } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
@@ -22,6 +23,7 @@ interface BeatsPageProps {
 export function BeatsPage({ mode = 'beats' }: BeatsPageProps) {
   const { t, language } = useTranslation();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const { isActive: hasPremiumAccess } = useUserSubscriptionStatus(user?.id);
   const { productIds: wishlistProductIds, fetchWishlist, toggleWishlist, clearWishlist } = useWishlistStore();
   const [beats, setBeats] = useState<ProductWithRelations[]>([]);
@@ -64,6 +66,17 @@ export function BeatsPage({ mode = 'beats' }: BeatsPageProps) {
     }
     fetchFilters();
   }, []);
+
+  useEffect(() => {
+    const searchFromUrl = searchParams.get('search');
+
+    if (searchFromUrl !== null) {
+      setFilters((prev) => ({
+        ...prev,
+        search: searchFromUrl,
+      }));
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (!user) {

@@ -39,6 +39,7 @@ export function Header() {
   const { isActive: hasActiveUserSubscription } = useUserSubscriptionStatus(user?.id);
   const { items } = useCartStore();
   const navigate = useNavigate();
+  const [searchQuery, setSearchQuery] = useState('');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
@@ -118,6 +119,15 @@ export function Header() {
     });
   };
 
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const trimmed = searchQuery.trim();
+    if (!trimmed) return;
+
+    navigate(`/beats?search=${encodeURIComponent(trimmed)}`);
+  };
+
   return (
     <header className="fixed top-0 left-0 right-0 z-40 bg-zinc-950/80 backdrop-blur-lg border-b border-zinc-800">
       <div className="max-w-7xl mx-auto px-4">
@@ -180,14 +190,16 @@ export function Header() {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="hidden md:flex items-center relative">
+            <form onSubmit={handleSearchSubmit} className="hidden md:flex items-center relative">
               <Search className="absolute left-3 w-4 h-4 text-zinc-500" />
               <input
                 type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('home.searchPlaceholder')}
                 className="w-64 pl-10 pr-4 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-700"
               />
-            </div>
+            </form>
 
             <div className="relative">
               <button
