@@ -19,6 +19,8 @@ const EMPTY_SOCIAL_LINKS: SocialLinks = {
   youtube: null,
 };
 
+const URL_PROTOCOL_REGEX = /^[a-z][a-z\d+.-]*:/i;
+
 const sanitizeUrl = (value?: unknown): string | null => {
   if (typeof value !== 'string') return null;
 
@@ -27,9 +29,10 @@ const sanitizeUrl = (value?: unknown): string | null => {
   if (!trimmed) return null;
 
   const fixed = trimmed.replace('https:,//', 'https://');
+  const candidate = URL_PROTOCOL_REGEX.test(fixed) ? fixed : `https://${fixed}`;
 
   try {
-    const parsed = new URL(fixed);
+    const parsed = new URL(candidate);
 
     if (!['http:', 'https:'].includes(parsed.protocol)) {
       return null;

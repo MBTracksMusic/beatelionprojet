@@ -57,12 +57,29 @@ const EMPTY_WATERMARK_FORM: WatermarkSettingsForm = {
   max_interval_sec: '45',
 };
 
-const HTTP_URL_REGEX = /^https?:\/\//i;
+const URL_PROTOCOL_REGEX = /^[a-z][a-z\d+.-]*:/i;
 
-const sanitizeUrl = (value: unknown) => {
-  if (typeof value !== 'string') return '';
+const sanitizeUrl = (value?: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+
   const trimmed = value.trim();
-  return HTTP_URL_REGEX.test(trimmed) ? trimmed : '';
+
+  if (!trimmed) return null;
+
+  const fixed = trimmed.replace('https:,//', 'https://');
+  const candidate = URL_PROTOCOL_REGEX.test(fixed) ? fixed : `https://${fixed}`;
+
+  try {
+    const parsed = new URL(candidate);
+
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return null;
+    }
+
+    return parsed.href;
+  } catch {
+    return null;
+  }
 };
 
 const parseEnabledToggle = (value: unknown) => {
@@ -84,7 +101,7 @@ const parseEnabledToggle = (value: unknown) => {
   return false;
 };
 
-const isAllowedUrl = (value: string) => value.length === 0 || HTTP_URL_REGEX.test(value);
+const isAllowedUrl = (value: string) => value.length === 0 || sanitizeUrl(value) !== null;
 
 const asFiniteNumber = (value: string) => {
   const parsed = Number(value);
@@ -176,9 +193,9 @@ export function AdminSettingsPage() {
       const payload = data?.value;
       const parsed = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
       setSocialForm({
-        twitter: sanitizeUrl(parsed.twitter),
-        instagram: sanitizeUrl(parsed.instagram),
-        youtube: sanitizeUrl(parsed.youtube),
+        twitter: sanitizeUrl(parsed.twitter) ?? '',
+        instagram: sanitizeUrl(parsed.instagram) ?? '',
+        youtube: sanitizeUrl(parsed.youtube) ?? '',
       });
       setIsSocialLoading(false);
     };
@@ -295,16 +312,22 @@ export function AdminSettingsPage() {
     event.preventDefault();
     if (isSocialSaving) return;
 
-    const nextForm: SocialLinksForm = {
+    const rawForm: SocialLinksForm = {
       twitter: socialForm.twitter.trim(),
       instagram: socialForm.instagram.trim(),
       youtube: socialForm.youtube.trim(),
     };
 
-    if (!isAllowedUrl(nextForm.twitter) || !isAllowedUrl(nextForm.instagram) || !isAllowedUrl(nextForm.youtube)) {
+    if (!isAllowedUrl(rawForm.twitter) || !isAllowedUrl(rawForm.instagram) || !isAllowedUrl(rawForm.youtube)) {
       toast.error(t('admin.settingsPage.urlsHttpOnly'));
       return;
     }
+
+    const nextForm: SocialLinksForm = {
+      twitter: sanitizeUrl(rawForm.twitter) ?? '',
+      instagram: sanitizeUrl(rawForm.instagram) ?? '',
+      youtube: sanitizeUrl(rawForm.youtube) ?? '',
+    };
 
     setIsSocialSaving(true);
     const { error } = await supabase
