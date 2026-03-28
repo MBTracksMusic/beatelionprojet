@@ -187,10 +187,12 @@ export function PricingPage() {
   const [eliteEmail, setEliteEmail] = useState('');
   const [isEliteSubmitting, setIsEliteSubmitting] = useState(false);
   const [isUserCheckoutLoading, setIsUserCheckoutLoading] = useState(false);
+  const [isUserSubscriptionSyncPending, setIsUserSubscriptionSyncPending] = useState(false);
   const {
     subscription: userSubscription,
     isActive: hasActiveUserSubscription,
     isLoading: isUserSubscriptionLoading,
+    refetch: refetchUserSubscription,
   } = useUserSubscriptionStatus(user?.id);
   const currentTier = user
     ? toProducerTier((profile as unknown as ProfileWithTier | null)?.producer_tier)
@@ -290,6 +292,57 @@ export function PricingPage() {
       window.sessionStorage.removeItem('ga_pending_user_subscription_value');
     })();
   }, [user?.id, userSubscription?.id, userSubscription?.plan_code, userSubscription?.subscription_status]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const userStatus = params.get('user_subscription');
+
+    if (userStatus !== 'success' || !user?.id || hasActiveUserSubscription) {
+      setIsUserSubscriptionSyncPending(false);
+      return;
+    }
+
+    let isCancelled = false;
+    let timeoutId: number | null = null;
+    let attempts = 0;
+
+    setIsUserSubscriptionSyncPending(true);
+
+    const pollSubscriptionStatus = async () => {
+      const nextSubscription = await refetchUserSubscription();
+
+      if (isCancelled) {
+        return;
+      }
+
+      const isActive = ['active', 'trialing'].includes(nextSubscription?.subscription_status ?? '');
+      if (isActive) {
+        setIsUserSubscriptionSyncPending(false);
+        return;
+      }
+
+      attempts += 1;
+      if (attempts >= 5) {
+        setIsUserSubscriptionSyncPending(false);
+        return;
+      }
+
+      timeoutId = window.setTimeout(() => {
+        void pollSubscriptionStatus();
+      }, 2000);
+    };
+
+    timeoutId = window.setTimeout(() => {
+      void pollSubscriptionStatus();
+    }, 2000);
+
+    return () => {
+      isCancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [user?.id, hasActiveUserSubscription, refetchUserSubscription]);
 
   const startCheckout = async (tier: CheckoutTier) => {
     if (!user) {
@@ -676,6 +729,13 @@ export function PricingPage() {
                       : t('common.notAvailable'),
                   })}
                 </p>
+              </div>
+            )}
+
+            {isUserSubscriptionSyncPending && !hasActiveUserSubscription && (
+              <div className="mb-6 rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
+                <p className="font-medium">{t('checkout.success')}</p>
+                <p className="mt-1 text-sky-100/80">{t('checkout.processing')}</p>
               </div>
             )}
 

@@ -1051,6 +1051,138 @@ async function markStripeEvent(
   }
 }
 
+function extractCreditAllocationErrorCode(error: unknown) {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+
+  const message = error.message.trim();
+  if (!message) {
+    return null;
+  }
+
+  const knownCodes = [
+    "user_subscription_not_found",
+    "allocateMonthlyCredits_missing_invoice_id",
+    "allocateMonthlyCredits_load_subscription_period_failed",
+    "allocateMonthlyCredits_missing_subscription_period",
+  ];
+
+  for (const code of knownCodes) {
+    if (message.includes(code)) {
+      return code;
+    }
+  }
+
+  return null;
+}
+
+async function logStripeWebhookMonitoringAlert(
+  supabase: ReturnType<typeof createClient>,
+  params: {
+    eventType: string;
+    severity?: "info" | "warning" | "critical";
+    entityType?: string | null;
+    details?: Record<string, unknown>;
+  },
+) {
+  const { eventType, severity = "warning", entityType = null, details = {} } = params;
+
+  const { error } = await supabase.rpc("log_monitoring_alert", {
+    p_event_type: eventType,
+    p_severity: severity,
+    p_source: "stripe-webhook",
+    p_entity_type: entityType,
+    p_entity_id: null,
+    p_details: details,
+  });
+
+  if (error) {
+    console.error("[stripe-webhook] Failed to persist monitoring alert", {
+      eventType,
+      error: error.message,
+    });
+  }
+}
+
+async function persistFailedCreditAllocation(
+  supabase: ReturnType<typeof createClient>,
+  params: {
+    customerId: string;
+    subscriptionId: string;
+    eventId: string;
+    invoice: Stripe.Invoice;
+    stripeSubscription: Stripe.Subscription;
+    error: unknown;
+  },
+) {
+  const { customerId, subscriptionId, eventId, invoice, stripeSubscription, error } = params;
+  const nowIso = new Date().toISOString();
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorCode = extractCreditAllocationErrorCode(error);
+
+  try {
+    const { data: existingFailure, error: existingFailureError } = await supabase
+      .from("failed_credit_allocations")
+      .select("retry_count")
+      .eq("stripe_event_id", eventId)
+      .maybeSingle();
+
+    if (existingFailureError) {
+      console.error("[stripe-webhook] Failed to inspect failed credit allocation row", {
+        eventId,
+        invoiceId: invoice.id,
+        subscriptionId,
+        error: existingFailureError.message,
+      });
+      return;
+    }
+
+    const retryCount = typeof existingFailure?.retry_count === "number" && existingFailure.retry_count >= 0
+      ? existingFailure.retry_count + 1
+      : 0;
+
+    const { error: persistError } = await supabase
+      .from("failed_credit_allocations")
+      .upsert({
+        stripe_invoice_id: asNonEmptyString(invoice.id),
+        stripe_subscription_id: subscriptionId,
+        stripe_event_id: eventId,
+        error_message: errorMessage,
+        error_code: errorCode,
+        retry_count: retryCount,
+        updated_at: nowIso,
+        next_retry_at: nowIso,
+        payload: {
+          invoice_id: asNonEmptyString(invoice.id),
+          stripe_customer_id: customerId,
+          stripe_subscription_id: subscriptionId,
+          stripe_subscription_status: stripeSubscription.status,
+          invoice_status: asNonEmptyString(invoice.status),
+          billing_reason: asNonEmptyString(invoice.billing_reason),
+          amount_paid: typeof invoice.amount_paid === "number" ? invoice.amount_paid : null,
+          metadata: invoice.metadata ?? {},
+        },
+      }, { onConflict: "stripe_event_id" });
+
+    if (persistError) {
+      console.error("[stripe-webhook] Failed to persist failed credit allocation row", {
+        eventId,
+        invoiceId: invoice.id,
+        subscriptionId,
+        error: persistError.message,
+      });
+    }
+  } catch (persistError) {
+    console.error("[stripe-webhook] Unexpected failed credit allocation persistence error", {
+      eventId,
+      invoiceId: invoice.id,
+      subscriptionId,
+      error: persistError instanceof Error ? persistError.message : String(persistError),
+    });
+  }
+}
+
 function isMissingProcessingStartedColumnError(error: { message?: string; details?: string; hint?: string; code?: string }) {
   const composed = `${error.message || ""} ${error.details || ""} ${error.hint || ""}`.toLowerCase();
   return (
@@ -1133,6 +1265,20 @@ async function claimStripeEventProcessingLock(
       );
     }
     throw new Error(`Failed to recover stale processing lock: ${staleClaimError.message}`);
+  }
+
+  if (staleClaim) {
+    await logStripeWebhookMonitoringAlert(supabase, {
+      eventType: "stripe_webhook_stale_lock_recovered",
+      severity: "warning",
+      entityType: "stripe_event",
+      details: {
+        stripe_event_id: eventId,
+        recovered_at: nowIso,
+        stale_before: staleBeforeIso,
+        lock_timeout_ms: lockTimeoutMs,
+      },
+    });
   }
 
   return staleClaim;
@@ -1408,6 +1554,21 @@ serveWithErrorHandling("stripe-webhook", async (req: Request, context: RequestCo
           error: message,
         });
 
+        if (!error.markProcessed) {
+          await logStripeWebhookMonitoringAlert(supabase, {
+            eventType: "stripe_webhook_processing_failed",
+            severity: "critical",
+            entityType: "stripe_event",
+            details: {
+              stripe_event_id: event.id,
+              stripe_event_type: event.type,
+              error: message,
+              status: error.status,
+              will_retry: true,
+            },
+          });
+        }
+
         console.error("[stripe-webhook] Non-retryable event validation error", {
           eventId: event.id,
           eventType: event.type,
@@ -1424,6 +1585,18 @@ serveWithErrorHandling("stripe-webhook", async (req: Request, context: RequestCo
       await markStripeEvent(supabase, event.id, {
         processed: false,
         error: message,
+      });
+
+      await logStripeWebhookMonitoringAlert(supabase, {
+        eventType: "stripe_webhook_processing_failed",
+        severity: "critical",
+        entityType: "stripe_event",
+        details: {
+          stripe_event_id: event.id,
+          stripe_event_type: event.type,
+          error: message,
+          will_retry: true,
+        },
       });
 
       console.error("[stripe-webhook] Processing failed", {
@@ -1443,6 +1616,17 @@ serveWithErrorHandling("stripe-webhook", async (req: Request, context: RequestCo
     await markStripeEvent(supabase, event.id, {
       processed: false,
       error: message,
+    });
+    await logStripeWebhookMonitoringAlert(supabase, {
+      eventType: "stripe_webhook_fatal_error",
+      severity: "critical",
+      entityType: "stripe_event",
+      details: {
+        stripe_event_id: event.id,
+        stripe_event_type: event.type,
+        error: message,
+        will_retry: true,
+      },
     });
     console.error("[stripe-webhook] Fatal webhook error", { message });
     captureException(error, context);
@@ -1937,13 +2121,25 @@ async function handlePaymentSucceeded(
       subscriptionId,
       timestamp: new Date().toISOString(),
     });
-    await allocateMonthlyCredits(supabase, {
-      customerId,
-      subscriptionId,
-      invoiceId: asNonEmptyString(invoice.id),
-      invoice,
-      stripeSubscription,
-    });
+    try {
+      await allocateMonthlyCredits(supabase, {
+        customerId,
+        subscriptionId,
+        invoiceId: asNonEmptyString(invoice.id),
+        invoice,
+        stripeSubscription,
+      });
+    } catch (error) {
+      await persistFailedCreditAllocation(supabase, {
+        customerId,
+        subscriptionId,
+        eventId,
+        invoice,
+        stripeSubscription,
+        error,
+      });
+      throw error;
+    }
   }
 
   const { data: profile } = await supabase
@@ -2163,6 +2359,17 @@ async function allocateMonthlyCredits(
     console.log("[allocateMonthlyCredits] ⏭️  SKIPPED (subscription inactive)", {
       invoiceId,
       subscriptionId,
+    });
+    await logStripeWebhookMonitoringAlert(supabase, {
+      eventType: "stripe_credit_allocation_skipped_inactive_subscription",
+      severity: "warning",
+      entityType: "stripe_subscription",
+      details: {
+        stripe_invoice_id: invoiceId,
+        stripe_subscription_id: subscriptionId,
+        stripe_customer_id: customerId,
+        stripe_subscription_status: stripeSubscription.status,
+      },
     });
     return;
   }
