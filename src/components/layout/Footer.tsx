@@ -110,9 +110,9 @@ export function Footer() {
                 href ? (
                   <a
                     key={key}
-                    href={href}
+                    href={href ?? undefined}
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="noopener noreferrer nofollow"
                     className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors"
                   >
                     <Icon className="w-5 h-5" />
