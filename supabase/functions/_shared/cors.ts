@@ -9,6 +9,8 @@ export function resolveCorsHeaders(origin: string | null) {
   if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
     return {
       "Access-Control-Allow-Origin": "null",
+      "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     };
   }
 

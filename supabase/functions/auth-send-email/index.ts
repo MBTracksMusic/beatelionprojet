@@ -307,12 +307,29 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  const payloadText = await req.text();
+  const headers = Object.fromEntries(req.headers);
+  let payload: AuthHookPayload;
+
+  try {
+    const webhook = new Webhook(getHookSecret());
+    payload = webhook.verify(payloadText, headers) as AuthHookPayload;
+  } catch (error) {
+    console.error("[auth-send-email] hook verification failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return new Response(JSON.stringify({
+      error: {
+        message: error instanceof Error ? error.message : String(error),
+      },
+    }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   try {
     getEmailConfig();
-    const payloadText = await req.text();
-    const headers = Object.fromEntries(req.headers);
-    const webhook = new Webhook(getHookSecret());
-    const payload = webhook.verify(payloadText, headers) as AuthHookPayload;
     const supabaseAdmin = createAdminClient();
     const emailData = payload.email_data;
     const user = payload.user;
@@ -320,31 +337,33 @@ Deno.serve(async (req: Request) => {
     const redirectTo = asNonEmptyString(emailData.redirect_to);
     const actionType = asNonEmptyString(emailData.email_action_type) ?? "generic";
 
-    const primaryRecipient = normalizeEmailForKey(user.email);
-    const primaryTemplate = getTemplate(actionType, primaryRecipient);
-
-    await sendAuthEmail({
-      supabaseAdmin,
-      recipient: primaryRecipient,
-      actionType,
-      tokenHash: asNonEmptyString(emailData.token_hash_new) && actionType === "email_change"
-        ? (asNonEmptyString(emailData.token_hash_new) as string)
-        : emailData.token_hash,
-      redirectTo,
-      siteUrl,
-      bodyLines: primaryTemplate.bodyLines,
-      subject: primaryTemplate.subject,
-      title: primaryTemplate.title,
-      preheader: primaryTemplate.preheader,
-      templateKey: primaryTemplate.templateKey,
-    });
-
     if (actionType === "email_change") {
       const newEmail = asNonEmptyString(user.email_new);
-      const tokenNew = asNonEmptyString(emailData.token_new);
+      const tokenHashForCurrentEmail = asNonEmptyString(emailData.token_hash_new);
       const tokenHashForNewEmail = asNonEmptyString(emailData.token_hash);
+      let emailSent = false;
 
-      if (newEmail && tokenNew && tokenHashForNewEmail) {
+      if (tokenHashForCurrentEmail) {
+        const currentRecipient = normalizeEmailForKey(user.email);
+        const currentTemplate = getTemplate(actionType, currentRecipient);
+
+        await sendAuthEmail({
+          supabaseAdmin,
+          recipient: currentRecipient,
+          actionType,
+          tokenHash: tokenHashForCurrentEmail,
+          redirectTo,
+          siteUrl,
+          bodyLines: currentTemplate.bodyLines,
+          subject: currentTemplate.subject,
+          title: currentTemplate.title,
+          preheader: currentTemplate.preheader,
+          templateKey: currentTemplate.templateKey,
+        });
+        emailSent = true;
+      }
+
+      if (newEmail && tokenHashForNewEmail) {
         const secondaryRecipient = normalizeEmailForKey(newEmail);
         const secondaryTemplate = getTemplate(actionType, secondaryRecipient);
 
@@ -361,7 +380,29 @@ Deno.serve(async (req: Request) => {
           preheader: secondaryTemplate.preheader,
           templateKey: `${secondaryTemplate.templateKey}_new_email`,
         });
+        emailSent = true;
       }
+
+      if (!emailSent) {
+        throw new Error("email_change_missing_target_token_hash");
+      }
+    } else {
+      const primaryRecipient = normalizeEmailForKey(user.email);
+      const primaryTemplate = getTemplate(actionType, primaryRecipient);
+
+      await sendAuthEmail({
+        supabaseAdmin,
+        recipient: primaryRecipient,
+        actionType,
+        tokenHash: emailData.token_hash,
+        redirectTo,
+        siteUrl,
+        bodyLines: primaryTemplate.bodyLines,
+        subject: primaryTemplate.subject,
+        title: primaryTemplate.title,
+        preheader: primaryTemplate.preheader,
+        templateKey: primaryTemplate.templateKey,
+      });
     }
 
     return new Response(JSON.stringify({}), {
@@ -369,7 +410,7 @@ Deno.serve(async (req: Request) => {
       headers: { "Content-Type": "application/json" },
     });
   } catch (error) {
-    console.error("[auth-send-email] hook verification or request handling failed", {
+    console.error("[auth-send-email] request handling failed", {
       error: error instanceof Error ? error.message : String(error),
     });
     return new Response(JSON.stringify({
@@ -377,7 +418,7 @@ Deno.serve(async (req: Request) => {
         message: error instanceof Error ? error.message : String(error),
       },
     }), {
-      status: 401,
+      status: 500,
       headers: { "Content-Type": "application/json" },
     });
   }

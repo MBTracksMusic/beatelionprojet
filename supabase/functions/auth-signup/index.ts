@@ -94,7 +94,7 @@ serveWithErrorHandling("auth-signup", async (req: Request) => {
     const supabaseAdmin = createAdminClient();
     const { error: rateLimitError } = await supabaseAdmin.rpc(
       "rpc_contact_submit_rate_limit",
-      { p_ip_hash: ipHash },
+      { p_ip_hash: ipHash, p_scope: "auth_signup" },
     );
 
     if (rateLimitError) {
@@ -128,7 +128,11 @@ serveWithErrorHandling("auth-signup", async (req: Request) => {
   });
 
   if (error) {
-    throw new ApiError(error.status ?? 400, "bad_request", error.message);
+    throw new ApiError(
+      error.status ?? 400,
+      error.code ?? "signup_failed",
+      error.message,
+    );
   }
 
   return jsonResponse({

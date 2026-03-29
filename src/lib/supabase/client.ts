@@ -29,12 +29,11 @@ export const supabase = createClient<Database>(
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      // detectSessionInUrl: false (default)
-      // CRITICAL: Password reset flow in ResetPassword.tsx manually handles URL recovery tokens.
-      // With detectSessionInUrl: true, Supabase processes the URL before the component mounts,
-      // causing the auth event to be emitted before the listener is registered, resulting in
-      // "Link invalid or expired" error after clicking password reset email link.
-      // Disabling detectSessionInUrl is safe because ResetPassword.tsx has full bootstrap logic.
+      detectSessionInUrl: false,
+      // CRITICAL: this app manually handles auth callback URLs in ResetPassword.tsx
+      // and EmailConfirmation.tsx. The installed Supabase client defaults this
+      // option to true, so it must be disabled explicitly to avoid consuming the
+      // URL before those pages run their own token bootstrap logic.
     },
   },
 );

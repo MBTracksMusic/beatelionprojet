@@ -40,11 +40,19 @@ const toStatusCode = (error: unknown): number => {
   return 500;
 };
 
-const toErrorCode = (status: number): string => {
+const toErrorCode = (error: unknown, status: number): string => {
+  if (isApiError(error) && error.code.trim().length > 0) {
+    return error.code;
+  }
+
   if (status === 400) return "bad_request";
   if (status === 401) return "unauthorized";
   if (status === 403) return "forbidden";
   if (status === 404) return "not_found";
+  if (status === 405) return "method_not_allowed";
+  if (status === 409) return "conflict";
+  if (status === 422) return "unprocessable_entity";
+  if (status === 429) return "too_many_requests";
   return "internal_server_error";
 };
 
@@ -68,7 +76,7 @@ export const handleError = (
   options?: { corsHeaders?: Record<string, string> },
 ): Response => {
   const status = toStatusCode(error);
-  const code = toErrorCode(status);
+  const code = toErrorCode(error, status);
   const message = toPublicMessage(error, status);
 
   const logger = createLogger({

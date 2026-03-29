@@ -8,6 +8,34 @@ import { supabase } from '@/lib/supabase/client';
 import { getAuthRedirectUrl } from '../../lib/auth/redirects';
 import { useToast, useToastStore } from '../../lib/toast';
 
+const AUTH_URL_PARAMS = [
+  'access_token',
+  'refresh_token',
+  'expires_at',
+  'expires_in',
+  'token_type',
+  'type',
+  'code',
+  'token',
+  'token_hash',
+  'error',
+  'error_code',
+  'error_description',
+] as const;
+
+function clearAuthParamsFromUrl() {
+  const url = new URL(window.location.href);
+
+  for (const param of AUTH_URL_PARAMS) {
+    url.searchParams.delete(param);
+  }
+
+  url.hash = '';
+
+  const nextUrl = `${url.pathname}${url.search}`;
+  window.history.replaceState(null, '', nextUrl || url.pathname);
+}
+
 export default function EmailConfirmation() {
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
@@ -51,6 +79,7 @@ export default function EmailConfirmation() {
 
       // Explicit Supabase error returned in URL
       if (errorParam || errorDescription) {
+        clearAuthParamsFromUrl();
         setStatus('error');
         setErrorMessage(
           decodeURIComponent(errorDescription || errorParam || t('errors.generic'))
@@ -63,11 +92,13 @@ export default function EmailConfirmation() {
         try {
           const { error } = await supabase.auth.exchangeCodeForSession(codeParam);
           if (error) throw error;
+          clearAuthParamsFromUrl();
           setStatus('success');
           setTimeout(() => navigate('/'), 2000);
         } catch (error) {
           console.error('Error exchanging code for session:', error);
           const apiError = error as AuthApiError;
+          clearAuthParamsFromUrl();
           setStatus('error');
           setErrorMessage(apiError?.message || t('auth.emailConfirmationInvalidLink'));
         }
@@ -82,6 +113,7 @@ export default function EmailConfirmation() {
       if (tokenHashParam && type && !accessToken) {
         const allowedOtpTypes = new Set(['signup', 'email_change', 'invite', 'magiclink']);
         if (!allowedOtpTypes.has(type)) {
+          clearAuthParamsFromUrl();
           setStatus('error');
           setErrorMessage(t('auth.emailConfirmationInvalidType'));
           return;
@@ -92,11 +124,13 @@ export default function EmailConfirmation() {
             token_hash: tokenHashParam,
           });
           if (error) throw error;
+          clearAuthParamsFromUrl();
           setStatus('success');
           setTimeout(() => navigate('/'), 2000);
         } catch (error) {
           console.error('Error verifying OTP token_hash:', error);
           const apiError = error as AuthApiError;
+          clearAuthParamsFromUrl();
           setStatus('error');
           if (apiError?.status === 401 || apiError?.status === 403) {
             setErrorMessage(t('auth.emailConfirmationExpired'));
@@ -111,6 +145,7 @@ export default function EmailConfirmation() {
       if (!accessToken) return;
 
       if (!type) {
+        clearAuthParamsFromUrl();
         setStatus('error');
         setErrorMessage(t('auth.emailConfirmationMissingType'));
         return;
@@ -118,6 +153,7 @@ export default function EmailConfirmation() {
 
       const allowedTypes = new Set(['signup', 'recovery', 'magiclink', 'invite', 'email_change']);
       if (!allowedTypes.has(type)) {
+        clearAuthParamsFromUrl();
         setStatus('error');
         setErrorMessage(t('auth.emailConfirmationInvalidType'));
         return;
@@ -131,11 +167,13 @@ export default function EmailConfirmation() {
 
         if (error) throw error;
 
+        clearAuthParamsFromUrl();
         setStatus('success');
         setTimeout(() => navigate('/'), 2000);
       } catch (error) {
         console.error('Error confirming email:', error);
         const apiError = error as AuthApiError;
+        clearAuthParamsFromUrl();
         setStatus('error');
         if (apiError?.status === 401) {
           setErrorMessage(t('auth.emailConfirmationExpired'));

@@ -129,8 +129,12 @@ export function Header() {
   }, [closeAllMenus, isLangMenuOpen, isMenuOpen, isUserMenuOpen]);
 
   const handleSignOut = async () => {
-    await signOut();
-    navigate('/');
+    try {
+      await signOut();
+      navigate('/');
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
   };
 
   const handleLanguageChange = (nextLanguage: string) => {

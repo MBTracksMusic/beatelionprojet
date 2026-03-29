@@ -36,8 +36,8 @@ type RecoveryLinkContext = {
 };
 
 function readInitialRecoveryContext(): RecoveryLinkContext {
-  // Read params at module load time, before the Supabase SDK (detectSessionInUrl: true)
-  // processes and potentially clears the URL hash.
+  // Read params before component effects run so the page can bootstrap recovery
+  // state deterministically, even if the URL gets cleaned right after validation.
   const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
   const queryParams = new URLSearchParams(window.location.search);
   const readParam = (...keys: string[]) =>
@@ -93,6 +93,7 @@ export function ResetPasswordPage() {
 
   useEffect(() => {
     const setErrorState = (message: string, toastMessage = message) => {
+      clearRecoveryParamsFromUrl();
       setStatus('error');
       setStatusMessage(message);
       toast.error(toastMessage);
@@ -131,6 +132,7 @@ export function ResetPasswordPage() {
       if (!isMounted || settled) return;
       settled = true;
       clearTimeout(timeoutId);
+      clearRecoveryParamsFromUrl();
       setStatus('error');
       setStatusMessage(message);
       toast.error(message);

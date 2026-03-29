@@ -6,7 +6,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { useTranslation } from '../../lib/i18n';
 import { setAnalyticsUserId, trackLogin } from '../../lib/analytics';
-import { signIn } from '../../lib/auth/service';
+import { AuthFunctionError, signIn } from '../../lib/auth/service';
 import { supabase } from '@/lib/supabase/client';
 import toast from 'react-hot-toast';
 
@@ -111,6 +111,21 @@ export function LoginPage() {
       navigate(destination, { replace: true });
     } catch (error) {
       console.error('Login error:', error);
+      const authError = error as AuthFunctionError;
+      const normalizedMessage = authError.message?.toLowerCase() ?? '';
+
+      if (
+        authError instanceof AuthFunctionError
+        && (
+          authError.code === 'email_not_confirmed'
+          || normalizedMessage.includes('email not confirmed')
+        )
+      ) {
+        navigate(`/email-confirmation?email=${encodeURIComponent(email.trim())}`);
+        toast.error(t('auth.confirmEmailBeforeLogin'));
+        return;
+      }
+
       setError(t('auth.invalidCredentials'));
     } finally {
       resetCaptcha();
