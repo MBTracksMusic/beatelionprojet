@@ -232,19 +232,38 @@ const getTemplateContent = (params: {
 
   if (template === "purchase_receipt") {
     const purchaseId = asNonEmptyString(payload?.purchase_id) ?? "N/A";
+    const productTitle = asNonEmptyString(payload?.product_title);
+    const amountCents = typeof payload?.amount_cents === "number" ? payload.amount_cents : null;
+    const creditsSpent = typeof payload?.credits_spent === "number" && payload.credits_spent > 0
+      ? payload.credits_spent
+      : null;
+    const amountDisplay = creditsSpent !== null
+      ? `${creditsSpent} credit${creditsSpent > 1 ? "s" : ""}`
+      : amountCents !== null
+        ? `${(amountCents / 100).toFixed(2).replace(".", ",")} €`
+        : null;
+    const metaLines = [
+      productTitle ? `Beat : ${escapeHtml(productTitle)}` : null,
+      amountDisplay ? `Montant : ${amountDisplay}` : null,
+      `Reference : ${purchaseId}`,
+    ].filter((line): line is string => line !== null);
     return {
-      subject: "Ton achat Beatelion est confirme",
+      subject: productTitle
+        ? `Ton achat "${productTitle}" est confirme`
+        : "Ton achat Beatelion est confirme",
       ...buildBrandedEmailContent({
         appUrl: safeAppUrl,
         title: "Achat confirme",
-        preheader: "Ton achat Beatelion est confirme",
+        preheader: productTitle
+          ? `Ton achat "${productTitle}" est confirme`
+          : "Ton achat Beatelion est confirme",
         bodyLines: [
-          "Merci pour ton achat.",
-          "Ta commande a ete enregistree avec succes.",
+          "Merci pour ton achat sur Beatelion !",
+          "Ta commande a ete enregistree avec succes. Tu peux telecharger ton beat depuis ton dashboard.",
         ],
         ctaLabel: "Voir mon dashboard",
         ctaUrl: dashboardUrl,
-        metaLines: [`Reference achat: ${purchaseId}`],
+        metaLines,
       }),
     };
   }
