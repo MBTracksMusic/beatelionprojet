@@ -39,6 +39,7 @@ interface CreditPurchaseResult {
 const CREDIT_VALUE_EUR = 10;
 const CREDIT_VALUE_CENTS = CREDIT_VALUE_EUR * 100;
 const MAX_CREDIT_CAP = 6;
+const MAX_CREDIT_PURCHASE_PRICE_CENTS = MAX_CREDIT_CAP * CREDIT_VALUE_CENTS;
 const DEFAULT_OG_IMAGE = 'https://beatelion.com/og-default.jpg';
 
 const mapCreditPurchaseError = (message: string, t: TranslateFn) => {
@@ -177,6 +178,7 @@ export function ProductDetailsPage() {
   }, [product?.id, user?.id]);
 
   const displayPrice = product?.price ?? 0;
+  const formattedCreditPriceCap = formatPrice(MAX_CREDIT_PURCHASE_PRICE_CENTS);
   const requiredCredits = useMemo(() => {
     if (!product) {
       return 0;
@@ -301,7 +303,12 @@ export function ProductDetailsPage() {
     !product.is_sold &&
     product.is_published &&
     product.status === 'active';
-  const isCreditEligible = product?.product_type === 'beat' && !product?.is_exclusive && !product?.is_sold && requiredCredits <= MAX_CREDIT_CAP;
+  const isOverCreditPriceLimit = displayPrice > MAX_CREDIT_PURCHASE_PRICE_CENTS;
+  const isCreditEligible =
+    product?.product_type === 'beat' &&
+    !product?.is_exclusive &&
+    !product?.is_sold &&
+    !isOverCreditPriceLimit;
   const hasEnoughCredits = typeof creditBalance === 'number' && creditBalance >= requiredCredits;
   const isCreditPurchaseDisabled =
     !isAuthenticated ||
@@ -321,6 +328,10 @@ export function ProductDetailsPage() {
     !isEarlyAccessPurchaseLocked &&
     typeof creditBalance === 'number' &&
     creditBalance < requiredCredits;
+  const creditEligibilityMessage =
+    !product?.is_exclusive && isOverCreditPriceLimit
+      ? t('productDetails.creditPurchasePriceLimit', { price: formattedCreditPriceCap })
+      : t('productDetails.creditEligibilityRule', { price: formattedCreditPriceCap });
 
   const handlePlay = () => {
     if (!product || !hasPreview) return;
@@ -549,7 +560,7 @@ export function ProductDetailsPage() {
                   ? t('productDetails.creditEligibleStatus')
                   : t('productDetails.creditUnavailableStatus')}
               </p>
-              <p className="mt-2 text-xs text-zinc-500">{t('productDetails.creditEligibilityRule')}</p>
+              <p className="mt-2 text-xs text-zinc-500">{creditEligibilityMessage}</p>
             </div>
 
             {!hasPreview && (
@@ -642,7 +653,12 @@ export function ProductDetailsPage() {
             {product.is_exclusive && (
               <p className="mt-3 text-xs text-zinc-500">{t('productDetails.creditPurchaseUnavailable')}</p>
             )}
-            {!product.is_exclusive && !product.is_sold && isAuthenticated && !isCreditBalanceLoading && typeof creditBalance === 'number' && creditBalance < requiredCredits && (
+            {!product.is_exclusive && isOverCreditPriceLimit && (
+              <p className="mt-3 text-xs text-zinc-500">
+                {t('productDetails.creditPurchasePriceLimit', { price: formattedCreditPriceCap })}
+              </p>
+            )}
+            {isCreditEligible && isAuthenticated && !isCreditBalanceLoading && typeof creditBalance === 'number' && creditBalance < requiredCredits && (
               <p className="mt-3 text-xs text-zinc-500">
                 {t('productDetails.creditPurchaseMissingCredits', { count: missingCredits })}
               </p>
@@ -665,7 +681,7 @@ export function ProductDetailsPage() {
               {creditConfirmSpendText}
             </p>
             <p className="mt-3 text-sm text-zinc-300">
-              {t('productDetails.creditConfirmRule')}
+              {t('productDetails.creditConfirmRule', { price: formattedCreditPriceCap })}
             </p>
             <p className="mt-3 text-sm text-zinc-300">
               {t('productDetails.creditConfirmDebit')}
