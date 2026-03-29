@@ -28,6 +28,7 @@ import {
 import { getFunnelData } from '../../lib/funnelService';
 import { useTranslation } from '../../lib/i18n';
 import { supabase } from '../../lib/supabase/client';
+import { invokeWithAuth } from '../../lib/supabase/invokeWithAuth';
 import { useMaintenanceModeContext } from '../../lib/supabase/MaintenanceModeContext';
 
 type AiBattleSuggestionMode = 'ai_only' | 'hybrid' | 'sql_only';
@@ -87,6 +88,43 @@ function toIsoStringOrNull(value: string) {
   }
 
   return date.toISOString();
+}
+
+function asNonEmptyString(value: unknown) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+async function readEdgeInvokeErrorMessage(error: unknown) {
+  if (!error || typeof error !== 'object') {
+    return null;
+  }
+
+  const fallbackMessage = 'message' in error
+    ? asNonEmptyString((error as { message?: unknown }).message)
+    : null;
+  const context = 'context' in error
+    ? (error as { context?: unknown }).context
+    : null;
+
+  if (!(context instanceof Response)) {
+    return fallbackMessage;
+  }
+
+  try {
+    const payload = await context.clone().json() as Record<string, unknown>;
+    return asNonEmptyString(payload.message) || asNonEmptyString(payload.error) || fallbackMessage;
+  } catch {
+    try {
+      return asNonEmptyString(await context.clone().text()) || fallbackMessage;
+    } catch {
+      return fallbackMessage;
+    }
+  }
 }
 
 export function AdminDashboardPage() {
@@ -370,39 +408,21 @@ export function AdminDashboardPage() {
 
     try {
       const nextValue = !maintenance;
-
-      // DEBUG: Verify token is being sent
-      const { data: { session } } = await supabase.auth.getSession();
-      console.log('🔍 TOKEN CHECK:', {
-        hasSession: !!session,
-        hasToken: !!session?.access_token,
-        tokenLength: session?.access_token?.length,
-        TOKEN_SENT: session?.access_token ? `Bearer ${session.access_token.substring(0, 20)}...` : 'NO TOKEN',
+      const { data, error } = await invokeWithAuth<{
+        success?: boolean;
+        message?: string;
+      }>('toggle-maintenance', {
+        maintenance_mode: nextValue,
       });
-
-      if (!session?.access_token) {
-        throw new Error('User is not authenticated. Please sign in first.');
-      }
-
-      // Send explicit Authorization header
-      const { data, error } = await supabase.functions.invoke('toggle-maintenance', {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: {
-          maintenance_mode: nextValue,
-        },
-      });
-
-      console.log('📤 RESPONSE:', { data, error });
 
       if (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
-        throw new Error(message);
+        throw new Error(
+          (await readEdgeInvokeErrorMessage(error)) ?? 'Impossible de mettre à jour le mode maintenance.',
+        );
       }
 
       if (!data?.success) {
-        throw new Error(data?.message || 'Failed to toggle maintenance mode');
+        throw new Error(data?.message || 'Impossible de mettre à jour le mode maintenance.');
       }
 
       toast.success(nextValue ? 'Mode maintenance activé.' : 'Mode maintenance désactivé.');

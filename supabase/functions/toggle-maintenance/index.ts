@@ -111,12 +111,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       });
     }
 
-    // === 6. Create admin client (for auth verification and admin operations)
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false },
-    });
-
-    // === 7. Extract and verify JWT token from Authorization header
+    // === 6. Extract and verify JWT token from Authorization header
     const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
 
     if (!authHeader?.startsWith('Bearer ')) {
@@ -132,14 +127,24 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const token = authHeader.replace('Bearer ', '');
 
-    const { data, error: authError } = await supabaseAdmin.auth.getClaims(token);
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: { persistSession: false },
+      global: { headers: { authorization: `Bearer ${token}` } },
+    });
+
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false },
+    });
+
+    const { data: authData, error: authError } = await supabaseAuth.auth.getUser(token);
+    const user = authData?.user;
 
     console.log('[toggle-maintenance] Token verification:', {
-      claimsExists: !!data?.claims,
+      userExists: !!user,
       authError: authError?.message || null,
     });
 
-    if (authError || !data?.claims?.sub) {
+    if (authError || !user?.id) {
       console.warn('[toggle-maintenance] Token verification failed', { authError: authError?.message });
       return new Response(JSON.stringify({
         error: 'auth_failed',
@@ -150,7 +155,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       });
     }
 
-    const userId = data.claims.sub;
+    const userId = user.id;
 
     // === 8. Verify admin status using SERVICE_ROLE
 
