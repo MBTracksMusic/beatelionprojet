@@ -74,6 +74,39 @@ export default function EmailConfirmation() {
         return;
       }
 
+      // Handle direct token_hash links built by the auth-send-email hook.
+      // buildActionUrl() sets ?token_hash=xxx&type=signup directly in the app URL.
+      // The Supabase SDK does not auto-process token_hash params — verifyOtp() is required.
+      const tokenHashParam =
+        hashParams.get('token_hash') || searchParams.get('token_hash');
+      if (tokenHashParam && type && !accessToken) {
+        const allowedOtpTypes = new Set(['signup', 'email_change', 'invite', 'magiclink']);
+        if (!allowedOtpTypes.has(type)) {
+          setStatus('error');
+          setErrorMessage(t('auth.emailConfirmationInvalidType'));
+          return;
+        }
+        try {
+          const { error } = await supabase.auth.verifyOtp({
+            type: type as 'signup' | 'email_change' | 'invite' | 'magiclink',
+            token_hash: tokenHashParam,
+          });
+          if (error) throw error;
+          setStatus('success');
+          setTimeout(() => navigate('/'), 2000);
+        } catch (error) {
+          console.error('Error verifying OTP token_hash:', error);
+          const apiError = error as AuthApiError;
+          setStatus('error');
+          if (apiError?.status === 401 || apiError?.status === 403) {
+            setErrorMessage(t('auth.emailConfirmationExpired'));
+          } else {
+            setErrorMessage(apiError?.message || t('errors.generic'));
+          }
+        }
+        return;
+      }
+
       // Landing without any token keeps the UI in pending state (user just registered).
       if (!accessToken) return;
 
