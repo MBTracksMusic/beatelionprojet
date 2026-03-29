@@ -1029,10 +1029,12 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
     }
     lineItems.append("line_items[0][quantity]", "1");
 
-    // Stripe Connect: Calculate fee split (80% to producer, 20% platform commission)
+    // Stripe Connect: Calculate fee split (70% to producer, 30% platform commission)
     // application_fee_amount is retained by platform; transfer_data.destination receives (checkoutAmount - applicationFeeAmount)
-    const applicationFeeAmount = Math.round(checkoutAmount * 0.2); // Platform commission = 20%, Producer receives 80%
-    const producerPayoutAmount = Math.round(checkoutAmount * 0.8); // Producer always receives 80%, whether via Connect or fallback
+    const PLATFORM_COMMISSION_RATE = 0.3;
+    const PRODUCER_PAYOUT_RATE = 0.7;
+    const applicationFeeAmount = Math.round(checkoutAmount * PLATFORM_COMMISSION_RATE); // Platform commission = 30%, Producer receives 70%
+    const producerPayoutAmount = Math.round(checkoutAmount * PRODUCER_PAYOUT_RATE); // Producer always receives 70%, whether via Connect or fallback
 
     const sessionParamsData: Record<string, string> = {
       mode: "payment",

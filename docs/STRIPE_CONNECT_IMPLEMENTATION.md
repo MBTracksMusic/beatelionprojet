@@ -7,7 +7,7 @@ BeatElion supports two payment flows:
 ### 1. **Stripe Connect Flow** (Recommended - Direct to Producer)
 - Producer activates Stripe Connect (Express account)
 - `stripe_account_id` + `charges_enabled = true`
-- Payment split: 80% Producer, 20% Platform
+- Payment split: 70% Producer, 30% Platform
 - **Automatic**: Money goes directly to producer account
 
 ### 2. **Simple Stripe Flow** (Fallback - Manual Payout)
@@ -26,10 +26,10 @@ Client Pays 100€
     ↓
 Stripe Platform Account receives 100€
     ↓
-Transfer to Producer (80€) + Platform Fee (20€)
+Transfer to Producer (70€) + Platform Fee (30€)
     ↓
-Producer Account: +80€
-Platform Account: +20€ (already in platform account)
+Producer Account: +70€
+Platform Account: +30€ (already in platform account)
 ```
 
 ### Simple Stripe (Fallback)
@@ -41,7 +41,7 @@ Stripe Platform Account receives 100€
 (No automatic transfer - Manual process required)
     ↓
 Support team must:
-  1. Calculate producer share: 80€
+  1. Calculate producer share: 70€
   2. Transfer via bank/Stripe connect
   3. Update simple_stripe_payments.paid_at
 ```
@@ -71,7 +71,7 @@ const sessionParams = {
     ? {
         // Direct transfer to producer
         "payment_intent_data[transfer_data][destination]": producerProfile.stripe_account_id,
-        "payment_intent_data[application_fee_amount]": Math.round(checkoutAmount * 0.2),
+        "payment_intent_data[application_fee_amount]": Math.round(checkoutAmount * 0.3),
       }
     : {
         // Fallback: all money to platform
@@ -102,7 +102,7 @@ if (hasStripeConnect) {
     purchase_id: purchase.id,
     producer_id: productRow.producer_id,
     amount: checkoutAmount,
-    producer_amount: Math.round(checkoutAmount * 0.8),
+    producer_amount: Math.round(checkoutAmount * 0.7),
     payment_status: "pending"
   })
 
@@ -162,15 +162,15 @@ paid_at                         -- When support processed payout
 
 ## Fee Calculation
 
-**Always: 80% Producer, 20% Platform**
+**Always: 70% Producer, 30% Platform**
 
 ```
 checkoutAmount = 100€
-applicationFeeAmount = 100 * 0.2 = 20€
-producerAmount = 100 - 20 = 80€
+applicationFeeAmount = 100 * 0.3 = 30€
+producerAmount = 100 - 30 = 70€
 
-Platform receives: 20€
-Producer receives: 80€
+Platform receives: 30€
+Producer receives: 70€
 ```
 
 ---
@@ -242,4 +242,3 @@ WHERE is_producer_active = true
 - [ ] Failed transfer → Logged in stripe_payout_failures
 - [ ] Producer can view own transfers
 - [ ] Support team can view all transfers & failures
-
