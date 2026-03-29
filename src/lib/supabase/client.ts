@@ -61,11 +61,7 @@ export const supabase = createClient<Database>(
       storageKey: AUTH_STORAGE_KEY,
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: false,
-      // CRITICAL: this app manually handles auth callback URLs in ResetPassword.tsx
-      // and EmailConfirmation.tsx. The installed Supabase client defaults this
-      // option to true, so it must be disabled explicitly to avoid consuming the
-      // URL before those pages run their own token bootstrap logic.
+      detectSessionInUrl: true,
     },
   },
 );
