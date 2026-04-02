@@ -40,7 +40,8 @@ const CREDIT_VALUE_EUR = 10;
 const CREDIT_VALUE_CENTS = CREDIT_VALUE_EUR * 100;
 const MAX_CREDIT_CAP = 6;
 const MAX_CREDIT_PURCHASE_PRICE_CENTS = MAX_CREDIT_CAP * CREDIT_VALUE_CENTS;
-const DEFAULT_OG_IMAGE = 'https://beatelion.com/og-default.jpg';
+const DEFAULT_OG_IMAGE =
+  `${((import.meta.env.VITE_SITE_URL as string | undefined) || window.location.origin).replace(/\/+$/, '')}/og-default.jpg`;
 
 const mapCreditPurchaseError = (message: string, t: TranslateFn) => {
   if (message.includes('insufficient_credits')) return t('productDetails.creditPurchaseInsufficient');

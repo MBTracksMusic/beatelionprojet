@@ -26,7 +26,7 @@ declare global {
 
 const ANALYTICS_CONSENT_KEY = 'beatelion_analytics_consent';
 const MEASUREMENT_ID =
-  (import.meta.env.VITE_GA_MEASUREMENT_ID as string | undefined)?.trim() || 'G-ECDLTP21H5';
+  (import.meta.env.VITE_GA_MEASUREMENT_ID as string | undefined)?.trim() || null;
 const DEFAULT_CONSENT: ConsentParams = {
   analytics_storage: 'denied',
 };
@@ -331,7 +331,7 @@ export async function initAnalytics() {
 }
 
 export function setAnalyticsUserId(userId: string) {
-  if (!canTrack() || !userId || configuredUserId === userId) {
+  if (!canTrack() || !userId || configuredUserId === userId || !MEASUREMENT_ID) {
     return;
   }
 
@@ -342,7 +342,7 @@ export function setAnalyticsUserId(userId: string) {
 }
 
 export function clearAnalyticsUserId() {
-  if (typeof window === 'undefined' || typeof window.gtag !== 'function') {
+  if (typeof window === 'undefined' || typeof window.gtag !== 'function' || !MEASUREMENT_ID) {
     return;
   }
 

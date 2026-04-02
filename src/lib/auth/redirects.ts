@@ -1,4 +1,7 @@
-const DEFAULT_PRODUCTION_SITE_URL = 'https://www.beatelion.com';
+const DEFAULT_PRODUCTION_SITE_URL =
+  typeof window !== 'undefined'
+    ? window.location.origin
+    : 'https://www.beatelion.com';
 
 function normalizeBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/, '');
