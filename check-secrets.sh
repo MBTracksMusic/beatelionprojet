@@ -12,6 +12,8 @@ find . \
   -type d \( -name node_modules -o -name .git -o -name dist -o -name build -o -name docs -o -name tests \) -prune \
   -o -type f \
   ! -name ".env.example" \
+  ! -name ".env.local" \
+  ! -name ".env.*.local" \
   ! -name "README.md" \
   ! -name "*.sql" \
   -print0 \
@@ -19,6 +21,7 @@ find . \
     '(^|[^A-Z0-9_])(SUPABASE_SERVICE_ROLE_KEY|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|RESEND_API_KEY|HCAPTCHA_SECRET_KEY|CONTRACT_SERVICE_SECRET|VERCEL_OIDC_TOKEN)(=|:)|Bearer[[:space:]]+[A-Za-z0-9._=-]{20,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' \
   | grep -v "your_" \
   | grep -v "_xxx" \
+  | grep -v "\.env\." \
   | grep -v ".env.example" \
   | grep -v "README" \
   | awk '

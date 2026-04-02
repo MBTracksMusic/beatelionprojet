@@ -59,6 +59,23 @@ const resolveAllowedCaptchaHostnames = () => {
 
 const ALLOWED_CAPTCHA_HOSTNAMES = resolveAllowedCaptchaHostnames();
 
+// Same slug used in cors.ts — matches all *.vercel.app preview URLs for the project
+const VERCEL_PROJECT_SLUG = Deno.env.get("CORS_VERCEL_PROJECT_SLUG")?.trim() ?? "";
+
+function isAllowedCaptchaHostname(hostname: string): boolean {
+  if (ALLOWED_CAPTCHA_HOSTNAMES.has(hostname)) return true;
+
+  if (
+    VERCEL_PROJECT_SLUG &&
+    hostname.endsWith(".vercel.app") &&
+    hostname.includes(VERCEL_PROJECT_SLUG)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export function getHcaptchaSecret() {
   return asNonEmptyString(Deno.env.get("HCAPTCHA_SECRET_KEY"))
     ?? asNonEmptyString(Deno.env.get("HCAPTCHA_SECRET"));
@@ -135,7 +152,7 @@ export async function verifyHcaptchaToken(params: {
   }
 
   const hostname = normalizeHostname(asNonEmptyString(payload.hostname) ?? "");
-  if (!hostname || !ALLOWED_CAPTCHA_HOSTNAMES.has(hostname)) {
+  if (!hostname || !isAllowedCaptchaHostname(hostname)) {
     console.warn("[hcaptcha] rejected hostname", {
       hostname,
       allowed: [...ALLOWED_CAPTCHA_HOSTNAMES],
