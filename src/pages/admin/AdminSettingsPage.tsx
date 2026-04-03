@@ -433,6 +433,7 @@ export function AdminSettingsPage() {
     }
 
     const nextSettings = data as SiteAudioSettingsRow | null;
+    setWatermarkPreviewUrl(null);
     setSiteAudioSettings(nextSettings);
     if (nextSettings) {
       setWatermarkForm({
@@ -480,6 +481,7 @@ export function AdminSettingsPage() {
 
     const payload = (data ?? {}) as { path?: string; settings?: SiteAudioSettingsRow | null };
     if (payload.settings) {
+      setWatermarkPreviewUrl(null);
       setSiteAudioSettings(payload.settings);
       setWatermarkForm({
         enabled: Boolean(payload.settings.enabled),
@@ -488,6 +490,7 @@ export function AdminSettingsPage() {
         max_interval_sec: String(payload.settings.max_interval_sec ?? watermarkForm.max_interval_sec),
       });
     } else if (payload.path) {
+      setWatermarkPreviewUrl(null);
       setSiteAudioSettings((prev) => prev
         ? { ...prev, watermark_audio_path: payload.path ?? null, updated_at: new Date().toISOString() }
         : prev);
