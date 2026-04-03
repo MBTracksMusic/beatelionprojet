@@ -5545,8 +5545,11 @@ export type Database = {
           launch_date: string | null
           launch_video_url: string | null
           maintenance_mode: boolean
+          show_free_plan: boolean
           show_homepage_stats: boolean
-          show_pricing_plans: boolean
+          show_producer_elite_plan: boolean
+          show_producer_plan: boolean
+          show_user_premium_plan: boolean
           updated_at: string
         }
         Insert: {
@@ -5554,8 +5557,11 @@ export type Database = {
           launch_date?: string | null
           launch_video_url?: string | null
           maintenance_mode?: boolean
+          show_free_plan?: boolean
           show_homepage_stats?: boolean
-          show_pricing_plans?: boolean
+          show_producer_elite_plan?: boolean
+          show_producer_plan?: boolean
+          show_user_premium_plan?: boolean
           updated_at?: string
         }
         Update: {
@@ -5563,8 +5569,11 @@ export type Database = {
           launch_date?: string | null
           launch_video_url?: string | null
           maintenance_mode?: boolean
+          show_free_plan?: boolean
           show_homepage_stats?: boolean
-          show_pricing_plans?: boolean
+          show_producer_elite_plan?: boolean
+          show_producer_plan?: boolean
+          show_user_premium_plan?: boolean
           updated_at?: string
         }
         Relationships: []

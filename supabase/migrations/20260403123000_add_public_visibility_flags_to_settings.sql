@@ -1,7 +1,7 @@
 /*
   # Add public visibility flags to settings singleton
 
-  - Adds `show_homepage_stats` and `show_pricing_plans` to `public.settings`.
+  - Adds `show_homepage_stats` and per-plan visibility flags to `public.settings`.
   - Backfills homepage stats visibility from legacy `public.app_settings.show_homepage_stats`.
   - Makes `public.get_home_stats()` read the settings singleton so public pages share one source of truth.
   - Reuses existing settings RLS and realtime publication.
@@ -13,15 +13,40 @@ ALTER TABLE public.settings
   ADD COLUMN IF NOT EXISTS show_homepage_stats boolean NOT NULL DEFAULT false;
 
 ALTER TABLE public.settings
-  ADD COLUMN IF NOT EXISTS show_pricing_plans boolean NOT NULL DEFAULT true;
+  ADD COLUMN IF NOT EXISTS show_free_plan boolean NOT NULL DEFAULT true;
+
+ALTER TABLE public.settings
+  ADD COLUMN IF NOT EXISTS show_user_premium_plan boolean NOT NULL DEFAULT true;
+
+ALTER TABLE public.settings
+  ADD COLUMN IF NOT EXISTS show_producer_plan boolean NOT NULL DEFAULT true;
+
+ALTER TABLE public.settings
+  ADD COLUMN IF NOT EXISTS show_producer_elite_plan boolean NOT NULL DEFAULT true;
 
 COMMENT ON COLUMN public.settings.show_homepage_stats IS
   'When true, homepage statistics pills are visible on the public homepage.';
 
-COMMENT ON COLUMN public.settings.show_pricing_plans IS
-  'When true, pricing plans are visible on the public pricing page.';
+COMMENT ON COLUMN public.settings.show_free_plan IS
+  'When true, the free user plan is visible on the public pricing page.';
 
-INSERT INTO public.settings (maintenance_mode, show_homepage_stats, show_pricing_plans)
+COMMENT ON COLUMN public.settings.show_user_premium_plan IS
+  'When true, the user premium plan is visible on the public pricing page.';
+
+COMMENT ON COLUMN public.settings.show_producer_plan IS
+  'When true, the producer plan is visible on the public pricing page.';
+
+COMMENT ON COLUMN public.settings.show_producer_elite_plan IS
+  'When true, the producer elite plan is visible on the public pricing page.';
+
+INSERT INTO public.settings (
+  maintenance_mode,
+  show_homepage_stats,
+  show_free_plan,
+  show_user_premium_plan,
+  show_producer_plan,
+  show_producer_elite_plan
+)
 SELECT
   false,
   COALESCE(
@@ -38,6 +63,9 @@ SELECT
     ),
     false
   ),
+  true,
+  true,
+  true,
   true
 WHERE NOT EXISTS (
   SELECT 1

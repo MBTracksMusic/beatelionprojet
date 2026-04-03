@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase/client';
 import { invokeWithAuth } from '@/lib/supabase/invokeWithAuth';
 import { useMaintenanceModeContext } from '../../lib/supabase/MaintenanceModeContext';
 import type { Json } from '../../lib/supabase/database.types';
+import type { PricingVisibility } from '../../lib/supabase/useMaintenanceMode';
 import { formatDateTime } from '../../lib/utils/format';
 
 const SOCIAL_SETTINGS_KEY = 'social_links';
@@ -44,13 +45,18 @@ interface ReprocessStats {
   skipped: number;
 }
 
+interface VisibilityToggleFieldConfig {
+  key: string;
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}
+
 interface VisibilityToggleCardConfig {
   key: string;
   title: string;
   subtitle: string;
-  label: string;
-  checked: boolean;
-  setChecked: React.Dispatch<React.SetStateAction<boolean>>;
+  toggles: VisibilityToggleFieldConfig[];
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void | Promise<void>;
   isSaving: boolean;
 }
@@ -140,7 +146,7 @@ export function AdminSettingsPage() {
   const { t } = useTranslation();
   const {
     showHomepageStats: storedShowHomepageStats,
-    showPricingPlans: storedShowPricingPlans,
+    pricingVisibility: storedPricingVisibility,
     isLoading: isPublicSettingsLoading,
     error: publicSettingsError,
     updateHomepageStatsVisibility,
@@ -149,9 +155,9 @@ export function AdminSettingsPage() {
   const [socialForm, setSocialForm] = useState<SocialLinksForm>(EMPTY_FORM);
   const [isSocialLoading, setIsSocialLoading] = useState(true);
   const [isSocialSaving, setIsSocialSaving] = useState(false);
-  const [showHomepageStatsInput, setShowHomepageStatsInput] = useState(false);
+  const [showHomepageStatsInput, setShowHomepageStatsInput] = useState(storedShowHomepageStats);
   const [isHomepageStatsSaving, setIsHomepageStatsSaving] = useState(false);
-  const [showPricingPlansInput, setShowPricingPlansInput] = useState(true);
+  const [pricingVisibilityInput, setPricingVisibilityInput] = useState<PricingVisibility>(storedPricingVisibility);
   const [isPricingPlansSaving, setIsPricingPlansSaving] = useState(false);
 
   const [siteAudioSettings, setSiteAudioSettings] = useState<SiteAudioSettingsRow | null>(null);
@@ -181,9 +187,9 @@ export function AdminSettingsPage() {
 
   useEffect(() => {
     if (!isPricingPlansSaving) {
-      setShowPricingPlansInput(storedShowPricingPlans);
+      setPricingVisibilityInput(storedPricingVisibility);
     }
-  }, [isPricingPlansSaving, storedShowPricingPlans]);
+  }, [isPricingPlansSaving, storedPricingVisibility]);
 
   useEffect(() => {
     if (!publicSettingsError) {
@@ -376,7 +382,7 @@ export function AdminSettingsPage() {
 
     setIsPricingPlansSaving(true);
     try {
-      await updatePricingPlansVisibility(showPricingPlansInput);
+      await updatePricingPlansVisibility(pricingVisibilityInput);
       toast.success(t('admin.settingsPage.pricingPlansSaveSuccess'));
     } catch (error) {
       console.error('admin pricing plans settings save error', error);
@@ -384,6 +390,10 @@ export function AdminSettingsPage() {
     } finally {
       setIsPricingPlansSaving(false);
     }
+  };
+
+  const setPricingPlanVisibility = (key: keyof PricingVisibility, checked: boolean) => {
+    setPricingVisibilityInput((prev) => ({ ...prev, [key]: checked }));
   };
 
   const handleWatermarkSettingsSave = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -538,9 +548,14 @@ export function AdminSettingsPage() {
       key: 'homepage-stats',
       title: t('admin.settingsPage.homepageStatsTitle'),
       subtitle: t('admin.settingsPage.homepageStatsSubtitle'),
-      label: t('admin.settingsPage.homepageStatsLabel'),
-      checked: showHomepageStatsInput,
-      setChecked: setShowHomepageStatsInput,
+      toggles: [
+        {
+          key: 'homepage-stats-toggle',
+          label: t('admin.settingsPage.homepageStatsLabel'),
+          checked: showHomepageStatsInput,
+          onChange: setShowHomepageStatsInput,
+        },
+      ],
       onSubmit: handleHomepageStatsSave,
       isSaving: isHomepageStatsSaving,
     },
@@ -548,9 +563,32 @@ export function AdminSettingsPage() {
       key: 'pricing-plans',
       title: t('admin.settingsPage.pricingPlansTitle'),
       subtitle: t('admin.settingsPage.pricingPlansSubtitle'),
-      label: t('admin.settingsPage.pricingPlansLabel'),
-      checked: showPricingPlansInput,
-      setChecked: setShowPricingPlansInput,
+      toggles: [
+        {
+          key: 'pricing-plan-free',
+          label: t('admin.settingsPage.pricingPlanFreeLabel'),
+          checked: pricingVisibilityInput.free,
+          onChange: (checked) => setPricingPlanVisibility('free', checked),
+        },
+        {
+          key: 'pricing-plan-user-premium',
+          label: t('admin.settingsPage.pricingPlanUserPremiumLabel'),
+          checked: pricingVisibilityInput.userPremium,
+          onChange: (checked) => setPricingPlanVisibility('userPremium', checked),
+        },
+        {
+          key: 'pricing-plan-producer',
+          label: t('admin.settingsPage.pricingPlanProducerLabel'),
+          checked: pricingVisibilityInput.producer,
+          onChange: (checked) => setPricingPlanVisibility('producer', checked),
+        },
+        {
+          key: 'pricing-plan-producer-elite',
+          label: t('admin.settingsPage.pricingPlanProducerEliteLabel'),
+          checked: pricingVisibilityInput.producerElite,
+          onChange: (checked) => setPricingPlanVisibility('producerElite', checked),
+        },
+      ],
       onSubmit: handlePricingPlansSave,
       isSaving: isPricingPlansSaving,
     },
@@ -692,16 +730,21 @@ export function AdminSettingsPage() {
           </p>
 
           <form onSubmit={card.onSubmit} className="mt-6 space-y-4">
-            <label className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 px-4 py-3 text-sm text-zinc-200">
-              <input
-                type="checkbox"
-                checked={card.checked}
-                onChange={(event) => card.setChecked(event.target.checked)}
-                disabled={isPublicSettingsLoading || card.isSaving}
-                className="h-4 w-4 rounded border-zinc-700 bg-zinc-900 text-rose-500 focus:ring-rose-500/50"
-              />
-              {card.label}
-            </label>
+            {card.toggles.map((toggle) => (
+              <label
+                key={toggle.key}
+                className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 px-4 py-3 text-sm text-zinc-200"
+              >
+                <input
+                  type="checkbox"
+                  checked={toggle.checked}
+                  onChange={(event) => toggle.onChange(event.target.checked)}
+                  disabled={isPublicSettingsLoading || card.isSaving}
+                  className="h-4 w-4 rounded border-zinc-700 bg-zinc-900 text-rose-500 focus:ring-rose-500/50"
+                />
+                {toggle.label}
+              </label>
+            ))}
 
             <div className="pt-2">
               <Button

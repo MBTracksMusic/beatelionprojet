@@ -176,7 +176,10 @@ const toProducerTier = (value: unknown): ProducerTier => {
 export function PricingPage() {
   const { t } = useTranslation();
   const { user, session, profile } = useAuth();
-  const { showPricingPlans, isLoading: isPublicSettingsLoading } = useMaintenanceModeContext();
+  const {
+    pricingVisibility,
+    isLoading: isPublicSettingsLoading,
+  } = useMaintenanceModeContext();
   const navigate = useNavigate();
   const [isPlanLoading, setIsPlanLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -199,6 +202,15 @@ export function PricingPage() {
   const currentTier = user
     ? toProducerTier((profile as unknown as ProfileWithTier | null)?.producer_tier)
     : null;
+  const showFreePlan = pricingVisibility.free;
+  const showUserPremiumPlan = pricingVisibility.userPremium;
+  const showProducerPlan = pricingVisibility.producer;
+  const showProducerElitePlan = pricingVisibility.producerElite;
+  const hasVisiblePricingPlan =
+    showFreePlan
+    || showUserPremiumPlan
+    || showProducerPlan
+    || showProducerElitePlan;
   const proPlan = plans.pro;
 
   useEffect(() => {
@@ -206,7 +218,7 @@ export function PricingPage() {
       return;
     }
 
-    if (!showPricingPlans) {
+    if (!hasVisiblePricingPlan) {
       setPlans({
         starter: { ...DEFAULT_PLANS.starter },
         pro: { ...DEFAULT_PLANS.pro },
@@ -253,7 +265,7 @@ export function PricingPage() {
     };
 
     void fetchPlan();
-  }, [isPublicSettingsLoading, showPricingPlans, t]);
+  }, [hasVisiblePricingPlan, isPublicSettingsLoading, t]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -638,7 +650,7 @@ export function PricingPage() {
     );
   };
 
-  if (!isPublicSettingsLoading && !showPricingPlans) {
+  if (!isPublicSettingsLoading && !hasVisiblePricingPlan) {
     return (
       <div className="min-h-screen bg-zinc-950 pt-8 pb-32">
         <div className="max-w-3xl mx-auto px-4">
@@ -662,222 +674,230 @@ export function PricingPage() {
         </div>
 
         <div className="grid items-stretch gap-6 md:grid-cols-3">
-          <Card className="flex h-full flex-col justify-between border border-emerald-700/60 bg-zinc-900 p-6 transition-all duration-300 hover:-translate-y-2 hover:shadow-xl hover:shadow-black/20">
-            <div className="flex items-start justify-between gap-3 mb-6">
-              <div>
-                <h3 className="text-2xl font-bold text-white mb-1">{t('pricing.userPlanTitle')}</h3>
-                <p className="text-zinc-200 font-semibold">{t('pricing.userPlanSubtitle')}</p>
-                <p className="text-zinc-400 text-sm mt-1 flex items-start gap-2">
-                  <Target className="w-4 h-4 mt-0.5 text-zinc-300" />
-                  {t('pricing.userPlanAudience')}
-                </p>
+          {showFreePlan && (
+            <Card className="flex h-full flex-col justify-between border border-emerald-700/60 bg-zinc-900 p-6 transition-all duration-300 hover:-translate-y-2 hover:shadow-xl hover:shadow-black/20">
+              <div className="flex items-start justify-between gap-3 mb-6">
+                <div>
+                  <h3 className="text-2xl font-bold text-white mb-1">{t('pricing.userPlanTitle')}</h3>
+                  <p className="text-zinc-200 font-semibold">{t('pricing.userPlanSubtitle')}</p>
+                  <p className="text-zinc-400 text-sm mt-1 flex items-start gap-2">
+                    <Target className="w-4 h-4 mt-0.5 text-zinc-300" />
+                    {t('pricing.userPlanAudience')}
+                  </p>
+                </div>
+                {isUserCurrent && <Badge variant="info">{t('subscription.currentPlan')}</Badge>}
               </div>
-              {isUserCurrent && <Badge variant="info">{t('subscription.currentPlan')}</Badge>}
-            </div>
 
-            <div className="mb-5">
-              <span className="text-4xl font-bold text-white">{t('pricing.free')}</span>
-            </div>
+              <div className="mb-5">
+                <span className="text-4xl font-bold text-white">{t('pricing.free')}</span>
+              </div>
 
-            <div className="mb-3 flex items-center gap-2">
-              <Check className="w-5 h-5 text-emerald-400" />
-              <p className="text-xl font-bold text-white">{t('pricing.includedTitle')}</p>
-            </div>
-            <ul className="space-y-2 mb-6">
-              {starterPlanItems.map(renderPlanItem)}
-            </ul>
+              <div className="mb-3 flex items-center gap-2">
+                <Check className="w-5 h-5 text-emerald-400" />
+                <p className="text-xl font-bold text-white">{t('pricing.includedTitle')}</p>
+              </div>
+              <ul className="space-y-2 mb-6">
+                {starterPlanItems.map(renderPlanItem)}
+              </ul>
 
-            <div className="pt-6">
-              {user ? (
-                <Button
-                  className="mt-auto w-full"
-                  variant="secondary"
-                  size="lg"
-                  onClick={() => navigate('/dashboard')}
-                >
-                  {isUserCurrent ? t('subscription.currentPlan') : t('nav.dashboard')}
-                </Button>
-              ) : (
-                <Link to="/register">
+              <div className="pt-6">
+                {user ? (
                   <Button
                     className="mt-auto w-full"
                     variant="secondary"
                     size="lg"
+                    onClick={() => navigate('/dashboard')}
                   >
-                    {isUserCurrent ? t('subscription.currentPlan') : t('pricing.startFree')}
+                    {isUserCurrent ? t('subscription.currentPlan') : t('nav.dashboard')}
                   </Button>
-                </Link>
-              )}
-            </div>
-          </Card>
+                ) : (
+                  <Link to="/register">
+                    <Button
+                      className="mt-auto w-full"
+                      variant="secondary"
+                      size="lg"
+                    >
+                      {isUserCurrent ? t('subscription.currentPlan') : t('pricing.startFree')}
+                    </Button>
+                  </Link>
+                )}
+              </div>
+            </Card>
+          )}
 
-          <Card className="flex h-full flex-col justify-between border border-sky-500/60 bg-zinc-900 p-6 shadow-md shadow-sky-900/20 transition-all duration-300 hover:-translate-y-2 hover:scale-[1.02] hover:shadow-xl hover:shadow-sky-950/30">
-            <div className="mb-3 flex justify-center">
-              <span className="rounded-full bg-gradient-to-r from-pink-500 to-orange-500 px-3 py-1 text-xs font-semibold text-white shadow-md">
-                {t('pricing.userPremiumPopular')}
-              </span>
-            </div>
-            <div className="flex items-start justify-between gap-3 mb-6">
-              <div>
-                <h3 className="text-2xl font-bold text-white mb-1">{t('pricing.userPremiumTitle')}</h3>
-                <p className="text-zinc-200 font-semibold">{t('pricing.userPremiumSubtitle')}</p>
-                <p className="text-zinc-400 text-sm mt-1 flex items-start gap-2">
-                  <Target className="w-4 h-4 mt-0.5 text-zinc-300" />
-                  {t('pricing.userPremiumAudience')}
+          {showUserPremiumPlan && (
+            <Card className="flex h-full flex-col justify-between border border-sky-500/60 bg-zinc-900 p-6 shadow-md shadow-sky-900/20 transition-all duration-300 hover:-translate-y-2 hover:scale-[1.02] hover:shadow-xl hover:shadow-sky-950/30">
+              <div className="mb-3 flex justify-center">
+                <span className="rounded-full bg-gradient-to-r from-pink-500 to-orange-500 px-3 py-1 text-xs font-semibold text-white shadow-md">
+                  {t('pricing.userPremiumPopular')}
+                </span>
+              </div>
+              <div className="flex items-start justify-between gap-3 mb-6">
+                <div>
+                  <h3 className="text-2xl font-bold text-white mb-1">{t('pricing.userPremiumTitle')}</h3>
+                  <p className="text-zinc-200 font-semibold">{t('pricing.userPremiumSubtitle')}</p>
+                  <p className="text-zinc-400 text-sm mt-1 flex items-start gap-2">
+                    <Target className="w-4 h-4 mt-0.5 text-zinc-300" />
+                    {t('pricing.userPremiumAudience')}
+                  </p>
+                </div>
+                {hasActiveUserSubscription && <Badge variant="success">{t('pricing.userSubscriptionActiveBadge')}</Badge>}
+              </div>
+
+              <div className="mb-6">
+                <span className="text-4xl font-bold text-white">{userPremiumPrice}</span>
+                <span className="text-zinc-400"> {t('subscription.perMonth')}</span>
+              </div>
+
+              <div className="mb-6 rounded-xl border border-sky-400/20 bg-sky-500/10 p-4">
+                <p className="text-sm font-semibold text-white">
+                  {t('pricing.userPremiumValueLine')}
+                </p>
+                <p className="mt-1 text-xs text-sky-100/80">
+                  {t('pricing.userPremiumValueHint')}
                 </p>
               </div>
-              {hasActiveUserSubscription && <Badge variant="success">{t('pricing.userSubscriptionActiveBadge')}</Badge>}
-            </div>
 
-            <div className="mb-6">
-              <span className="text-4xl font-bold text-white">{userPremiumPrice}</span>
-              <span className="text-zinc-400"> {t('subscription.perMonth')}</span>
-            </div>
-
-            <div className="mb-6 rounded-xl border border-sky-400/20 bg-sky-500/10 p-4">
-              <p className="text-sm font-semibold text-white">
-                {t('pricing.userPremiumValueLine')}
-              </p>
-              <p className="mt-1 text-xs text-sky-100/80">
-                {t('pricing.userPremiumValueHint')}
-              </p>
-            </div>
-
-            <div className="mb-3 flex items-center gap-2">
-              <Check className="w-5 h-5 text-emerald-400" />
-              <p className="text-xl font-bold text-white">{t('pricing.includedShort')}</p>
-            </div>
-            <ul className="space-y-2 mb-6">
-              {userPremiumPlanItems.map(renderPlanItem)}
-            </ul>
-
-            {hasActiveUserSubscription && (
-              <div className="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-                <p className="font-medium">{t('pricing.userSubscriptionActive')}</p>
-                <p className="mt-1 text-emerald-100/80">
-                  {t('pricing.userSubscriptionRenewal', {
-                    date: userSubscription?.current_period_end
-                      ? formatDate(userSubscription.current_period_end)
-                      : t('common.notAvailable'),
-                  })}
-                </p>
+              <div className="mb-3 flex items-center gap-2">
+                <Check className="w-5 h-5 text-emerald-400" />
+                <p className="text-xl font-bold text-white">{t('pricing.includedShort')}</p>
               </div>
-            )}
+              <ul className="space-y-2 mb-6">
+                {userPremiumPlanItems.map(renderPlanItem)}
+              </ul>
 
-            {isUserSubscriptionSyncPending && !hasActiveUserSubscription && (
-              <div className="mb-6 rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
-                <p className="font-medium">{t('checkout.success')}</p>
-                <p className="mt-1 text-sky-100/80">{t('checkout.processing')}</p>
-              </div>
-            )}
-
-            {isBlockedByProducerSubscription && (
-              <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                <p className="font-medium">{t('pricing.producerSubscriptionBlocksUserPlan')}</p>
-              </div>
-            )}
-
-            <div className="pt-6">
-              {error && (
-                <div className="mb-4 text-sm text-red-400 bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">
-                  {error}
+              {hasActiveUserSubscription && (
+                <div className="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                  <p className="font-medium">{t('pricing.userSubscriptionActive')}</p>
+                  <p className="mt-1 text-emerald-100/80">
+                    {t('pricing.userSubscriptionRenewal', {
+                      date: userSubscription?.current_period_end
+                        ? formatDate(userSubscription.current_period_end)
+                        : t('common.notAvailable'),
+                    })}
+                  </p>
                 </div>
               )}
 
-              <Button
-                className="mt-auto w-full"
-                variant="primary"
-                size="lg"
-                isLoading={isUserCheckoutLoading}
-                disabled={hasActiveUserSubscription || isBlockedByProducerSubscription || isUserSubscriptionLoading || isUserCheckoutLoading}
-                onClick={() => void startUserSubscriptionCheckout()}
-              >
-                {hasActiveUserSubscription ? t('pricing.userSubscriptionActiveBadge') : t('pricing.subscribeUser')}
-              </Button>
-            </div>
-          </Card>
-
-          <Card className="flex h-full flex-col justify-between border border-rose-500 bg-zinc-900 p-6 transition-all duration-300 hover:-translate-y-2 hover:shadow-xl hover:shadow-black/20">
-            <div className="flex items-start justify-between gap-3 mb-6">
-              <div>
-                <h3 className="text-2xl font-bold text-white mb-1">{t('pricing.proPlanTitle')}</h3>
-                <p className="text-zinc-200 font-semibold">{t('pricing.proPlanSubtitle')}</p>
-                <p className="text-zinc-400 text-sm mt-1 flex items-start gap-2">
-                  <Target className="w-4 h-4 mt-0.5 text-zinc-300" />
-                  {t('pricing.proPlanAudience')}
-                </p>
-              </div>
-              {isProCurrent && <Badge variant="premium">{t('subscription.currentPlan')}</Badge>}
-            </div>
-
-            <div className="mb-6">
-              <span className="text-4xl font-bold text-white">{proPrice.amount}</span>
-              {proPrice.interval && <span className="text-zinc-400">{proPrice.interval}</span>}
-            </div>
-
-            <div className="mb-3 flex items-center gap-2">
-              <Check className="w-5 h-5 text-emerald-400" />
-              <p className="text-xl font-bold text-white">{t('pricing.includedShort')}</p>
-            </div>
-            <ul className="space-y-2 mb-8">
-              {proPlanItems.map(renderPlanItem)}
-            </ul>
-            <p className="text-sm text-zinc-400 mb-8">
-              {t('pricing.proVisibilityHint')}
-            </p>
-
-            {isBlockedByUserSubscription && (
-              <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                <p className="font-medium">{t('pricing.userSubscriptionBlocksProducerPlan')}</p>
-              </div>
-            )}
-
-            <div className="pt-6">
-              {error && (
-                <div className="mb-4 text-sm text-red-400 bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">
-                  {error}
+              {isUserSubscriptionSyncPending && !hasActiveUserSubscription && (
+                <div className="mb-6 rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
+                  <p className="font-medium">{t('checkout.success')}</p>
+                  <p className="mt-1 text-sky-100/80">{t('checkout.processing')}</p>
                 </div>
               )}
 
-              <Button
-                className="mt-auto w-full"
-                variant="primary"
-                size="lg"
-                disabled={hasActiveProducerSubscription || isBlockedByUserSubscription || isPlanLoading || !isProCheckoutAvailable}
-                onClick={() => void startCheckout('pro')}
-              >
-                {hasActiveProducerSubscription ? t('subscription.currentPlan') : t('pricing.becomeProducer')}
-              </Button>
-            </div>
-          </Card>
+              {isBlockedByProducerSubscription && (
+                <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                  <p className="font-medium">{t('pricing.producerSubscriptionBlocksUserPlan')}</p>
+                </div>
+              )}
 
-          <Card className="flex h-full flex-col justify-between border border-red-700/60 bg-zinc-900 p-6">
-            <div className="flex items-start justify-between gap-3 mb-6">
-              <div>
-                <h3 className="text-2xl font-bold text-white mb-1">{t('pricing.elitePlanTitle')}</h3>
-                <p className="text-zinc-200 font-semibold">
-                  {t('pricing.elitePlanSubtitle')}
-                </p>
-                <p className="text-zinc-400 text-sm mt-2 flex items-start gap-2">
-                  <Target className="w-4 h-4 mt-0.5 text-zinc-300" />
-                  {t('pricing.eliteComingSoon')}
-                </p>
+              <div className="pt-6">
+                {error && (
+                  <div className="mb-4 text-sm text-red-400 bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">
+                    {error}
+                  </div>
+                )}
+
+                <Button
+                  className="mt-auto w-full"
+                  variant="primary"
+                  size="lg"
+                  isLoading={isUserCheckoutLoading}
+                  disabled={hasActiveUserSubscription || isBlockedByProducerSubscription || isUserSubscriptionLoading || isUserCheckoutLoading}
+                  onClick={() => void startUserSubscriptionCheckout()}
+                >
+                  {hasActiveUserSubscription ? t('pricing.userSubscriptionActiveBadge') : t('pricing.subscribeUser')}
+                </Button>
               </div>
-              {isEliteCurrent && <Badge variant="danger">{t('subscription.currentPlan')}</Badge>}
-            </div>
+            </Card>
+          )}
 
-            <div className="pt-6">
-              <Button
-                className="mt-auto w-full"
-                variant="outline"
-                size="lg"
-                disabled={isEliteCurrent || isEliteSubmitting}
-                onClick={handleEliteNotifyClick}
-              >
-                {isEliteCurrent ? t('subscription.currentPlan') : t('pricing.notifyLaunch')}
-              </Button>
-            </div>
-          </Card>
+          {showProducerPlan && (
+            <Card className="flex h-full flex-col justify-between border border-rose-500 bg-zinc-900 p-6 transition-all duration-300 hover:-translate-y-2 hover:shadow-xl hover:shadow-black/20">
+              <div className="flex items-start justify-between gap-3 mb-6">
+                <div>
+                  <h3 className="text-2xl font-bold text-white mb-1">{t('pricing.proPlanTitle')}</h3>
+                  <p className="text-zinc-200 font-semibold">{t('pricing.proPlanSubtitle')}</p>
+                  <p className="text-zinc-400 text-sm mt-1 flex items-start gap-2">
+                    <Target className="w-4 h-4 mt-0.5 text-zinc-300" />
+                    {t('pricing.proPlanAudience')}
+                  </p>
+                </div>
+                {isProCurrent && <Badge variant="premium">{t('subscription.currentPlan')}</Badge>}
+              </div>
+
+              <div className="mb-6">
+                <span className="text-4xl font-bold text-white">{proPrice.amount}</span>
+                {proPrice.interval && <span className="text-zinc-400">{proPrice.interval}</span>}
+              </div>
+
+              <div className="mb-3 flex items-center gap-2">
+                <Check className="w-5 h-5 text-emerald-400" />
+                <p className="text-xl font-bold text-white">{t('pricing.includedShort')}</p>
+              </div>
+              <ul className="space-y-2 mb-8">
+                {proPlanItems.map(renderPlanItem)}
+              </ul>
+              <p className="text-sm text-zinc-400 mb-8">
+                {t('pricing.proVisibilityHint')}
+              </p>
+
+              {isBlockedByUserSubscription && (
+                <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                  <p className="font-medium">{t('pricing.userSubscriptionBlocksProducerPlan')}</p>
+                </div>
+              )}
+
+              <div className="pt-6">
+                {error && (
+                  <div className="mb-4 text-sm text-red-400 bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">
+                    {error}
+                  </div>
+                )}
+
+                <Button
+                  className="mt-auto w-full"
+                  variant="primary"
+                  size="lg"
+                  disabled={hasActiveProducerSubscription || isBlockedByUserSubscription || isPlanLoading || !isProCheckoutAvailable}
+                  onClick={() => void startCheckout('pro')}
+                >
+                  {hasActiveProducerSubscription ? t('subscription.currentPlan') : t('pricing.becomeProducer')}
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {showProducerElitePlan && (
+            <Card className="flex h-full flex-col justify-between border border-red-700/60 bg-zinc-900 p-6">
+              <div className="flex items-start justify-between gap-3 mb-6">
+                <div>
+                  <h3 className="text-2xl font-bold text-white mb-1">{t('pricing.elitePlanTitle')}</h3>
+                  <p className="text-zinc-200 font-semibold">
+                    {t('pricing.elitePlanSubtitle')}
+                  </p>
+                  <p className="text-zinc-400 text-sm mt-2 flex items-start gap-2">
+                    <Target className="w-4 h-4 mt-0.5 text-zinc-300" />
+                    {t('pricing.eliteComingSoon')}
+                  </p>
+                </div>
+                {isEliteCurrent && <Badge variant="danger">{t('subscription.currentPlan')}</Badge>}
+              </div>
+
+              <div className="pt-6">
+                <Button
+                  className="mt-auto w-full"
+                  variant="outline"
+                  size="lg"
+                  disabled={isEliteCurrent || isEliteSubmitting}
+                  onClick={handleEliteNotifyClick}
+                >
+                  {isEliteCurrent ? t('subscription.currentPlan') : t('pricing.notifyLaunch')}
+                </Button>
+              </div>
+            </Card>
+          )}
         </div>
 
         <div className="mt-16 text-center">
