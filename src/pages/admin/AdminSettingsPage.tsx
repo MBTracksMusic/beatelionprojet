@@ -264,7 +264,6 @@ export function AdminSettingsPage() {
 
   useEffect(() => {
     let isCancelled = false;
-    let previewObjectUrl: string | null = null;
 
     const loadWatermarkPreviewUrl = async () => {
       if (!currentWatermarkPath) {
@@ -274,27 +273,31 @@ export function AdminSettingsPage() {
 
       const { data, error } = await supabase.storage
         .from('watermark-assets')
-        .download(currentWatermarkPath);
+        .createSignedUrl(currentWatermarkPath, 24 * 60 * 60);
 
       if (error) {
-        console.error('admin watermark preview download error', error);
+        console.error('admin watermark preview signed URL error', error);
         if (!isCancelled) {
           setWatermarkPreviewUrl(null);
         }
         return;
       }
 
-      if (!data) {
+      const signedUrl = data?.signedUrl;
+      if (!signedUrl) {
         if (!isCancelled) {
           setWatermarkPreviewUrl(null);
         }
         return;
       }
 
-      previewObjectUrl = URL.createObjectURL(data);
+      const previewUrl = new URL(signedUrl);
+      if (siteAudioSettings?.updated_at) {
+        previewUrl.searchParams.set('t', siteAudioSettings.updated_at);
+      }
 
       if (!isCancelled) {
-        setWatermarkPreviewUrl(previewObjectUrl);
+        setWatermarkPreviewUrl(previewUrl.toString());
       }
     };
 
@@ -302,9 +305,6 @@ export function AdminSettingsPage() {
 
     return () => {
       isCancelled = true;
-      if (previewObjectUrl) {
-        URL.revokeObjectURL(previewObjectUrl);
-      }
       setWatermarkPreviewUrl(null);
     };
   }, [currentWatermarkPath, siteAudioSettings?.updated_at]);
