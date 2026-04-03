@@ -4377,6 +4377,7 @@ export type Database = {
       producer_plans: {
         Row: {
           amount_cents: number | null
+          battle_limit: number | null
           commission_rate: number
           created_at: string
           is_active: boolean
@@ -4388,6 +4389,7 @@ export type Database = {
         }
         Insert: {
           amount_cents?: number | null
+          battle_limit?: number | null
           commission_rate: number
           created_at?: string
           is_active?: boolean
@@ -4399,6 +4401,7 @@ export type Database = {
         }
         Update: {
           amount_cents?: number | null
+          battle_limit?: number | null
           commission_rate?: number
           created_at?: string
           is_active?: boolean
@@ -8438,6 +8441,18 @@ export type Database = {
         }[]
       }
       get_home_stats: { Args: never; Returns: Json }
+      get_user_battle_quota: {
+        Args: { p_user_id: string }
+        Returns: {
+          battle_limit: number
+          can_create: boolean
+          reason: string
+          remaining_this_month: number
+          reset_at: string
+          tier: string
+          used_this_month: number
+        }[]
+      }
       get_leaderboard_producers: {
         Args: never
         Returns: {

@@ -53,8 +53,10 @@ interface IncomingBattle {
 interface BattleQuotaStatus {
   tier: string;
   used_this_month: number;
-  max_per_month: number | null;
+  battle_limit: number;
+  remaining_this_month: number;
   can_create: boolean;
+  reason: 'eligible' | 'quota_reached' | 'plan_insufficient';
   reset_at: string;
 }
 
@@ -174,7 +176,7 @@ function toBattleInsertErrorMessage(error: {
     || message.includes('permission denied');
 
   if (isRlsError && quotaStatus && quotaStatus.can_create === false) {
-    return t('producerBattles.insertQuotaBlocked', { technical });
+    return getBattleQuotaBlockedMessage(quotaStatus, t);
   }
 
   if (message.includes('Skill difference too high to start battle.')) {
@@ -186,6 +188,24 @@ function toBattleInsertErrorMessage(error: {
   }
 
   return t('producerBattles.insertUnavailable', { technical });
+}
+
+function getBattleQuotaBlockedMessage(quotaStatus: BattleQuotaStatus | null, t: TranslateFn) {
+  if (!quotaStatus) {
+    return t('producerBattles.quotaUnavailable');
+  }
+
+  if (quotaStatus.reason === 'plan_insufficient') {
+    return t('producerBattles.planInsufficientError');
+  }
+
+  if (quotaStatus.reason === 'quota_reached') {
+    return t('producerBattles.quotaReachedError', {
+      date: formatDate(quotaStatus.reset_at),
+    });
+  }
+
+  return t('producerBattles.quotaUnavailable');
 }
 
 function toOfficialCampaignErrorMessage(message: string) {
@@ -269,7 +289,9 @@ export function ProducerBattlesPage() {
 
     setIsQuotaLoading(true);
 
-    const { data, error: quotaFetchError } = await supabase.rpc('get_battles_quota_status');
+    const { data, error: quotaFetchError } = await supabase.rpc('get_user_battle_quota', {
+      p_user_id: profile.id,
+    });
 
     if (quotaFetchError) {
       console.error('Error loading battles quota status:', {
@@ -354,8 +376,14 @@ export function ProducerBattlesPage() {
     }
   }, [profile?.id, t]);
 
-  const loadMatchmakingOpponents = useCallback(async () => {
+  const loadMatchmakingOpponents = useCallback(async (currentQuota?: BattleQuotaStatus | null) => {
     if (!profile?.id) {
+      setMatchmakingOpponents([]);
+      setIsMatchmakingLoading(false);
+      return;
+    }
+
+    if (currentQuota && !currentQuota.can_create) {
       setMatchmakingOpponents([]);
       setIsMatchmakingLoading(false);
       return;
@@ -397,7 +425,7 @@ export function ProducerBattlesPage() {
       console.error('Error loading AI battle suggestions, falling back to SQL matchmaking:', suggestionError);
     }
 
-    const { data, error: matchmakingError } = await supabase.rpc('get_matchmaking_opponents' as any);
+    const { data, error: matchmakingError } = await supabase.rpc('get_matchmaking_opponents');
     if (matchmakingError) {
       console.error('Error loading matchmaking opponents:', matchmakingError);
       setMatchmakingOpponents([]);
@@ -429,7 +457,7 @@ export function ProducerBattlesPage() {
 
     const [campaignsRes, applicationsRes] = await Promise.all([
       supabase
-        .from('admin_battle_campaigns_public' as any)
+        .from('admin_battle_campaigns_public')
         .select(`
           id,
           title,
@@ -445,7 +473,7 @@ export function ProducerBattlesPage() {
         .eq('status', 'applications_open')
         .order('created_at', { ascending: false }),
       supabase
-        .from('admin_battle_applications' as any)
+        .from('admin_battle_applications')
         .select('campaign_id, status, message, proposed_product_id, admin_feedback, admin_feedback_at')
         .eq('producer_id', profile.id),
     ]);
@@ -491,7 +519,7 @@ export function ProducerBattlesPage() {
     setOfficialError(null);
     setApplyingCampaignId(campaignId);
 
-    const { error: applyError } = await supabase.rpc('apply_to_admin_battle_campaign' as any, {
+    const { error: applyError } = await supabase.rpc('apply_to_admin_battle_campaign', {
       p_campaign_id: campaignId,
       p_message: message.trim() || null,
       p_proposed_product_id: proposedProductId,
@@ -573,7 +601,12 @@ export function ProducerBattlesPage() {
         setProducers(producerRows);
         setMyProducts((productsRes.data as ProductOption[] | null) ?? []);
 
-        await Promise.all([loadBattles(), loadQuotaStatus(), loadMatchmakingOpponents(), loadOfficialCampaigns()]);
+        const [nextQuota] = await Promise.all([
+          loadQuotaStatus(),
+          loadBattles(),
+          loadOfficialCampaigns(),
+        ]);
+        await loadMatchmakingOpponents(nextQuota);
         setIsLoading(false);
       }
     }
@@ -661,7 +694,7 @@ export function ProducerBattlesPage() {
 
     const latestQuota = await loadQuotaStatus();
     if (latestQuota && !latestQuota.can_create) {
-      setError(t('producerBattles.quotaReachedError'));
+      setError(getBattleQuotaBlockedMessage(latestQuota, t));
       setIsSaving(false);
       return;
     }
@@ -712,7 +745,9 @@ export function ProducerBattlesPage() {
     trackJoinBattle((createdBattle as { id: string } | null)?.id);
     setProducer2Products([]);
     setIsSaving(false);
-    await Promise.all([loadBattles(), loadQuotaStatus(), loadMatchmakingOpponents()]);
+    await loadBattles();
+    const nextQuota = await loadQuotaStatus();
+    await loadMatchmakingOpponents(nextQuota);
   };
 
   const respondToBattle = async (battleId: string, accept: boolean) => {
@@ -752,6 +787,25 @@ export function ProducerBattlesPage() {
     setRespondingId(null);
     await loadBattles();
   };
+
+  const battleLimit = quotaStatus?.battle_limit;
+  const isUnlimited = battleLimit === -1;
+  const hasFiniteBattleLimit = typeof battleLimit === 'number' && battleLimit >= 0;
+  const quotaSummaryMax = typeof battleLimit === 'number'
+    ? (isUnlimited ? t('common.unlimited') : String(battleLimit))
+    : t('common.notAvailable');
+  const quotaProgressPercent = hasFiniteBattleLimit && typeof battleLimit === 'number' && battleLimit > 0
+    ? Math.min((quotaStatus?.used_this_month ?? 0) / battleLimit * 100, 100)
+    : 0;
+  const quotaBlockedMessage = quotaStatus?.reason === 'plan_insufficient'
+    ? t('producerBattles.planInsufficientNotice')
+    : quotaStatus?.reason === 'quota_reached'
+    ? t('producerBattles.quotaReachedNotice', {
+      date: quotaStatus.reset_at ? formatDate(quotaStatus.reset_at) : t('common.notAvailable'),
+    })
+    : null;
+  const canUseMatchmaking = quotaStatus?.can_create !== false;
+  const shouldShowPlansCta = quotaStatus?.tier !== 'elite' && quotaStatus?.can_create === false;
 
   return (
     <div className="min-h-screen bg-zinc-950 pt-8 pb-32">
@@ -968,20 +1022,33 @@ export function ProducerBattlesPage() {
               {quotaStatus
                 ? t('producerBattles.quotaSummary', {
                   used: quotaStatus.used_this_month,
-                  max: quotaStatus.max_per_month ?? t('common.unlimited'),
+                  max: quotaSummaryMax,
                 })
                 : isQuotaLoading
                 ? t('producerBattles.loadingQuota')
                 : t('producerBattles.quotaUnavailable')}
             </p>
-            {quotaStatus && !quotaStatus.can_create && (
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <p className="text-sm text-amber-300">
-                  {t('producerBattles.quotaReachedNotice', {
-                    date: formatDate(quotaStatus.reset_at),
+            {quotaStatus && hasFiniteBattleLimit && typeof battleLimit === 'number' && battleLimit > 0 && (
+              <div className="space-y-2">
+                <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-amber-500 to-rose-500 transition-[width] duration-300"
+                    style={{ width: `${quotaProgressPercent}%` }}
+                  />
+                </div>
+                <p className="text-xs text-zinc-500">
+                  {t('producerBattles.quotaRemaining', {
+                    remaining: quotaStatus.remaining_this_month,
                   })}
                 </p>
-                {quotaStatus.tier !== 'elite' && (
+              </div>
+            )}
+            {quotaBlockedMessage && (
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <p className="text-sm text-amber-300">
+                  {quotaBlockedMessage}
+                </p>
+                {shouldShowPlansCta && (
                   <Link to="/pricing">
                     <Button variant="outline">{t('producerBattles.viewPlans')}</Button>
                   </Link>
@@ -1006,7 +1073,18 @@ export function ProducerBattlesPage() {
               <h3 className="text-sm font-semibold text-white">{t('producerBattles.matchmakingTitle')}</h3>
             </div>
             <p className="text-xs text-zinc-400">{t('producerBattles.matchmakingSubtitle')}</p>
-            {isMatchmakingLoading ? (
+            {!canUseMatchmaking && quotaBlockedMessage ? (
+              <div className="flex flex-col gap-3 rounded-lg border border-amber-700/40 bg-amber-950/20 p-3">
+                <p className="text-sm text-amber-300">{quotaBlockedMessage}</p>
+                {shouldShowPlansCta && (
+                  <div className="flex justify-start">
+                    <Link to="/pricing">
+                      <Button size="sm" variant="outline">{t('producerBattles.viewPlans')}</Button>
+                    </Link>
+                  </div>
+                )}
+              </div>
+            ) : isMatchmakingLoading ? (
               <p className="text-sm text-zinc-400">{t('common.loading')}</p>
             ) : matchmakingOpponents.length === 0 ? (
               <p className="text-sm text-zinc-500">{t('producerBattles.matchmakingEmpty')}</p>
@@ -1037,6 +1115,7 @@ export function ProducerBattlesPage() {
                     <Button
                       size="sm"
                       variant="outline"
+                      disabled={!canUseMatchmaking}
                       onClick={() =>
                         setForm((prev) => ({
                           ...prev,

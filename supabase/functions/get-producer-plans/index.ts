@@ -278,7 +278,7 @@ serveWithErrorHandling("get-producer-plans", async (req: Request) => {
 
     const { data, error } = await supabase
       .from("producer_plans")
-      .select("tier, max_beats_published, max_battles_created_per_month, commission_rate, stripe_price_id, amount_cents, is_active")
+      .select("tier, max_beats_published, max_battles_created_per_month, battle_limit, commission_rate, stripe_price_id, amount_cents, is_active")
       .eq("is_active", true);
 
     if (error) {
@@ -303,23 +303,33 @@ serveWithErrorHandling("get-producer-plans", async (req: Request) => {
       tier?: unknown;
       max_beats_published?: unknown;
       max_battles_created_per_month?: unknown;
+      battle_limit?: unknown;
       commission_rate?: unknown;
       stripe_price_id?: unknown;
       amount_cents?: unknown;
       is_active?: unknown;
     }> | null) || [])
       .map((row) => ({
-        tier: isProducerTier(row.tier) ? row.tier : null,
-        max_beats_published: typeof row.max_beats_published === "number" ? row.max_beats_published : null,
-        max_battles_created_per_month: typeof row.max_battles_created_per_month === "number"
+        battleLimit: typeof row.battle_limit === "number"
+          ? row.battle_limit
+          : typeof row.max_battles_created_per_month === "number"
           ? row.max_battles_created_per_month
           : null,
+        tier: isProducerTier(row.tier) ? row.tier : null,
+        max_beats_published: typeof row.max_beats_published === "number" ? row.max_beats_published : null,
+        max_battles_created_per_month: null as number | null,
         commission_rate: typeof row.commission_rate === "number" ? row.commission_rate : Number(row.commission_rate ?? 0),
         stripe_price_id: asNonEmptyString(row.stripe_price_id),
         amount_cents: typeof row.amount_cents === "number" && Number.isFinite(row.amount_cents)
           ? row.amount_cents
           : null,
         is_active: row.is_active === true,
+      }))
+      .map(({ battleLimit, ...row }) => ({
+        ...row,
+        max_battles_created_per_month: battleLimit === -1
+          ? null
+          : battleLimit,
       }))
       .filter((row): row is {
         tier: ProducerTier;
