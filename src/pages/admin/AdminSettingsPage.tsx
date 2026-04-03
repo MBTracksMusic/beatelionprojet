@@ -164,7 +164,7 @@ export function AdminSettingsPage() {
   const [selectedWatermarkFile, setSelectedWatermarkFile] = useState<File | null>(null);
   const [reprocessStats, setReprocessStats] = useState<ReprocessStats | null>(null);
   const [watermarkPreviewUrl, setWatermarkPreviewUrl] = useState<string | null>(null);
-  const isWatermarkPreviewActive = currentTrack?.id === 'admin-watermark-preview' && isPlaying;
+  const isWatermarkPreviewActive = (currentTrack?.id?.startsWith('admin-watermark-preview-') ?? false) && isPlaying;
 
   const currentWatermarkPath = siteAudioSettings?.watermark_audio_path ?? null;
   const lastUpdatedLabel = useMemo(() => {
@@ -305,6 +305,7 @@ export function AdminSettingsPage() {
       if (previewObjectUrl) {
         URL.revokeObjectURL(previewObjectUrl);
       }
+      setWatermarkPreviewUrl(null);
     };
   }, [currentWatermarkPath, siteAudioSettings?.updated_at]);
 
