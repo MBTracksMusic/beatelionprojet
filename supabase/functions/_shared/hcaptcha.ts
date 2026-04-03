@@ -65,12 +65,17 @@ const VERCEL_PROJECT_SLUG = Deno.env.get("CORS_VERCEL_PROJECT_SLUG")?.trim() ?? 
 function isAllowedCaptchaHostname(hostname: string): boolean {
   if (ALLOWED_CAPTCHA_HOSTNAMES.has(hostname)) return true;
 
-  if (
-    VERCEL_PROJECT_SLUG &&
-    hostname.endsWith(".vercel.app") &&
-    hostname.includes(VERCEL_PROJECT_SLUG)
-  ) {
-    return true;
+  if (VERCEL_PROJECT_SLUG) {
+    if (
+      hostname.endsWith(".vercel.app") &&
+      hostname.includes(VERCEL_PROJECT_SLUG)
+    ) {
+      return true;
+    }
+    // hCaptcha sometimes reports "vercel.app" as the hostname for Vercel-hosted pages
+    if (hostname === "vercel.app") {
+      return true;
+    }
   }
 
   return false;
@@ -148,6 +153,11 @@ export async function verifyHcaptchaToken(params: {
   };
 
   if (payload.success !== true) {
+    console.error("[hcaptcha] verification failed", {
+      success: payload.success,
+      errorCodes: payload["error-codes"],
+      hostname: payload.hostname,
+    });
     throw new ApiError(403, "forbidden", "Captcha verification failed");
   }
 

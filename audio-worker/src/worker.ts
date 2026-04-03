@@ -345,8 +345,8 @@ export class AudioWorkerService {
     const downloadMasterRef = masterSource.downloadRef;
     throwIfAborted(signal);
 
-    const nextVersion = Math.max(product.preview_version ?? 1, 1);
-    const currentVersion = Math.max(product.preview_version ?? 1, 1);
+    const currentVersion = Math.max(product.preview_version ?? 0, 0);
+    const nextVersion = currentVersion + 1;
     const targetRef: StorageObjectRef = {
       bucket: product.watermarked_bucket?.trim() || this.config.watermarkedBucket,
       path: `${product.id}/preview_v${nextVersion}.mp3`,

@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireAuthUser } from "../_shared/auth.ts";
 import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
