@@ -21,6 +21,7 @@ import { useWishlistStore } from '../lib/stores/wishlist';
 import { useCreditBalance } from '../lib/credits/useCreditBalance';
 import { useUserSubscriptionStatus } from '../lib/subscriptions/useUserSubscriptionStatus';
 import { isProducerSafe } from '../lib/auth/producer';
+import { useMaintenanceModeContext } from '../lib/supabase/MaintenanceModeContext';
 
 interface DashboardPurchase extends Purchase {
   product: ProductWithRelations | null;
@@ -170,6 +171,7 @@ export function DashboardPage() {
   const [producerSubscription, setProducerSubscription] = useState<ProducerSubscriptionSummary | null>(null);
   const [isProducerSubscriptionLoading, setIsProducerSubscriptionLoading] = useState(false);
   const [licenseDownloadingPurchaseId, setLicenseDownloadingPurchaseId] = useState<string | null>(null);
+  const { showUserPremiumPlan } = useMaintenanceModeContext();
   const { balance: creditBalance, isLoading: isCreditBalanceLoading, error: creditBalanceError } = useCreditBalance(user?.id);
   const { subscription: userSubscription, isActive: hasActiveUserSubscription } = useUserSubscriptionStatus(user?.id);
   const normalizedCreditBalance = typeof creditBalance === 'number'
@@ -740,7 +742,7 @@ export function DashboardPage() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card className="p-6">
+          {showUserPremiumPlan && <Card className="p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-white mb-2">{t('dashboard.creditsTitle')}</h2>
@@ -825,7 +827,7 @@ export function DashboardPage() {
                 {t('pricing.getCredits')}
               </Button>
             </div>
-          </Card>
+          </Card>}
 
           <Card className="p-6">
             <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
