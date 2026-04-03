@@ -4,12 +4,58 @@ import Stripe from "npm:stripe@17";
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "");
 
-const getAppUrl = (): string => {
-  const appUrl = Deno.env.get("APP_URL");
-  if (!appUrl) {
-    throw new Error("APP_URL environment variable not set");
+const PRODUCTION_SITE_URL = "https://beatelion.com";
+const STAGING_SITE_URL = "https://beatelion-staging.vercel.app";
+
+const asNonEmptyString = (value: string | null | undefined): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const normalizeSiteUrl = (value: string | null | undefined): string | null => {
+  const candidate = asNonEmptyString(value);
+  if (!candidate) return null;
+
+  try {
+    const parsed = new URL(candidate);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return null;
+    }
+
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return null;
   }
-  return appUrl;
+};
+
+const getAppUrl = (): string => {
+  const environment = (asNonEmptyString(Deno.env.get("ENVIRONMENT")) ?? "development").toLowerCase();
+
+  for (const candidate of [
+    Deno.env.get("SITE_URL"),
+    Deno.env.get("PUBLIC_SITE_URL"),
+  ]) {
+    const normalized = normalizeSiteUrl(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  if (environment === "production") {
+    return PRODUCTION_SITE_URL;
+  }
+
+  if (environment === "staging" || environment === "preview") {
+    return STAGING_SITE_URL;
+  }
+
+  const appUrl = normalizeSiteUrl(Deno.env.get("APP_URL"));
+  if (appUrl) {
+    return appUrl;
+  }
+
+  throw new Error("SITE_URL environment variable not set");
 };
 
 Deno.serve(async (req: Request) => {
@@ -84,13 +130,22 @@ Deno.serve(async (req: Request) => {
     }
 
     const appUrl = getAppUrl();
+    const returnUrl = `${appUrl}/producer/onboarding/complete`;
+    const refreshUrl = `${appUrl}/producer/onboarding/refresh`;
+
+    console.log("[create-connect-onboarding-link] Redirect URLs", {
+      environment: Deno.env.get("ENVIRONMENT") ?? "development",
+      appUrl,
+      returnUrl,
+      refreshUrl,
+    });
 
     // Create onboarding link
     const accountLink = await stripe.accountLinks.create({
       account: profile.stripe_account_id,
       type: "account_onboarding",
-      return_url: `${appUrl}/producer/onboarding/complete`,
-      refresh_url: `${appUrl}/producer/onboarding/refresh`,
+      return_url: returnUrl,
+      refresh_url: refreshUrl,
     });
 
     console.log("[create-connect-onboarding-link] Link created", {

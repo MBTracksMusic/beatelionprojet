@@ -19,6 +19,60 @@ interface StripeConnectResponse {
   error?: string;
 }
 
+const PRODUCTION_SITE_URL = "https://beatelion.com";
+const STAGING_SITE_URL = "https://beatelion-staging.vercel.app";
+
+const asNonEmptyString = (value: string | null | undefined): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const normalizeSiteUrl = (value: string | null | undefined): string | null => {
+  const candidate = asNonEmptyString(value);
+  if (!candidate) return null;
+
+  try {
+    const parsed = new URL(candidate);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return null;
+    }
+
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+};
+
+const resolveAppUrl = (): string => {
+  const environment = (asNonEmptyString(Deno.env.get("ENVIRONMENT")) ?? "development").toLowerCase();
+
+  for (const candidate of [
+    Deno.env.get("SITE_URL"),
+    Deno.env.get("PUBLIC_SITE_URL"),
+  ]) {
+    const normalized = normalizeSiteUrl(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  if (environment === "production") {
+    return PRODUCTION_SITE_URL;
+  }
+
+  if (environment === "staging" || environment === "preview") {
+    return STAGING_SITE_URL;
+  }
+
+  const appUrl = normalizeSiteUrl(Deno.env.get("APP_URL"));
+  if (appUrl) {
+    return appUrl;
+  }
+
+  return "http://localhost:5173";
+};
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -116,10 +170,9 @@ async function handleCreateAccountLink(
   corsHeaders: any
 ): Promise<Response> {
   let stripeAccountId = profile.stripe_account_id;
-  const APP_URL =
-    Deno.env.get("APP_URL") ||
-    Deno.env.get("SITE_URL") ||
-    "http://localhost:5173";
+  const appUrl = resolveAppUrl();
+  const returnUrl = `${appUrl}/producer`;
+  const refreshUrl = `${appUrl}/producer`;
 
   // If no account exists, create one
   if (!stripeAccountId) {
@@ -171,7 +224,12 @@ async function handleCreateAccountLink(
   }
 
   // Create account link
-  console.log("[stripe-connect-onboarding] Using APP_URL", { appUrl: APP_URL });
+  console.log("[stripe-connect-onboarding] Redirect URLs", {
+    environment: Deno.env.get("ENVIRONMENT") ?? "development",
+    appUrl,
+    returnUrl,
+    refreshUrl,
+  });
 
   const linkResponse = await fetch(
     `https://api.stripe.com/v1/account_links`,
@@ -184,8 +242,8 @@ async function handleCreateAccountLink(
       body: new URLSearchParams({
         account: stripeAccountId,
         type: "account_onboarding",
-        refresh_url: `${APP_URL}/producer`,
-        return_url: `${APP_URL}/producer`,
+        refresh_url: refreshUrl,
+        return_url: returnUrl,
       }).toString(),
     }
   );
