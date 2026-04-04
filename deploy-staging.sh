@@ -5,6 +5,11 @@ set -euo pipefail
 echo "🚀 Déploiement STAGING"
 
 # =========================
+# CONFIG
+# =========================
+EXPECTED_VERCEL_PROJECT="beatelion-staging"
+
+# =========================
 # 0. LOAD ENV
 # =========================
 if [ ! -f ".env.staging" ]; then
@@ -22,7 +27,7 @@ echo "📡 SUPABASE_PROJECT_REF: ${SUPABASE_PROJECT_REF:-undefined}"
 # =========================
 # 1. CHECK TOOLS
 # =========================
-for cmd in git node npm supabase vercel; do
+for cmd in git node npm supabase vercel jq; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "❌ Commande manquante : $cmd"
     exit 1
@@ -46,7 +51,35 @@ CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 echo "🌿 Branche actuelle : $CURRENT_BRANCH"
 
 # =========================
-# 3. CHECK SECRETS
+# 3. VERCEL LINK FORCE
+# =========================
+echo "🔗 Vérification projet Vercel STAGING..."
+
+if [ ! -f ".vercel/project.json" ]; then
+  echo "⚠️ Aucun projet Vercel lié → linking..."
+  vercel link --project "$EXPECTED_VERCEL_PROJECT"
+fi
+
+CURRENT_PROJECT_NAME=$(jq -r '.projectName' .vercel/project.json)
+
+echo "👉 Projet actuel : $CURRENT_PROJECT_NAME"
+
+if [ "$CURRENT_PROJECT_NAME" != "$EXPECTED_VERCEL_PROJECT" ]; then
+  echo "⚠️ Mauvais projet détecté → re-link staging..."
+  vercel link --project "$EXPECTED_VERCEL_PROJECT"
+fi
+
+FINAL_PROJECT_NAME=$(jq -r '.projectName' .vercel/project.json)
+
+if [ "$FINAL_PROJECT_NAME" != "$EXPECTED_VERCEL_PROJECT" ]; then
+  echo "❌ Impossible de lier au bon projet Vercel STAGING"
+  exit 1
+fi
+
+echo "✅ Projet Vercel OK : $FINAL_PROJECT_NAME"
+
+# =========================
+# 4. CHECK SECRETS
 # =========================
 if [ -f "./check-secrets.sh" ]; then
   echo "🔐 Scan sécurité..."
@@ -54,7 +87,7 @@ if [ -f "./check-secrets.sh" ]; then
 fi
 
 # =========================
-# 4. AUDIT CODE
+# 5. AUDIT CODE
 # =========================
 echo "🔍 Audit du code..."
 if [ -f "./audit.sh" ]; then
@@ -65,7 +98,7 @@ if [ -f "./audit.sh" ]; then
 fi
 
 # =========================
-# 5. AUTO FIX
+# 6. AUTO FIX
 # =========================
 echo "🛠 Auto-fix..."
 if [ -f "./fix.sh" ]; then
@@ -73,7 +106,7 @@ if [ -f "./fix.sh" ]; then
 fi
 
 # =========================
-# 6. TYPES CHECK
+# 7. TYPES CHECK
 # =========================
 echo "🔍 Vérification database.types.ts..."
 TYPES_FILE="src/lib/supabase/database.types.ts"
@@ -91,14 +124,14 @@ if [ "$TYPES_SIZE" -lt 10000 ]; then
 fi
 
 # =========================
-# 7. BUILD CHECK
+# 8. BUILD CHECK
 # =========================
 echo "🧪 Build..."
 npm run build
 echo "✅ Build OK"
 
 # =========================
-# 8. COMMIT & PUSH (si besoin)
+# 9. COMMIT & PUSH
 # =========================
 if [[ -n "$(git status -s)" ]]; then
   echo "📦 Changements détectés"
@@ -110,27 +143,21 @@ else
 fi
 
 # =========================
-# 9. SUPABASE LINK
+# 10. SUPABASE
 # =========================
 echo "🔗 Liaison Supabase STAGING..."
 supabase link --project-ref "$SUPABASE_PROJECT_REF"
 
-# =========================
-# 10. DB
-# =========================
 echo "📡 Déploiement DB STAGING..."
 supabase db push
 
-# =========================
-# 11. FUNCTIONS
-# =========================
 echo "⚡ Déploiement fonctions STAGING..."
 supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF"
 
 # =========================
-# 12. VERCEL STAGING
+# 11. VERCEL STAGING
 # =========================
 echo "🌐 Déploiement frontend STAGING..."
 vercel
 
-echo "🎉 Déploiement STAGING terminé !"
+echo "🎉 DEPLOY STAGING OK"
