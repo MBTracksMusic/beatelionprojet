@@ -638,16 +638,15 @@ const resolveProducerTierFromSubscription = async (
     return { tier: "producteur" as ProducerTier, matchedPriceId: proPriceId, source: "env_fallback" };
   }
 
-  const fallbackTier = currentTier ?? "user";
-  console.warn("TIER_SYNC_UNKNOWN_PRICE", {
-    subscriptionId,
-    userId,
-    priceIds,
-    configuredProPriceId: proPriceId,
-    configuredElitePriceId: elitePriceId,
-    fallbackTier,
-  });
-  return { tier: fallbackTier, matchedPriceId: null, source: "current_tier_fallback" };
+  // Hard fail — ne jamais silencieusement fallback sur un abonnement actif avec un price_id inconnu.
+  // L'utilisateur a payé : s'il est impossible de déterminer le tier, on rejette le webhook
+  // afin que Stripe le réessaie et qu'une alerte soit visible dans les logs.
+  throw new Error(
+    `TIER_SYNC_UNKNOWN_PRICE: abonnement actif ${subscriptionId} (user ${userId}) — ` +
+    `aucun tier ne correspond aux price IDs [${priceIds.join(", ")}]. ` +
+    `Vérifiez producer_plans.stripe_price_id ou les variables d'env ` +
+    `STRIPE_PRODUCER_PRICE_ID / STRIPE_PRODUCER_ELITE_PRICE_ID.`
+  );
 };
 
 const DEFAULT_EVENT_PROCESSING_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
@@ -2864,20 +2863,6 @@ async function upsertProducerSubscription(
   }
 
   const isActive = ["active", "trialing"].includes(status) && Date.parse(currentEndIso) > Date.now();
-  let profileRole = (profile as { role?: string | null }).role ?? null;
-  if (profileRole === null) {
-    const { data: profileRoleRow, error: profileRoleErr } = await supabase
-      .from("user_profiles")
-      .select("role")
-      .eq("id", profile.id)
-      .maybeSingle();
-
-    if (profileRoleErr) {
-      console.error("[upsertProducerSubscription] Failed to resolve current role", profileRoleErr);
-    } else {
-      profileRole = (profileRoleRow as { role?: string | null } | null)?.role ?? null;
-    }
-  }
 
   const currentTier = asProducerTier((profile as { producer_tier?: unknown })?.producer_tier ?? null);
   const tierResolution = await resolveProducerTierFromSubscription(supabase, {
@@ -2888,29 +2873,6 @@ async function upsertProducerSubscription(
     userId: profile.id,
   });
   const nextTier = tierResolution.tier;
-  const shouldExposeProducerAccess = isActive && profileRole !== "admin";
-
-  const profileUpdates: Record<string, unknown> = {
-    stripe_subscription_id: subscriptionId,
-    producer_tier: nextTier,
-    is_producer_active: shouldExposeProducerAccess,
-  };
-  if (!profile.stripe_customer_id) {
-    profileUpdates.stripe_customer_id = customerId;
-  }
-  if (shouldExposeProducerAccess && profileRole !== "producer") {
-    profileUpdates.role = "producer";
-  }
-
-  const { error: profileUpdateErr } = await supabase
-    .from("user_profiles")
-    .update(profileUpdates)
-    .eq("id", profile.id);
-
-  if (profileUpdateErr) {
-    console.error("[upsertProducerSubscription] Failed to sync user profile identifiers", profileUpdateErr);
-    throw new Error(`Failed to update user profile: ${profileUpdateErr.message}`);
-  }
 
   console.log("TIER_SYNC", {
     userId: profile.id,
@@ -2924,6 +2886,9 @@ async function upsertProducerSubscription(
     priceIds,
   });
 
+  // Écriture unique dans producer_subscriptions.
+  // Le trigger trg_sync_user_profile_producer prend en charge la mise à jour atomique
+  // de user_profiles (role, producer_tier, is_producer_active, stripe_subscription_id).
   const { error } = await supabase
     .from("producer_subscriptions")
     .upsert({
@@ -2934,6 +2899,7 @@ async function upsertProducerSubscription(
       current_period_end: currentEndIso,
       cancel_at_period_end: cancelAtPeriodEnd ?? false,
       is_producer_active: isActive,
+      producer_tier: nextTier,
     }, { onConflict: "user_id" });
 
   if (error) {

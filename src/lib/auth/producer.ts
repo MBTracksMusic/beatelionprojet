@@ -9,7 +9,7 @@ export function isProducer(profile: Pick<ProducerAccessProfile, 'role'> | null |
 }
 
 export function isProducerSafe(profile: ProducerAccessProfile | null | undefined): boolean {
-  return isProducer(profile) || profile?.is_producer_active === true;
+  return profile?.is_producer_active === true;
 }
 
 export function isStripeReady(
