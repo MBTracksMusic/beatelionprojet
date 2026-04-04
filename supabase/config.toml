@@ -31,6 +31,9 @@ verify_jwt = false
 [functions.admin-assign-campaign]
 verify_jwt = false
 
+[functions.admin-unassign-campaign]
+verify_jwt = false
+
 [functions.contact-submit]
 verify_jwt = false
 

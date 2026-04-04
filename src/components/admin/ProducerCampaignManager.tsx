@@ -16,6 +16,9 @@ interface CampaignProducer {
   founding_trial_start: string | null;
   founding_trial_end: string | null;
   founding_trial_active: boolean;
+  founding_trial_expired: boolean;
+  days_remaining: number;
+  slot_number: number;
 }
 
 interface CampaignInfo {
@@ -42,6 +45,20 @@ interface AssignCampaignResponse {
     trial_end: string;
     slots_used: number;
     slots_max: number | null;
+  };
+  resolved_user?: {
+    id: string;
+    username: string | null;
+    email: string | null;
+  };
+}
+
+interface UnassignCampaignResponse {
+  ok: boolean;
+  result: {
+    success: boolean;
+    user_id: string;
+    message: string;
   };
   resolved_user?: {
     id: string;
@@ -91,6 +108,17 @@ const getAssignErrorMessage = (error: unknown) => {
   return message;
 };
 
+const getRemoveErrorMessage = (error: unknown) => {
+  const message = parseErrorMessage(error);
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes('user_not_found') || normalized.includes('user not found')) {
+    return 'Utilisateur introuvable.';
+  }
+
+  return message;
+};
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 interface ProducerCampaignManagerProps {
@@ -105,6 +133,7 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
 
   const [producerIdentifierInput, setProducerIdentifierInput] = useState('');
   const [isAssigning, setIsAssigning] = useState(false);
+  const [removingUserId, setRemovingUserId] = useState<string | null>(null);
 
   const isMountedRef = useRef(true);
   useEffect(() => {
@@ -184,6 +213,40 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
     }
   };
 
+  const handleRemove = async (producer: CampaignProducer) => {
+    const producerIdentity =
+      producer.username
+      ?? producer.full_name
+      ?? producer.email
+      ?? producer.user_id;
+
+    const confirmed = window.confirm('Confirmer la suppression de ce producteur ?');
+    if (!confirmed) {
+      return;
+    }
+
+    setRemovingUserId(producer.user_id);
+
+    try {
+      const data = await invokeProtectedEdgeFunction<UnassignCampaignResponse>('admin-unassign-campaign', {
+        body: { user_id: producer.user_id },
+      });
+
+      if (!isMountedRef.current) return;
+
+      const resolvedIdentity = data?.resolved_user?.email ?? data?.resolved_user?.username ?? producerIdentity;
+      toast.success(`Producteur retiré (${resolvedIdentity}).`);
+      await loadCampaign();
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      toast.error(getRemoveErrorMessage(err));
+    } finally {
+      if (isMountedRef.current) {
+        setRemovingUserId(null);
+      }
+    }
+  };
+
   // ── Slots bar ──
   const slotsPercent =
     campaign?.max_slots != null && campaign.max_slots > 0
@@ -195,6 +258,11 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
       ? `${campaign.slots_used} / ${campaign.max_slots} slots utilisés`
       : `${campaign.slots_used} producteur${campaign.slots_used > 1 ? 's' : ''} (illimité)`
     : null;
+
+  const slotsRemainingLabel =
+    campaign?.max_slots != null && campaign.slots_remaining != null
+      ? `${campaign.slots_remaining} slot${campaign.slots_remaining > 1 ? 's' : ''} restant${campaign.slots_remaining > 1 ? 's' : ''}`
+      : null;
 
   return (
     <Card className="md:col-span-2 border-zinc-800">
@@ -211,7 +279,12 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
         {campaign && (
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-zinc-400">{slotsLabel}</span>
+              <div className="flex flex-col">
+                <span className="text-zinc-400">{slotsLabel}</span>
+                {slotsRemainingLabel && (
+                  <span className="text-xs text-zinc-500">{slotsRemainingLabel}</span>
+                )}
+              </div>
               {campaign.max_slots != null && slotsPercent !== null && (
                 <span className={`font-medium ${slotsPercent >= 100 ? 'text-red-400' : slotsPercent >= 80 ? 'text-orange-400' : 'text-emerald-400'}`}>
                   {slotsPercent}%
@@ -280,7 +353,7 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
 
           {!listError && !isLoadingList && producers.length === 0 && (
             <p className="rounded-md border border-zinc-800 p-4 text-center text-sm text-zinc-500">
-              Aucun producteur dans cette campagne pour l&apos;instant.
+              Aucun producteur dans cette campagne.
             </p>
           )}
 
@@ -289,26 +362,30 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-zinc-800 bg-zinc-950/60">
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Utilisateur</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Email</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Slot</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Producteur</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Début trial</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Fin trial</th>
                     <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Statut</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800">
                   {producers.map((p) => (
                     <tr key={p.user_id} className="hover:bg-zinc-900/40">
+                      <td className="px-4 py-3 text-zinc-400">
+                        #{p.slot_number}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="font-medium text-white">
-                          {p.username ?? p.full_name ?? '—'}
+                          {p.username ?? p.full_name ?? p.email ?? '—'}
+                        </div>
+                        <div className="text-xs text-zinc-400">
+                          {p.email ?? '—'}
                         </div>
                         <div className="font-mono text-xs text-zinc-600 truncate max-w-[180px]">
                           {p.user_id}
                         </div>
-                      </td>
-                      <td className="px-4 py-3 text-zinc-300">
-                        {p.email ?? '—'}
                       </td>
                       <td className="px-4 py-3 text-zinc-400">
                         {formatDate(p.founding_trial_start)}
@@ -318,15 +395,28 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
                       </td>
                       <td className="px-4 py-3">
                         {p.founding_trial_active ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-400 border border-emerald-500/20">
+                          <div className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-400">
                             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                            Actif
-                          </span>
+                            Actif - {p.days_remaining} jour{p.days_remaining > 1 ? 's' : ''} restant{p.days_remaining > 1 ? 's' : ''}
+                          </div>
                         ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800 px-2.5 py-0.5 text-xs font-medium text-zinc-500 border border-zinc-700">
-                            Expiré
-                          </span>
+                          <div className="inline-flex items-center gap-1 rounded-full border border-red-500/20 bg-red-500/10 px-2.5 py-0.5 text-xs font-medium text-red-400">
+                            <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                            {p.founding_trial_expired ? 'Expiré' : 'Inactif'}
+                          </div>
                         )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Button
+                          type="button"
+                          variant="danger"
+                          size="sm"
+                          onClick={() => { void handleRemove(p); }}
+                          disabled={removingUserId !== null}
+                          isLoading={removingUserId === p.user_id}
+                        >
+                          Retirer
+                        </Button>
                       </td>
                     </tr>
                   ))}

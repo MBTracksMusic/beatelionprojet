@@ -100,6 +100,9 @@ type CampaignProducerResponse = {
   founding_trial_start: string | null;
   founding_trial_end: string | null;
   founding_trial_active: boolean;
+  founding_trial_expired: boolean;
+  days_remaining: number;
+  slot_number: number;
 };
 
 type IntervalParts = {
@@ -179,6 +182,15 @@ const isTrialActive = (trialEnd: string | null) => {
   const trialEndDate = new Date(trialEnd);
   if (Number.isNaN(trialEndDate.getTime())) return false;
   return Date.now() < trialEndDate.getTime();
+};
+
+const getDaysRemaining = (trialEnd: string | null) => {
+  if (!trialEnd) return 0;
+  const trialEndDate = new Date(trialEnd);
+  if (Number.isNaN(trialEndDate.getTime())) return 0;
+  const diffMs = trialEndDate.getTime() - Date.now();
+  if (diffMs <= 0) return 0;
+  return Math.max(0, Math.floor(diffMs / 86_400_000));
 };
 
 serveWithErrorHandling("admin-get-campaign", async (req: Request): Promise<Response> => {
@@ -267,11 +279,13 @@ serveWithErrorHandling("admin-get-campaign", async (req: Request): Promise<Respo
     }
 
     const normalizedProducers: CampaignProducerResponse[] = Array.isArray(producers)
-      ? producers.map((producer) => {
+      ? producers.map((producer, index) => {
           const foundingTrialEnd = addInterval(
             producer.founding_trial_start,
             campaignRow.trial_duration,
           );
+          const foundingTrialActive = isTrialActive(foundingTrialEnd);
+          const daysRemaining = foundingTrialActive ? getDaysRemaining(foundingTrialEnd) : 0;
 
           return {
             user_id: producer.id,
@@ -280,7 +294,10 @@ serveWithErrorHandling("admin-get-campaign", async (req: Request): Promise<Respo
             email: producer.email,
             founding_trial_start: producer.founding_trial_start,
             founding_trial_end: foundingTrialEnd,
-            founding_trial_active: isTrialActive(foundingTrialEnd),
+            founding_trial_active: foundingTrialActive,
+            founding_trial_expired: Boolean(foundingTrialEnd) && !foundingTrialActive,
+            days_remaining: daysRemaining,
+            slot_number: index + 1,
           };
         })
       : [];
