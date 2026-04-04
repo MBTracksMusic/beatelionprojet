@@ -283,7 +283,7 @@ export function ProducerStripeConnectPage() {
             <h3 className="text-sm font-medium text-zinc-300 mb-2">How it works</h3>
             <ul className="text-xs text-zinc-400 space-y-2">
               <li>✓ Customers pay through our platform</li>
-              <li>✓ We take a platform fee (typically 5-10%)</li>
+              <li>✓ We take a platform fee of 30% (you receive 70%)</li>
               <li>✓ Your earnings are transferred to your Stripe account weekly</li>
               <li>✓ You can track payouts in your Stripe Dashboard</li>
             </ul>
