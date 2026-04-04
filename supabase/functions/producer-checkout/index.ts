@@ -8,6 +8,12 @@ interface CheckoutBody {
   cancel_url?: string;
 }
 
+interface CheckoutSuccessResponse {
+  url: string;
+  sessionId: string;
+  trial_active: boolean;
+}
+
 type CheckoutTier = "producteur" | "elite";
 const CHECKOUT_TIERS = new Set<CheckoutTier>(["producteur", "elite"]);
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
@@ -25,7 +31,8 @@ const isKnownPlaceholderPriceId = (value: string) => {
 };
 
 const isProduction = () => {
-  const runtimeEnv = (Deno.env.get("ENV") ?? Deno.env.get("NODE_ENV") ?? "").trim().toLowerCase();
+  const runtimeEnv = (Deno.env.get("ENV") ?? Deno.env.get("NODE_ENV") ?? "")
+    .trim().toLowerCase();
   return runtimeEnv === "production" || runtimeEnv === "prod";
 };
 
@@ -45,9 +52,11 @@ const normalizeTier = (value: unknown): CheckoutTier | null => {
   return null;
 };
 
-const TRUSTED_VERCEL_PREVIEW_ORIGIN_REGEX = /^https:\/\/[a-z0-9-]+-mbtracksmusics-projects\.vercel\.app$/i;
+const TRUSTED_VERCEL_PREVIEW_ORIGIN_REGEX =
+  /^https:\/\/[a-z0-9-]+-mbtracksmusics-projects\.vercel\.app$/i;
 
-const isTrustedVercelPreviewOrigin = (origin: string) => TRUSTED_VERCEL_PREVIEW_ORIGIN_REGEX.test(origin);
+const isTrustedVercelPreviewOrigin = (origin: string) =>
+  TRUSTED_VERCEL_PREVIEW_ORIGIN_REGEX.test(origin);
 
 const DEFAULT_ALLOWED_REDIRECT_ORIGINS = [
   "https://beatelion.com",
@@ -78,12 +87,14 @@ const resolveAllowedRedirectOrigins = () => {
     }
   }
 
-  for (const envValue of [
-    Deno.env.get("APP_URL"),
-    Deno.env.get("SITE_URL"),
-    Deno.env.get("PUBLIC_SITE_URL"),
-    Deno.env.get("VITE_APP_URL"),
-  ]) {
+  for (
+    const envValue of [
+      Deno.env.get("APP_URL"),
+      Deno.env.get("SITE_URL"),
+      Deno.env.get("PUBLIC_SITE_URL"),
+      Deno.env.get("VITE_APP_URL"),
+    ]
+  ) {
     if (typeof envValue !== "string") continue;
     const normalized = normalizeOrigin(envValue.trim());
     if (normalized) {
@@ -112,7 +123,10 @@ const validateRedirectUrl = (value: unknown): string | null => {
     if (!["https:", "http:"].includes(parsed.protocol)) {
       return null;
     }
-    if (!ALLOWED_REDIRECT_ORIGINS.has(parsed.origin) && !isTrustedVercelPreviewOrigin(parsed.origin)) {
+    if (
+      !ALLOWED_REDIRECT_ORIGINS.has(parsed.origin) &&
+      !isTrustedVercelPreviewOrigin(parsed.origin)
+    ) {
       return null;
     }
     return parsed.toString();
@@ -122,16 +136,22 @@ const validateRedirectUrl = (value: unknown): string | null => {
 };
 
 const resolveDefaultRedirectOrigin = (req: Request): string => {
-  for (const candidate of [
-    req.headers.get("origin"),
-    Deno.env.get("APP_URL"),
-    Deno.env.get("SITE_URL"),
-    Deno.env.get("PUBLIC_SITE_URL"),
-    Deno.env.get("VITE_APP_URL"),
-  ]) {
+  for (
+    const candidate of [
+      req.headers.get("origin"),
+      Deno.env.get("APP_URL"),
+      Deno.env.get("SITE_URL"),
+      Deno.env.get("PUBLIC_SITE_URL"),
+      Deno.env.get("VITE_APP_URL"),
+    ]
+  ) {
     if (typeof candidate !== "string") continue;
     const normalized = normalizeOrigin(candidate.trim());
-    if (normalized && (ALLOWED_REDIRECT_ORIGINS.has(normalized) || isTrustedVercelPreviewOrigin(normalized))) {
+    if (
+      normalized &&
+      (ALLOWED_REDIRECT_ORIGINS.has(normalized) ||
+        isTrustedVercelPreviewOrigin(normalized))
+    ) {
       return normalized;
     }
   }
@@ -163,7 +183,8 @@ const ALLOWED_CORS_ORIGINS = (() => {
 const buildCorsHeaders = (origin: string | null) => ({
   "Access-Control-Allow-Origin": origin ?? DEFAULT_ALLOWED_CORS_ORIGINS[0],
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, apikey",
+  "Access-Control-Allow-Headers":
+    "Content-Type, Authorization, X-Client-Info, apikey",
   "Vary": "Origin",
 });
 
@@ -199,10 +220,15 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
         function: "producer-checkout",
         hasStripeSecretKey: false,
       });
-      return new Response(JSON.stringify({ error: "Stripe not configured (STRIPE_SECRET_KEY missing)" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          error: "Stripe not configured (STRIPE_SECRET_KEY missing)",
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     const authResult = await requireAuthUser(req, corsHeaders);
@@ -225,13 +251,18 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
         userId: user.id,
         message: profileError.message,
       });
-      return new Response(JSON.stringify({ error: "Unable to verify account status" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Unable to verify account status" }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
-    if (!profile || profile.is_deleted === true || profile.deleted_at !== null) {
+    if (
+      !profile || profile.is_deleted === true || profile.deleted_at !== null
+    ) {
       return new Response(JSON.stringify({ error: "Account deleted" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -239,7 +270,10 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
     }
 
     // Guardrail: avoid creating a new checkout session if the user already has an active producer subscription.
-    const { data: existingProducerSubscription, error: existingProducerSubscriptionError } = await supabaseAdmin
+    const {
+      data: existingProducerSubscription,
+      error: existingProducerSubscriptionError,
+    } = await supabaseAdmin
       .from("producer_subscriptions")
       .select("subscription_status, current_period_end, is_producer_active")
       .eq("user_id", user.id)
@@ -251,18 +285,26 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
         stage: "check_existing_subscription",
         message: existingProducerSubscriptionError.message,
       });
-      return new Response(JSON.stringify({ error: "Unable to verify current subscription status" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          error: "Unable to verify current subscription status",
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     const alreadySubscribed = Boolean(
       existingProducerSubscription && (
         existingProducerSubscription.is_producer_active === true ||
         (
-          typeof existingProducerSubscription.subscription_status === "string" &&
-          ACTIVE_SUBSCRIPTION_STATUSES.has(existingProducerSubscription.subscription_status) &&
+          typeof existingProducerSubscription.subscription_status ===
+            "string" &&
+          ACTIVE_SUBSCRIPTION_STATUSES.has(
+            existingProducerSubscription.subscription_status,
+          ) &&
           isFutureTimestamp(existingProducerSubscription.current_period_end)
         )
       ),
@@ -275,32 +317,27 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
       });
     }
 
-    // Guard founding trial : bloquer le checkout si le trial est encore actif.
-    // Le calcul de "3 mois" est délégué à Postgres via RPC (interval '3 months').
-    // Zéro logique de date côté JS.
-    const { data: foundingTrialActive, error: foundingTrialError } = await supabaseAdmin
-      .rpc("is_founding_trial_active", { p_user_id: user.id });
+    // Trial founding: best-effort signal for UX only.
+    // It must never block checkout creation.
+    let foundingTrialActive = false;
+    const { data: foundingTrialStatus, error: foundingTrialError } =
+      await supabaseAdmin
+        .rpc("is_founding_trial_active", { p_user_id: user.id });
 
     if (foundingTrialError) {
-      console.error("DB_ERROR", {
+      console.warn("DB_WARNING", {
         function: "producer-checkout",
         stage: "check_founding_trial",
         message: foundingTrialError.message,
       });
-      return new Response(JSON.stringify({ error: "Unable to verify founding trial status" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    } else {
+      foundingTrialActive = foundingTrialStatus === true;
     }
 
-    if (foundingTrialActive === true) {
-      return new Response(JSON.stringify({ error: "founding_trial_active" }), {
-        status: 409,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const { data: existingUserSubscription, error: existingUserSubscriptionError } = await supabaseAdmin
+    const {
+      data: existingUserSubscription,
+      error: existingUserSubscriptionError,
+    } = await supabaseAdmin
       .from("user_subscriptions")
       .select("subscription_status, current_period_end")
       .eq("user_id", user.id)
@@ -312,36 +349,50 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
         stage: "check_conflicting_user_subscription",
         message: existingUserSubscriptionError.message,
       });
-      return new Response(JSON.stringify({ error: "Unable to verify current subscription exclusivity" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          error: "Unable to verify current subscription exclusivity",
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     const hasActiveUserSubscription = Boolean(
       existingUserSubscription &&
-      typeof existingUserSubscription.subscription_status === "string" &&
-      ACTIVE_SUBSCRIPTION_STATUSES.has(existingUserSubscription.subscription_status) &&
-      (
-        typeof existingUserSubscription.current_period_end !== "string" ||
-        Date.parse(existingUserSubscription.current_period_end) > Date.now()
-      )
+        typeof existingUserSubscription.subscription_status === "string" &&
+        ACTIVE_SUBSCRIPTION_STATUSES.has(
+          existingUserSubscription.subscription_status,
+        ) &&
+        (
+          typeof existingUserSubscription.current_period_end !== "string" ||
+          Date.parse(existingUserSubscription.current_period_end) > Date.now()
+        ),
     );
 
     if (hasActiveUserSubscription) {
-      return new Response(JSON.stringify({ error: "subscription_conflict_user_active" }), {
-        status: 409,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "subscription_conflict_user_active" }),
+        {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     const body: CheckoutBody = await req.json();
-    const parsedTier = body.tier === undefined ? "producteur" : normalizeTier(body.tier);
+    const parsedTier = body.tier === undefined
+      ? "producteur"
+      : normalizeTier(body.tier);
     const requestedTier = parsedTier;
     console.log("CHECKOUT_TIER", requestedTier);
     const defaultRedirectOrigin = resolveDefaultRedirectOrigin(req);
-    const successUrlInput = body.success_url || `${defaultRedirectOrigin}/pricing?status=success`;
-    const cancelUrlInput = body.cancel_url || `${defaultRedirectOrigin}/pricing?status=cancel`;
+    const successUrlInput = body.success_url ||
+      `${defaultRedirectOrigin}/pricing?status=success`;
+    const cancelUrlInput = body.cancel_url ||
+      `${defaultRedirectOrigin}/pricing?status=cancel`;
     const successUrl = validateRedirectUrl(successUrlInput);
     const cancelUrl = validateRedirectUrl(cancelUrlInput);
 
@@ -365,10 +416,13 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
         requestedTier,
         message: tierPlanError.message,
       });
-      return new Response(JSON.stringify({ error: "Unable to resolve producer tier plan" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Unable to resolve producer tier plan" }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     if (tierPlan && tierPlan.is_active !== true) {
@@ -378,16 +432,17 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
       });
     }
 
-    const envFallbackPriceId =
-      requestedTier === "elite"
-        ? Deno.env.get("STRIPE_PRODUCER_ELITE_PRICE_ID")
-        : (Deno.env.get("STRIPE_PRODUCER_PRICE_ID") ||
-          Deno.env.get("STRIPE_PRICE_PRODUCER"));
+    const envFallbackPriceId = requestedTier === "elite"
+      ? Deno.env.get("STRIPE_PRODUCER_ELITE_PRICE_ID")
+      : (Deno.env.get("STRIPE_PRODUCER_PRICE_ID") ||
+        Deno.env.get("STRIPE_PRICE_PRODUCER"));
     const normalizedEnvFallbackPriceId =
-      typeof envFallbackPriceId === "string" && envFallbackPriceId.trim().length > 0
+      typeof envFallbackPriceId === "string" &&
+        envFallbackPriceId.trim().length > 0
         ? envFallbackPriceId.trim()
         : null;
-    const rawDbPriceId = typeof tierPlan?.stripe_price_id === "string" && tierPlan.stripe_price_id.trim().length > 0
+    const rawDbPriceId = typeof tierPlan?.stripe_price_id === "string" &&
+        tierPlan.stripe_price_id.trim().length > 0
       ? tierPlan.stripe_price_id.trim()
       : null;
     const dbPriceId = rawDbPriceId && !isKnownPlaceholderPriceId(rawDbPriceId)
@@ -416,14 +471,17 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
         reason: "stripe_price_not_configured",
         requestedTier,
       });
-      return new Response(JSON.stringify({
-        error: "stripe_price_not_configured",
-        message: "Missing Stripe price ID for tier",
-        tier: requestedTier,
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          error: "stripe_price_not_configured",
+          message: "Missing Stripe price ID for tier",
+          tier: requestedTier,
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
     console.log("STRIPE_PRICE_USED", priceId);
 
@@ -434,26 +492,32 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
         successUrl: successUrlInput,
         cancelUrl: cancelUrlInput,
       });
-      return new Response(JSON.stringify({ error: "Invalid success_url or cancel_url" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Invalid success_url or cancel_url" }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     let customerId = profile?.stripe_customer_id || null;
 
     if (!customerId) {
-      const createCustomerResp = await fetch("https://api.stripe.com/v1/customers", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${stripeSecret}`,
-          "Content-Type": "application/x-www-form-urlencoded",
+      const createCustomerResp = await fetch(
+        "https://api.stripe.com/v1/customers",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${stripeSecret}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            email: user.email ?? "",
+            "metadata[user_id]": user.id,
+          }),
         },
-        body: new URLSearchParams({
-          email: user.email ?? "",
-          "metadata[user_id]": user.id,
-        }),
-      });
+      );
 
       const customer = await createCustomerResp.json();
       if (customer.error) {
@@ -491,14 +555,17 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
       "subscription_data[metadata][requested_tier]": requestedTier,
     });
 
-    const sessionResp = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${stripeSecret}`,
-        "Content-Type": "application/x-www-form-urlencoded",
+    const sessionResp = await fetch(
+      "https://api.stripe.com/v1/checkout/sessions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeSecret}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: sessionParams.toString(),
       },
-      body: sessionParams.toString(),
-    });
+    );
 
     const session = await sessionResp.json();
     if (!sessionResp.ok || session.error) {
@@ -512,14 +579,21 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
         param: session.error?.param,
         priceId,
       });
-      const message = session.error?.message || session.error || "Stripe checkout failed";
+      const message = session.error?.message || session.error ||
+        "Stripe checkout failed";
       return new Response(JSON.stringify({ error: message }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    return new Response(JSON.stringify({ url: session.url, sessionId: session.id }), {
+    const responseBody: CheckoutSuccessResponse = {
+      url: session.url,
+      sessionId: session.id,
+      trial_active: foundingTrialActive,
+    };
+
+    return new Response(JSON.stringify(responseBody), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -528,9 +602,12 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
       function: "producer-checkout",
       error: err instanceof Error ? err.message : String(err),
     });
-    return new Response(JSON.stringify({ error: "Failed to create checkout session" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: "Failed to create checkout session" }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   }
 });
