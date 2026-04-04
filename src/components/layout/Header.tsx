@@ -46,7 +46,7 @@ export function Header() {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
 
-  const { showUserPremiumCredits } = useMaintenanceModeContext();
+  const { showUserPremiumCredits, showUserPremiumPlan } = useMaintenanceModeContext();
   const cartItemCount = items.length;
   const canAccessProducer = isProducerSafe(profile) || profile?.role === 'admin';
 
@@ -274,7 +274,7 @@ export function Header() {
 
             {user && (
               <>
-                {showUserPremiumCredits && (hasActiveUserSubscription || profile?.role === 'admin') && <CreditBadge />}
+                {showUserPremiumCredits && showUserPremiumPlan && (hasActiveUserSubscription || profile?.role === 'admin') && <CreditBadge />}
                 <Link
                   to="/wishlist"
                   className="p-2 text-zinc-400 hover:text-white transition-colors"
