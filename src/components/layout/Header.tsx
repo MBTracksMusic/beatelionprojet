@@ -274,7 +274,7 @@ export function Header() {
 
             {user && (
               <>
-                {showUserPremiumCredits && <CreditBadge />}
+                {showUserPremiumCredits && (hasActiveUserSubscription || profile?.role === 'admin') && <CreditBadge />}
                 <Link
                   to="/wishlist"
                   className="p-2 text-zinc-400 hover:text-white transition-colors"
