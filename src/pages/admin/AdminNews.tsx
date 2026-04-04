@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase/client';
 import type { Database } from '../../lib/supabase/types';
 import { NewsForm, type NewsFormValues } from '../../components/admin/NewsForm';
 import { NewsTable, type AdminNewsVideoRow } from '../../components/admin/NewsTable';
+import { invokeWithAuth } from '@/lib/supabase/invokeWithAuth';
 
 type NewsRow = AdminNewsVideoRow;
 
