@@ -83,6 +83,7 @@ Deno.serve(async (req: Request) => {
       .from("user_profiles")
       .update({
         stripe_account_charges_enabled: account.charges_enabled || false,
+        stripe_account_details_submitted: account.details_submitted || false,
         updated_at: new Date(),
       })
       .eq("id", userId);

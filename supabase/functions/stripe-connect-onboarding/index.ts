@@ -116,7 +116,7 @@ Deno.serve(async (req: Request) => {
     // Get user profile
     const { data: profile, error: profileError } = await supabaseAdmin
       .from("user_profiles")
-      .select("stripe_account_id, is_producer_active")
+      .select("stripe_account_id, is_producer_active, stripe_account_charges_enabled, stripe_account_details_submitted")
       .eq("id", userId)
       .single();
 
