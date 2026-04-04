@@ -171,7 +171,7 @@ export function DashboardPage() {
   const [producerSubscription, setProducerSubscription] = useState<ProducerSubscriptionSummary | null>(null);
   const [isProducerSubscriptionLoading, setIsProducerSubscriptionLoading] = useState(false);
   const [licenseDownloadingPurchaseId, setLicenseDownloadingPurchaseId] = useState<string | null>(null);
-  const { showUserPremiumPlan } = useMaintenanceModeContext();
+  const { showUserPremiumCredits } = useMaintenanceModeContext();
   const { balance: creditBalance, isLoading: isCreditBalanceLoading, error: creditBalanceError } = useCreditBalance(user?.id);
   const { subscription: userSubscription, isActive: hasActiveUserSubscription } = useUserSubscriptionStatus(user?.id);
   const normalizedCreditBalance = typeof creditBalance === 'number'
@@ -742,7 +742,10 @@ export function DashboardPage() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {showUserPremiumPlan && <Card className="p-6">
+          {/* IMPORTANT:
+              Les crédits dépendent de show_user_premium_credits
+              et NON de show_user_premium_plan (offre marketing). */}
+          {showUserPremiumCredits && <Card className="p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-white mb-2">{t('dashboard.creditsTitle')}</h2>
