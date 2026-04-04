@@ -176,7 +176,6 @@ export function MaintenanceScreen({ launchDate, launchVideoUrl }: MaintenanceScr
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      console.log('join-waitlist token:', session?.access_token ? 'YES' : 'NO');
 
       const { data, error } = await supabase.functions.invoke<WaitlistSubmitResponse>('join-waitlist', {
         headers: session?.access_token ? {

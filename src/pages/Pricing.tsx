@@ -240,7 +240,6 @@ export function PricingPage() {
 
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        console.log('get-producer-plans token:', session?.access_token ? 'YES' : 'NO');
 
         const { data, error: fetchError } = await supabase.functions.invoke('get-producer-plans', {
           headers: session?.access_token ? {

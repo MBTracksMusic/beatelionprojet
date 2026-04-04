@@ -46,7 +46,7 @@ const FORUM_TOPICS_TABLE = 'forum_topics' as any;
 const FORUM_POSTS_TABLE = 'forum_posts' as any;
 
 export function AdminForumPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { t } = useTranslation();
   const [topics, setTopics] = useState<ForumTopicRow[]>([]);
   const [posts, setPosts] = useState<ForumPostRow[]>([]);
@@ -195,7 +195,7 @@ export function AdminForumPage() {
     await loadForumModeration();
   };
 
-  const canAct = Boolean(user?.id) && !isLegacyMode;
+  const canAct = Boolean(user?.id) && profile?.role === 'admin' && !isLegacyMode;
   const getModerationBadgeLabel = (status: ForumPostRow['moderation_status']) => {
     if (status === 'review') return t('forum.review');
     if (status === 'blocked') return t('forum.blocked');

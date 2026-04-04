@@ -70,7 +70,6 @@ async function invokeAuthFunction<T>(functionName: string, body: Record<string, 
   });
 
   const { data: { session } } = await supabase.auth.getSession();
-  console.log(`[auth] token present:`, !!session?.access_token);
 
   const { data, error } = await supabase.functions.invoke<T>(functionName, {
     headers: session?.access_token ? {
@@ -88,8 +87,6 @@ async function invokeAuthFunction<T>(functionName: string, body: Record<string, 
     });
     throw await parseFunctionInvokeError(error);
   }
-
-  console.log(`[auth] Function ${functionName} success`);
 
   if (data == null) {
     throw new AuthFunctionError(`Empty response from ${functionName}`);

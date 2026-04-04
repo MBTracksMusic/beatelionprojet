@@ -125,8 +125,6 @@ const invokeForumFunction = async <T,>(
     throw new Error('User is not authenticated.');
   }
 
-  console.log(`🔍 ${functionName.toUpperCase()} TOKEN:`, `Bearer ${session.access_token.substring(0, 20)}...`);
-
   const { data, error } = await supabase.functions.invoke<T>(functionName, {
     headers: {
       Authorization: `Bearer ${session.access_token}`,
@@ -199,41 +197,12 @@ export function useForumCategories() {
     setError(null);
 
     try {
-      const [{ data: categoriesData, error: categoriesError }, { data: topicsData, error: topicsError }] =
-        await Promise.all([
-          supabase.from(FORUM_CATEGORIES_TABLE).select('*').order('position', { ascending: true }).order('created_at', { ascending: true }),
-          supabase.from(FORUM_TOPICS_TABLE).select('id, category_id, post_count'),
-        ]);
+      const { data, error: rpcError } = await supabase.rpc('get_forum_categories_with_stats' as any);
 
-      if (categoriesError) throw categoriesError;
-      if (topicsError) {
-        console.warn('Forum topics counts unavailable, falling back to zero counts', topicsError);
-      }
+      if (rpcError) throw rpcError;
 
-      const categoryRows = ((categoriesData as unknown as ForumCategoryRow[] | null) ?? []);
-      const topicRows = topicsError
-        ? []
-        : ((topicsData as unknown as Array<Pick<ForumTopicRow, 'id' | 'category_id' | 'post_count'>> | null) ?? []);
-
-      const countsByCategory = new Map<string, { topicCount: number; postCount: number }>();
-
-      for (const topic of topicRows) {
-        const current = countsByCategory.get(topic.category_id) ?? { topicCount: 0, postCount: 0 };
-        current.topicCount += 1;
-        current.postCount += topic.post_count ?? 0;
-        countsByCategory.set(topic.category_id, current);
-      }
-
-      setCategories(
-        categoryRows.map((category) => {
-          const counts = countsByCategory.get(category.id);
-          return {
-            ...category,
-            topic_count: counts?.topicCount ?? 0,
-            post_count: counts?.postCount ?? 0,
-          };
-        }),
-      );
+      const rows = ((data as unknown as ForumCategory[] | null) ?? []);
+      setCategories(rows);
     } catch (loadError) {
       console.error('Failed to load forum categories', loadError);
       setError(t('forum.categoriesLoadError'));

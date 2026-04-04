@@ -211,7 +211,6 @@ serveWithErrorHandling("producer-checkout", async (req: Request) => {
     }
 
     const { supabaseAdmin, user } = authResult;
-    console.log("JWT_USER", user?.id);
 
     const { data: profile, error: profileError } = await supabaseAdmin
       .from("user_profiles")

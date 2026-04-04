@@ -92,7 +92,6 @@ export function ContactPage() {
       };
 
       const { data: { session } } = await supabase.auth.getSession();
-      console.log('contact-submit token:', session?.access_token ? 'YES' : 'NO');
 
       const { data, error } = await supabase.functions.invoke<ContactSubmitResponse>('contact-submit', {
         headers: session?.access_token ? {

@@ -442,8 +442,6 @@ export function ProducerBattlesPage() {
       return;
     }
 
-    console.log('🔍 GENERATE-BATTLE-SUGGESTIONS TOKEN:', `Bearer ${session.access_token.substring(0, 20)}...`);
-
     const { data: suggestionData, error: suggestionError } = await supabase.functions.invoke(
       'generate-battle-suggestions',
       {

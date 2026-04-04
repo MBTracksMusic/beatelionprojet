@@ -60,8 +60,6 @@ export async function invokeProtectedEdgeFunction<TData>(
 ) {
   const token = await getFreshAccessToken();
 
-  console.log(`🔍 ${functionName.toUpperCase()} TOKEN:`, `Bearer ${token.substring(0, 20)}...`);
-
   const result = await supabase.functions.invoke<TData>(functionName, {
     headers: {
       Authorization: `Bearer ${token}`,

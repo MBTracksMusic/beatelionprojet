@@ -491,8 +491,6 @@ export function AdminDashboardPage() {
         throw new Error('User is not authenticated.');
       }
 
-      console.log('🔍 SEND-CAMPAIGN TOKEN:', `Bearer ${session.access_token.substring(0, 20)}...`);
-
       const { data, error } = await supabase.functions.invoke<{
         success?: boolean;
         error?: string;
