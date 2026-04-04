@@ -5,6 +5,11 @@ set -euo pipefail
 echo "🚀 Déploiement PRODUCTION"
 
 # =========================
+# CONFIG
+# =========================
+EXPECTED_VERCEL_PROJECT="beatelion-production"
+
+# =========================
 # 0. LOAD ENV
 # =========================
 if [ ! -f ".env.production" ]; then
@@ -22,7 +27,7 @@ echo "📡 SUPABASE_PROJECT_REF: ${SUPABASE_PROJECT_REF:-undefined}"
 # =========================
 # 1. CHECK TOOLS
 # =========================
-for cmd in git node npm supabase vercel; do
+for cmd in git node npm supabase vercel jq; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "❌ Commande manquante : $cmd"
     exit 1
@@ -33,141 +38,105 @@ done
 # 2. SAFE CHECKS
 # =========================
 if [ "${ENVIRONMENT:-}" != "production" ]; then
-  echo "❌ ENVIRONMENT doit être égal à production dans .env.production"
+  echo "❌ ENVIRONMENT doit être égal à production"
   exit 1
 fi
 
 if [ -z "${SUPABASE_PROJECT_REF:-}" ]; then
-  echo "❌ SUPABASE_PROJECT_REF manquant dans .env.production"
+  echo "❌ SUPABASE_PROJECT_REF manquant"
   exit 1
 fi
 
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [ "$CURRENT_BRANCH" != "main" ]; then
-  echo "❌ Déploiement production autorisé uniquement depuis la branche main (actuelle : $CURRENT_BRANCH)"
-  exit 1
-fi
-
-read -p "⚠️ CONFIRMER LE DEPLOY EN PRODUCTION (yes): " confirm
-if [ "$confirm" != "yes" ]; then
-  echo "❌ Déploiement annulé"
+  echo "❌ Déploiement autorisé uniquement depuis main"
   exit 1
 fi
 
 # =========================
-# 3. CHECK SECRETS
+# 3. VERCEL LINK FORCE
+# =========================
+echo "🔗 Vérification projet Vercel..."
+
+if [ ! -f ".vercel/project.json" ]; then
+  echo "⚠️ Aucun projet Vercel lié → linking..."
+  vercel link --project "$EXPECTED_VERCEL_PROJECT"
+fi
+
+CURRENT_PROJECT_NAME=$(jq -r '.projectName' .vercel/project.json)
+
+echo "👉 Projet actuel : $CURRENT_PROJECT_NAME"
+
+if [ "$CURRENT_PROJECT_NAME" != "$EXPECTED_VERCEL_PROJECT" ]; then
+  echo "⚠️ Mauvais projet détecté → re-link..."
+  vercel link --project "$EXPECTED_VERCEL_PROJECT"
+fi
+
+# Vérification finale
+FINAL_PROJECT_NAME=$(jq -r '.projectName' .vercel/project.json)
+
+if [ "$FINAL_PROJECT_NAME" != "$EXPECTED_VERCEL_PROJECT" ]; then
+  echo "❌ Impossible de lier au bon projet Vercel"
+  exit 1
+fi
+
+echo "✅ Projet Vercel OK : $FINAL_PROJECT_NAME"
+
+# =========================
+# 4. CONFIRMATION
+# =========================
+read -p "⚠️ CONFIRMER DEPLOY PROD (yes): " confirm
+if [ "$confirm" != "yes" ]; then
+  echo "❌ Annulé"
+  exit 1
+fi
+
+# =========================
+# 5. CHECK SECRETS
 # =========================
 if [ -f "./check-secrets.sh" ]; then
   echo "🔐 Scan sécurité..."
   ./check-secrets.sh
-else
-  echo "⚠️ Aucun check-secrets.sh trouvé (skip)"
 fi
 
 # =========================
-# 4. AUDIT CODE
+# 6. AUDIT
 # =========================
-echo "🔍 Audit du code..."
 if [ -f "./audit.sh" ]; then
-  ./audit.sh || {
-    echo "❌ Audit échoué. Corrige avant déploiement."
-    exit 1
-  }
-else
-  echo "⚠️ Aucun audit.sh trouvé (skip)"
+  ./audit.sh || exit 1
 fi
 
 # =========================
-# 5. AUTO FIX
+# 7. BUILD
 # =========================
-echo "🛠 Tentative auto-fix..."
-if [ -f "./fix.sh" ]; then
-  ./fix.sh || echo "⚠️ Fix partiel ou ignoré"
-else
-  echo "⚠️ Aucun fix.sh trouvé (skip)"
-fi
-
-# =========================
-# 6. PRODUCER REVENUE VIEW CHECK
-# =========================
-echo "🔍 Vérification producer_revenue_view..."
-if [ -f "scripts/checkProducerRevenueViewExists.mjs" ]; then
-  node scripts/checkProducerRevenueViewExists.mjs || echo "⚠️ View missing (fallback will be used)"
-else
-  echo "⚠️ Script checkProducerRevenueViewExists.mjs introuvable (skip)"
-fi
-
-# =========================
-# 7. CHECK DATABASE TYPES
-# =========================
-echo "🔍 Vérification database.types.ts..."
-TYPES_FILE="src/lib/supabase/database.types.ts"
-
-if [ ! -f "$TYPES_FILE" ]; then
-  TYPES_SIZE=0
-else
-  TYPES_SIZE=$(wc -c < "$TYPES_FILE")
-fi
-
-if [ "$TYPES_SIZE" -lt 10000 ]; then
-  echo "⚠️ database.types.ts vide ou trop petit (${TYPES_SIZE} bytes) — régénération..."
-  npm run supabase:types || {
-    echo "❌ Échec de la génération des types Supabase. Déploiement annulé."
-    exit 1
-  }
-  echo "✅ Types régénérés"
-  git add "$TYPES_FILE"
-else
-  echo "✅ database.types.ts OK (${TYPES_SIZE} bytes)"
-fi
-
-# =========================
-# 8. BUILD CHECK
-# =========================
-echo "🧪 Vérification build..."
+echo "🧪 Build..."
 npm run build
-echo "✅ Build OK"
 
 # =========================
-# 9. COMMIT & PUSH SI NÉCESSAIRE
+# 8. COMMIT SI BESOIN
 # =========================
 if [[ -n "$(git status -s)" ]]; then
-  echo "📦 Changements locaux détectés"
-  read -p "📝 Message de commit: " commit_message
-
-  if [ -z "$commit_message" ]; then
-    commit_message="auto: prod deploy"
-  fi
-
   git add -A
-  git commit -m "$commit_message" || echo "⚠️ Rien à commit"
+  git commit -m "auto: prod deploy" || true
   git push origin main
-else
-  echo "✅ Aucun changement local à commit"
 fi
 
 # =========================
-# 10. LINK SUPABASE PROD
+# 9. SUPABASE
 # =========================
-echo "🔗 Liaison au projet Supabase PROD..."
+echo "🔗 Supabase link..."
 supabase link --project-ref "$SUPABASE_PROJECT_REF"
 
-# =========================
-# 11. SUPABASE DB
-# =========================
-echo "📡 Déploiement DB PROD..."
+echo "📡 DB push..."
 supabase db push
 
-# =========================
-# 12. EDGE FUNCTIONS
-# =========================
-echo "⚡ Déploiement des Edge Functions PROD..."
+echo "⚡ Functions deploy..."
 supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF"
 
 # =========================
-# 13. VERCEL PROD
+# 10. VERCEL DEPLOY
 # =========================
-echo "🌐 Déploiement frontend PROD..."
+echo "🌐 Deploy Vercel PROD..."
 vercel --prod
 
-echo "🎉 Déploiement PRODUCTION terminé !"
+echo "🎉 DEPLOY PRODUCTION OK"
