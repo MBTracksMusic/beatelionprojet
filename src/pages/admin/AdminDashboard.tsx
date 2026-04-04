@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { AnalyticsAlertsPanel } from '../../components/system/AnalyticsAlertsPanel';
+import { ProducerCampaignManager } from '../../components/admin/ProducerCampaignManager';
 import {
   getAverageOrderValue,
   getProductPerformance,
@@ -1154,6 +1155,8 @@ export function AdminDashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ProducerCampaignManager campaignType="founding" />
 
       <Link to="/admin/news" className="group">
         <Card className="h-full border-zinc-800 transition-colors hover:border-rose-500/60">
