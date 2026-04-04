@@ -1,5 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { requireAdminUser } from "../_shared/auth.ts";
+import {
+  createUserClient,
+  extractBearerToken,
+  requireAdminUser,
+} from "../_shared/auth.ts";
 import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const BASE_CORS_HEADERS = {
@@ -85,6 +89,50 @@ const asUuid = (value: unknown) => {
   return text;
 };
 
+const asEmail = (value: unknown) => {
+  const text = asNonEmptyString(value);
+  if (!text) return null;
+  return text.toLowerCase();
+};
+
+type ResolvedUserRow = {
+  id: string;
+  username: string | null;
+  email: string | null;
+};
+
+type AssignCampaignRpcResult = {
+  user_id: string;
+  campaign_type: string;
+  trial_start: string;
+  trial_end: string;
+  slots_used: number;
+  slots_max: number | null;
+};
+
+type RpcErrorShape = {
+  code?: string;
+  message?: string | null;
+};
+
+type RpcCallResult<TData> = {
+  data: TData | null;
+  error: RpcErrorShape | null;
+};
+
+async function invokeRpc<TData>(
+  client: ReturnType<typeof createUserClient>,
+  functionName: string,
+  args: Record<string, unknown>,
+): Promise<RpcCallResult<TData>> {
+  const rpc = client.rpc as unknown as (
+    fn: string,
+    params?: Record<string, unknown>,
+  ) => Promise<RpcCallResult<TData>>;
+
+  return rpc(functionName, args);
+}
+
 serveWithErrorHandling("admin-assign-campaign", async (req: Request): Promise<Response> => {
   const requestOrigin = resolveRequestOrigin(req);
   const corsHeaders = buildCorsHeaders(requestOrigin);
@@ -109,6 +157,16 @@ serveWithErrorHandling("admin-assign-campaign", async (req: Request): Promise<Re
 
     const { supabaseAdmin } = authContext;
 
+    const token = extractBearerToken(req);
+    if (!token) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: jsonHeaders,
+      });
+    }
+
+    const supabaseUser = createUserClient(token);
+
     const payload = await req.json().catch(() => null) as Record<string, unknown> | null;
     if (!payload || Array.isArray(payload)) {
       return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
@@ -118,10 +176,11 @@ serveWithErrorHandling("admin-assign-campaign", async (req: Request): Promise<Re
     }
 
     const userId = asUuid(payload.user_id);
+    const email = asEmail(payload.email);
     const campaignType = asNonEmptyString(payload.campaign_type);
 
-    if (!userId) {
-      return new Response(JSON.stringify({ error: "Invalid or missing user_id (must be a UUID)" }), {
+    if (!userId && !email) {
+      return new Response(JSON.stringify({ error: "Invalid or missing user_id/email" }), {
         status: 400,
         headers: jsonHeaders,
       });
@@ -134,12 +193,79 @@ serveWithErrorHandling("admin-assign-campaign", async (req: Request): Promise<Re
       });
     }
 
+    let resolvedUser: ResolvedUserRow | null = null;
+
+    if (userId) {
+      const { data: userData, error: userError } = await supabaseAdmin
+        .from("user_profiles")
+        .select("id, username, email")
+        .eq("id", userId)
+        .single();
+
+      if (userError) {
+        const normalizedMessage = userError.message.toLowerCase();
+        if (userError.code === "PGRST116" || normalizedMessage.includes("0 rows")) {
+          return new Response(JSON.stringify({ error: "user_not_found", message: "User not found" }), {
+            status: 404,
+            headers: jsonHeaders,
+          });
+        }
+
+        console.error("[admin-assign-campaign] failed to resolve user by id", {
+          code: userError.code,
+          message: userError.message,
+          userId,
+        });
+        return new Response(JSON.stringify({ error: "user_lookup_failed", message: "Unable to resolve user" }), {
+          status: 500,
+          headers: jsonHeaders,
+        });
+      }
+
+      resolvedUser = userData as ResolvedUserRow;
+    } else if (email) {
+      const { data: userData, error: userError } = await supabaseAdmin
+        .from("user_profiles")
+        .select("id, username, email")
+        .eq("email", email)
+        .single();
+
+      if (userError) {
+        const normalizedMessage = userError.message.toLowerCase();
+        if (userError.code === "PGRST116" || normalizedMessage.includes("0 rows")) {
+          return new Response(JSON.stringify({ error: "user_not_found", message: "User not found" }), {
+            status: 404,
+            headers: jsonHeaders,
+          });
+        }
+
+        console.error("[admin-assign-campaign] failed to resolve user by email", {
+          code: userError.code,
+          message: userError.message,
+          email,
+        });
+        return new Response(JSON.stringify({ error: "user_lookup_failed", message: "Unable to resolve user" }), {
+          status: 500,
+          headers: jsonHeaders,
+        });
+      }
+
+      resolvedUser = userData as ResolvedUserRow;
+    }
+
+    if (!resolvedUser) {
+      return new Response(JSON.stringify({ error: "user_not_found", message: "User not found" }), {
+        status: 404,
+        headers: jsonHeaders,
+      });
+    }
+
     // trial_start is optional — defaults to now() in the RPC
     const trialStartRaw = asNonEmptyString(payload.trial_start);
     const trialStart = trialStartRaw ?? undefined;
 
     const rpcArgs: Record<string, unknown> = {
-      p_user_id: userId,
+      p_user_id: resolvedUser.id,
       p_campaign_type: campaignType,
     };
 
@@ -147,7 +273,8 @@ serveWithErrorHandling("admin-assign-campaign", async (req: Request): Promise<Re
       rpcArgs.p_trial_start = trialStart;
     }
 
-    const { data: result, error: rpcError } = await supabaseAdmin.rpc(
+    const { data: result, error: rpcError } = await invokeRpc<AssignCampaignRpcResult>(
+      supabaseUser,
       "admin_assign_producer_campaign",
       rpcArgs,
     );
@@ -190,7 +317,7 @@ serveWithErrorHandling("admin-assign-campaign", async (req: Request): Promise<Re
       console.error("[admin-assign-campaign] RPC error", {
         code: rpcError.code,
         message,
-        userId,
+        userId: resolvedUser.id,
         campaignType,
       });
 
@@ -200,7 +327,15 @@ serveWithErrorHandling("admin-assign-campaign", async (req: Request): Promise<Re
       });
     }
 
-    return new Response(JSON.stringify({ ok: true, result }), {
+    return new Response(JSON.stringify({
+      ok: true,
+      result,
+      resolved_user: {
+        id: resolvedUser.id,
+        username: resolvedUser.username,
+        email: resolvedUser.email,
+      },
+    }), {
       status: 200,
       headers: jsonHeaders,
     });

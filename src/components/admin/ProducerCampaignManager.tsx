@@ -43,9 +43,17 @@ interface AssignCampaignResponse {
     slots_used: number;
     slots_max: number | null;
   };
+  resolved_user?: {
+    id: string;
+    username: string | null;
+    email: string | null;
+  };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 
 const formatDate = (value: string | null) => {
   if (!value) return '—';
@@ -68,6 +76,21 @@ const parseErrorMessage = (error: unknown): string => {
   return 'Une erreur inattendue est survenue.';
 };
 
+const getAssignErrorMessage = (error: unknown) => {
+  const message = parseErrorMessage(error);
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes('user_not_found') || normalized.includes('user not found')) {
+    return 'Utilisateur introuvable.';
+  }
+
+  if (normalized.includes('campaign_full') || normalized.includes('is full')) {
+    return 'La campagne est complète.';
+  }
+
+  return message;
+};
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 interface ProducerCampaignManagerProps {
@@ -80,7 +103,7 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
 
-  const [userIdInput, setUserIdInput] = useState('');
+  const [producerIdentifierInput, setProducerIdentifierInput] = useState('');
   const [isAssigning, setIsAssigning] = useState(false);
 
   const isMountedRef = useRef(true);
@@ -117,36 +140,43 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
   }, [campaignType]);
 
   const handleAssign = async () => {
-    const userId = asNonEmptyString(userIdInput);
+    const producerIdentifier = asNonEmptyString(producerIdentifierInput);
 
-    if (!userId) {
-      toast.error('Veuillez saisir un User ID valide.');
+    if (!producerIdentifier) {
+      toast.error('Veuillez saisir un email valide.');
       return;
     }
 
-    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidRe.test(userId)) {
-      toast.error('Le User ID doit être un UUID valide.');
+    const isUuidInput = UUID_RE.test(producerIdentifier);
+    const normalizedEmail = producerIdentifier.toLowerCase();
+
+    if (!isUuidInput && !EMAIL_RE.test(normalizedEmail)) {
+      toast.error('Veuillez saisir un email valide.');
       return;
     }
 
     setIsAssigning(true);
 
     try {
+      const payload = isUuidInput
+        ? { user_id: producerIdentifier, campaign_type: campaignType }
+        : { email: normalizedEmail, campaign_type: campaignType };
+
       const data = await invokeProtectedEdgeFunction<AssignCampaignResponse>('admin-assign-campaign', {
-        body: { user_id: userId, campaign_type: campaignType },
+        body: payload,
       });
 
       if (!isMountedRef.current) return;
 
       const slotsUsed = data?.result?.slots_used ?? '?';
       const slotsMax = data?.result?.slots_max != null ? data.result.slots_max : '∞';
-      toast.success(`Producteur activé. Slots : ${slotsUsed} / ${slotsMax}`);
-      setUserIdInput('');
+      const resolvedIdentity = data?.resolved_user?.email ?? data?.resolved_user?.username ?? producerIdentifier;
+      toast.success(`Producteur activé (${resolvedIdentity}). Slots : ${slotsUsed} / ${slotsMax}`);
+      setProducerIdentifierInput('');
       await loadCampaign();
     } catch (err) {
       if (!isMountedRef.current) return;
-      toast.error(parseErrorMessage(err));
+      toast.error(getAssignErrorMessage(err));
     } finally {
       if (isMountedRef.current) {
         setIsAssigning(false);
@@ -205,19 +235,19 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
         <div className="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-4 sm:flex-row sm:items-end">
           <div className="flex-1">
             <label className="mb-1.5 block text-xs font-medium text-zinc-400">
-              User ID (UUID)
+              Email du producteur
             </label>
             <Input
-              value={userIdInput}
-              onChange={(e) => setUserIdInput(e.target.value)}
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              value={producerIdentifierInput}
+              onChange={(e) => setProducerIdentifierInput(e.target.value)}
+              placeholder="producteur@beatelion.com"
               disabled={isAssigning}
-              className="font-mono text-sm"
+              className="text-sm"
             />
           </div>
           <Button
             onClick={handleAssign}
-            disabled={isAssigning || !userIdInput.trim()}
+            disabled={isAssigning || !producerIdentifierInput.trim()}
             className="flex shrink-0 items-center gap-2 whitespace-nowrap"
           >
             <UserPlus className="h-4 w-4" />

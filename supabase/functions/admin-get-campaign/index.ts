@@ -1,5 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { requireAdminUser } from "../_shared/auth.ts";
+import {
+  createUserClient,
+  extractBearerToken,
+  requireAdminUser,
+} from "../_shared/auth.ts";
 import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
 const BASE_CORS_HEADERS = {
@@ -76,6 +80,46 @@ const asNonEmptyString = (value: unknown) => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
+type CampaignProducerRow = {
+  user_id?: string | null;
+  username?: string | null;
+  email?: string | null;
+  trial_start?: string | null;
+  trial_end?: string | null;
+  trial_active?: boolean | null;
+};
+
+type CampaignRow = {
+  type: string;
+  label: string;
+  max_slots: number | null;
+  is_active: boolean;
+  trial_duration: string | null;
+};
+
+type RpcErrorShape = {
+  code?: string;
+  message?: string | null;
+};
+
+type RpcCallResult<TData> = {
+  data: TData | null;
+  error: RpcErrorShape | null;
+};
+
+async function invokeRpc<TData>(
+  client: ReturnType<typeof createUserClient>,
+  functionName: string,
+  args: Record<string, unknown>,
+): Promise<RpcCallResult<TData>> {
+  const rpc = client.rpc as unknown as (
+    fn: string,
+    params?: Record<string, unknown>,
+  ) => Promise<RpcCallResult<TData>>;
+
+  return rpc(functionName, args);
+}
+
 serveWithErrorHandling("admin-get-campaign", async (req: Request): Promise<Response> => {
   const requestOrigin = resolveRequestOrigin(req);
   const corsHeaders = buildCorsHeaders(requestOrigin);
@@ -98,7 +142,15 @@ serveWithErrorHandling("admin-get-campaign", async (req: Request): Promise<Respo
       return authContext.error;
     }
 
-    const { supabaseAdmin } = authContext;
+    const token = extractBearerToken(req);
+    if (!token) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: jsonHeaders,
+      });
+    }
+
+    const supabaseUser = createUserClient(token);
 
     const payload = await req.json().catch(() => null) as Record<string, unknown> | null;
     if (!payload || Array.isArray(payload)) {
@@ -117,11 +169,12 @@ serveWithErrorHandling("admin-get-campaign", async (req: Request): Promise<Respo
     }
 
     // Fetch campaign config (slots info)
-    const { data: campaignRow, error: campaignError } = await supabaseAdmin
+    const { data: campaignData, error: campaignError } = await supabaseUser
       .from("producer_campaigns")
       .select("type, label, max_slots, is_active, trial_duration")
       .eq("type", campaignType)
       .maybeSingle();
+    const campaignRow = campaignData as CampaignRow | null;
 
     if (campaignError) {
       console.error("[admin-get-campaign] failed to load campaign", {
@@ -142,12 +195,21 @@ serveWithErrorHandling("admin-get-campaign", async (req: Request): Promise<Respo
     }
 
     // Fetch producers via safe RPC (admin-checked inside)
-    const { data: producers, error: rpcError } = await supabaseAdmin.rpc(
+    const { data: producersData, error: rpcError } = await invokeRpc<CampaignProducerRow[]>(
+      supabaseUser,
       "admin_list_campaign_producers_safe",
       { p_campaign_type: campaignType },
     );
+    const producers = producersData as CampaignProducerRow[] | null;
 
     if (rpcError) {
+      if (rpcError.code === "42501") {
+        return new Response(JSON.stringify({ error: "Forbidden", message: rpcError.message }), {
+          status: 403,
+          headers: jsonHeaders,
+        });
+      }
+
       console.error("[admin-get-campaign] RPC error", {
         code: rpcError.code,
         message: rpcError.message,
@@ -159,7 +221,22 @@ serveWithErrorHandling("admin-get-campaign", async (req: Request): Promise<Respo
       });
     }
 
-    const slots_used = Array.isArray(producers) ? producers.length : 0;
+    const normalizedProducers = Array.isArray(producers)
+      ? producers.map((row) => {
+          const producer = row as CampaignProducerRow;
+          return {
+            user_id: producer.user_id ?? null,
+            username: producer.username ?? null,
+            full_name: null,
+            email: producer.email ?? null,
+            founding_trial_start: producer.trial_start ?? null,
+            founding_trial_end: producer.trial_end ?? null,
+            founding_trial_active: producer.trial_active === true,
+          };
+        })
+      : [];
+
+    const slots_used = normalizedProducers.length;
 
     return new Response(
       JSON.stringify({
@@ -174,7 +251,7 @@ serveWithErrorHandling("admin-get-campaign", async (req: Request): Promise<Respo
             ? Math.max(0, campaignRow.max_slots - slots_used)
             : null,
         },
-        producers: producers ?? [],
+        producers: normalizedProducers,
       }),
       {
         status: 200,
