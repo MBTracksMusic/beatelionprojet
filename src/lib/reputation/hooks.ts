@@ -299,7 +299,8 @@ export function useActiveSeason() {
       return;
     }
 
-    const row = (Array.isArray(data) ? data[0] : data) as ActiveSeasonDetails | null;
+    // get_active_season_details() is a RETURNS TABLE function → JS always gets an array.
+    const row = (Array.isArray(data) && data.length > 0 ? data[0] : null) as ActiveSeasonDetails | null;
     setSeason(row);
     setIsLoading(false);
   }, []);

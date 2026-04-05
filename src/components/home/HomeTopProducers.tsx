@@ -31,17 +31,6 @@ interface LeaderboardProducerRow {
   rank_position: number | null;
 }
 
-interface PublicVisibleProducerRow {
-  user_id: string;
-  raw_username: string | null;
-  username: string | null;
-  avatar_url: string | null;
-}
-
-interface PublicSoftProducerRow extends PublicVisibleProducerRow {
-  is_deleted?: boolean;
-  is_producer_active?: boolean;
-}
 
 export function HomeTopProducers() {
   const { t } = useTranslation();
@@ -67,11 +56,12 @@ export function HomeTopProducers() {
         }));
       }
 
+      // Fallback: leaderboard_producers view (active producers ranked by ELO,
+      // even those with 0 wins — ensures the section is never empty).
       if (ranking.length === 0) {
         const { data, error } = await supabase
           .from('leaderboard_producers' as any)
           .select('user_id, username, avatar_url, battle_wins, rank_position')
-          .order('battle_wins', { ascending: false })
           .order('rank_position', { ascending: true })
           .limit(10);
 
@@ -83,56 +73,12 @@ export function HomeTopProducers() {
             avatar_url: row.avatar_url,
             wins: typeof row.battle_wins === 'number' ? row.battle_wins : 0,
           }));
+        } else {
+          console.error('Error fetching top producers for home:', rpcRes.error, error);
         }
       }
 
       if (!isCancelled) {
-        if (ranking.length === 0) {
-          const visibleRpcRes = await supabase.rpc('get_public_visible_producer_profiles' as any);
-          if (!visibleRpcRes.error && Array.isArray(visibleRpcRes.data)) {
-            ranking = (visibleRpcRes.data as PublicVisibleProducerRow[])
-              .slice(0, 10)
-              .map((row) => ({
-                id: row.user_id,
-                profile_path_username: row.raw_username ?? row.username,
-                username: row.username ?? row.raw_username,
-                avatar_url: row.avatar_url,
-                wins: 0,
-              }));
-          } else {
-            const softRpcRes = await supabase.rpc('get_public_producer_profiles_soft' as any);
-            if (!softRpcRes.error && Array.isArray(softRpcRes.data)) {
-              ranking = (softRpcRes.data as PublicSoftProducerRow[])
-                .filter((row) => row.is_deleted !== true && row.is_producer_active === true)
-                .slice(0, 10)
-                .map((row) => ({
-                  id: row.user_id,
-                  profile_path_username: row.raw_username ?? row.username,
-                  username: row.username ?? row.raw_username,
-                  avatar_url: row.avatar_url,
-                  wins: 0,
-                }));
-            } else {
-              const v2RpcRes = await supabase.rpc('get_public_producer_profiles_v2');
-              if (!v2RpcRes.error && Array.isArray(v2RpcRes.data)) {
-                ranking = (v2RpcRes.data as Array<{ user_id: string; username: string | null; avatar_url: string | null }>)
-                  .slice(0, 10)
-                  .map((row) => ({
-                    id: row.user_id,
-                    profile_path_username: row.username,
-                    username: row.username,
-                    avatar_url: row.avatar_url,
-                    wins: 0,
-                  }));
-              } else if (visibleRpcRes.error && rpcRes.error) {
-                console.error('Error fetching top producers for home:', rpcRes.error, visibleRpcRes.error);
-              } else if (visibleRpcRes.error) {
-                console.error('Error fetching top producers fallback for home:', visibleRpcRes.error);
-              }
-            }
-          }
-        }
-
         setProducers(ranking);
         setIsLoading(false);
       }
