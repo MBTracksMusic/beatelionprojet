@@ -20,12 +20,14 @@
            AND now() < founding_trial_start + trial_duration
 
   Changes (all CREATE OR REPLACE / DROP+CREATE — additive, non-breaking):
+    Drop order matters: season_leaderboard → leaderboard_producers (dependency chain).
     1. get_leaderboard_producers()     — core leaderboard function
-    2. leaderboard_producers VIEW      — depends on (1), rebuilt
-    3. season_leaderboard VIEW         — depends on leaderboard_producers, rebuilt
-    4. weekly_leaderboard VIEW         — independent view, updated
-    5. suggest_opponents()             — 3 ELO-range blocks, all updated
-    6. reset_elo_for_new_season()      — ELO reset UPDATE at end of function
+    2. season_leaderboard VIEW         — dropped first (depends on leaderboard_producers)
+    3. leaderboard_producers VIEW      — dropped+rebuilt (wraps get_leaderboard_producers)
+    4. season_leaderboard VIEW         — recreated (depends on leaderboard_producers)
+    5. weekly_leaderboard VIEW         — independent view, updated
+    6. suggest_opponents()             — 3 ELO-range blocks, all updated
+    7. reset_elo_for_new_season()      — ELO reset UPDATE at end of function
 
   Grants: identical to the originals in migrations 143 / 144 / 070000.
 */
@@ -144,7 +146,15 @@ GRANT EXECUTE ON FUNCTION public.get_leaderboard_producers() TO service_role;
 
 
 -- ===========================================================================
--- 2. leaderboard_producers VIEW
+-- 2. season_leaderboard VIEW — drop first (depends on leaderboard_producers)
+--    Recreated in section 3 after leaderboard_producers is rebuilt.
+-- ===========================================================================
+
+DROP VIEW IF EXISTS public.season_leaderboard;
+
+
+-- ===========================================================================
+-- 3. leaderboard_producers VIEW
 --    Original: migration 143.
 --    Rebuilt (DROP + CREATE) because it wraps get_leaderboard_producers().
 --    Content unchanged — still SELECT * FROM get_leaderboard_producers().
@@ -167,9 +177,8 @@ GRANT SELECT ON TABLE public.leaderboard_producers TO service_role;
 
 
 -- ===========================================================================
--- 3. season_leaderboard VIEW
+-- 4. season_leaderboard VIEW — recreated now that leaderboard_producers exists
 --    Original: migration 144.
---    Must be dropped before leaderboard_producers was rebuilt; now re-created.
 --    Content unchanged — still JOINs active season with leaderboard_producers.
 -- ===========================================================================
 
@@ -213,7 +222,7 @@ GRANT SELECT ON TABLE public.season_leaderboard TO service_role;
 
 
 -- ===========================================================================
--- 4. weekly_leaderboard VIEW
+-- 5. weekly_leaderboard VIEW
 --    Original: migration 144.
 --    Change: add LEFT JOIN producer_campaigns + founding-trial condition.
 -- ===========================================================================
@@ -295,7 +304,7 @@ GRANT SELECT ON TABLE public.weekly_leaderboard TO service_role;
 
 
 -- ===========================================================================
--- 5. suggest_opponents()
+-- 6. suggest_opponents()
 --    Original: migration 144 (3-tier ELO fallback: ±400 → ±600 → ±800).
 --    Change: add LEFT JOIN producer_campaigns + founding-trial condition
 --            in all three RETURN QUERY blocks.
@@ -463,7 +472,7 @@ GRANT EXECUTE ON FUNCTION public.suggest_opponents(uuid) TO service_role;
 
 
 -- ===========================================================================
--- 6. reset_elo_for_new_season()
+-- 7. reset_elo_for_new_season()
 --    Original: migration 070000 (hardened version).
 --    Change: founding-trial condition in the ELO reset UPDATE.
 --    All other logic (archive gate, logging, badges) is unchanged.
