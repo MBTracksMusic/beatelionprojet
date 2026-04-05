@@ -12,12 +12,14 @@
     as a visibility gate. A user is considered "active" for leaderboard purposes if ANY
     of these is true:
       1. is_producer_active = true  (existing Stripe subscription)
-      2. role = 'admin'             (always visible — admins are never gated)
-      3. Active founding trial:
+      2. Active founding trial:
            producer_campaign_type IS NOT NULL
            AND founding_trial_start IS NOT NULL
            AND the referenced campaign is_active = true
            AND now() < founding_trial_start + trial_duration
+
+    Admins (role = 'admin') are excluded from all leaderboards — they manage the
+    platform and do not participate in battles.
 
   Changes (all CREATE OR REPLACE / DROP+CREATE — additive, non-breaking):
     Drop order matters: season_leaderboard → leaderboard_producers (dependency chain).
@@ -40,13 +42,12 @@ BEGIN;
 -- Usage pattern:
 --   FROM public.user_profiles up
 --   LEFT JOIN public.producer_campaigns pc ON pc.type = up.producer_campaign_type
---   WHERE up.role IN ('producer', 'admin')
+--   WHERE up.role = 'producer'
 --     AND <ACTIVE_CONDITION>
 --
 -- ACTIVE_CONDITION:
 --   (
 --     up.is_producer_active = true
---     OR up.role = 'admin'
 --     OR (
 --       up.producer_campaign_type IS NOT NULL
 --       AND up.founding_trial_start IS NOT NULL
@@ -100,10 +101,9 @@ AS $$
     FROM public.user_profiles up
     LEFT JOIN public.producer_campaigns pc
       ON pc.type = up.producer_campaign_type
-    WHERE up.role IN ('producer', 'admin')
+    WHERE up.role = 'producer'
       AND (
         up.is_producer_active = true
-        OR up.role = 'admin'
         OR (
           up.producer_campaign_type IS NOT NULL
           AND up.founding_trial_start IS NOT NULL
@@ -282,10 +282,9 @@ FROM agg a
 JOIN public.user_profiles up ON up.id = a.user_id
 LEFT JOIN public.producer_campaigns pc
   ON pc.type = up.producer_campaign_type
-WHERE up.role IN ('producer', 'admin')
+WHERE up.role = 'producer'
   AND (
     up.is_producer_active = true
-    OR up.role = 'admin'
     OR (
       up.producer_campaign_type IS NOT NULL
       AND up.founding_trial_start IS NOT NULL
@@ -369,10 +368,9 @@ BEGIN
   LEFT JOIN public.producer_campaigns pc
     ON pc.type = up.producer_campaign_type
   WHERE up.id <> p_user_id
-    AND up.role IN ('producer', 'admin')
+    AND up.role = 'producer'
     AND (
       up.is_producer_active = true
-      OR up.role = 'admin'
       OR (
         up.producer_campaign_type IS NOT NULL
         AND up.founding_trial_start IS NOT NULL
@@ -407,10 +405,9 @@ BEGIN
   LEFT JOIN public.producer_campaigns pc
     ON pc.type = up.producer_campaign_type
   WHERE up.id <> p_user_id
-    AND up.role IN ('producer', 'admin')
+    AND up.role = 'producer'
     AND (
       up.is_producer_active = true
-      OR up.role = 'admin'
       OR (
         up.producer_campaign_type IS NOT NULL
         AND up.founding_trial_start IS NOT NULL
@@ -445,10 +442,9 @@ BEGIN
   LEFT JOIN public.producer_campaigns pc
     ON pc.type = up.producer_campaign_type
   WHERE up.id <> p_user_id
-    AND up.role IN ('producer', 'admin')
+    AND up.role = 'producer'
     AND (
       up.is_producer_active = true
-      OR up.role = 'admin'
       OR (
         up.producer_campaign_type IS NOT NULL
         AND up.founding_trial_start IS NOT NULL
@@ -576,10 +572,9 @@ BEGIN
       round(1200 + ((COALESCE(up.elo_rating, 1200) - 1200) * 0.5))::integer
     ),
     updated_at = now()
-  WHERE up.role IN ('producer', 'admin')
+  WHERE up.role = 'producer'
     AND (
       up.is_producer_active = true
-      OR up.role = 'admin'
       OR (
         up.producer_campaign_type IS NOT NULL
         AND up.founding_trial_start IS NOT NULL
@@ -611,7 +606,7 @@ GRANT  EXECUTE ON FUNCTION public.reset_elo_for_new_season() TO authenticated;  
 
 COMMENT ON FUNCTION public.reset_elo_for_new_season() IS
   'Archives season_results + resets ELO for the active season. '
-  'Includes founding-trial-active producers (is_producer_active OR admin OR active campaign trial). '
+  'Includes founding-trial-active producers (is_producer_active OR active campaign trial). Admins excluded. '
   'Aborts with an exception if archive produces 0 rows but producers exist. '
   'Admin or service_role only.';
 
