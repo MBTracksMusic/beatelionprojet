@@ -183,37 +183,54 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
 
   return (
     <div className="relative min-h-screen bg-zinc-950 overflow-hidden">
-      {/* Ambient background glow */}
+
+      {/* Ambient glow — plus dramatique */}
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-32 left-1/2 -translate-x-1/2 h-[480px] w-[480px] rounded-full bg-rose-500/10 blur-[120px]" />
-        <div className="absolute bottom-0 right-0 h-[320px] w-[320px] rounded-full bg-orange-500/8 blur-[100px]" />
+        <div className="absolute -top-40 left-1/2 -translate-x-1/2 h-[600px] w-[600px] rounded-full bg-rose-600/12 blur-[140px]" />
+        <div className="absolute top-1/2 -right-20 h-[280px] w-[280px] rounded-full bg-orange-500/8 blur-[100px]" />
+        <div className="absolute bottom-0 left-1/3 h-[200px] w-[200px] rounded-full bg-rose-500/5 blur-[80px]" />
       </div>
 
-      <div className="relative z-10 mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center px-6 py-16 text-center">
+      <div className="relative z-10 mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center px-6 py-16 text-center">
 
-        {/* Logo / badge */}
-        <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500/30 to-orange-500/30 ring-1 ring-white/10">
+        {/* Badge "Accès privé" */}
+        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-rose-500/30 bg-rose-500/10 px-4 py-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+          <span className="text-xs font-semibold uppercase tracking-widest text-rose-400">
+            Accès privé
+          </span>
+        </div>
+
+        {/* Logo */}
+        <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500/30 to-orange-500/30 ring-1 ring-white/10">
           <span className="text-3xl">🎧</span>
         </div>
 
-        {/* Main message */}
+        {/* Headline — admin-configurable via settings.launch_message_public */}
         <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
           {messages.headline}
         </h1>
-        <p className="mt-4 max-w-md text-base text-zinc-400 sm:text-lg">
+
+        {/* Subline */}
+        <p className="mt-5 max-w-sm text-base leading-relaxed text-zinc-400 sm:text-lg">
           {messages.subline}
         </p>
 
-        {/* Launch date */}
+        {/* Preuve sociale — ligne non-bloquante, sans chiffre fabricé */}
+        <p className="mt-4 text-sm text-zinc-500">
+          Rejoins les producteurs déjà sur la liste.
+        </p>
+
+        {/* Date de lancement — stylée en pill */}
         {formattedDate && (
-          <p className="mt-3 text-sm font-medium text-rose-400">
+          <p className="mt-5 rounded-full border border-rose-500/20 bg-rose-500/8 px-4 py-1.5 text-sm font-medium text-rose-400">
             Lancement prévu : {formattedDate}
           </p>
         )}
 
         {/* Countdown */}
         {targetTime && (
-          <div className="mt-8 grid grid-cols-4 gap-3 w-full max-w-sm">
+          <div className="mt-8 grid grid-cols-4 gap-3 w-full max-w-xs">
             {[
               { label: 'Jours', value: countdown.days },
               { label: 'Heures', value: countdown.hours },
@@ -235,12 +252,18 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
           </div>
         )}
 
-        {/* Waitlist form */}
-        <div className="mt-10 w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur">
-          <p className="text-sm font-medium text-zinc-300">
-            Sois informé dès l&apos;ouverture
+        {/* Formulaire waitlist — carte premium */}
+        <div className="mt-10 w-full max-w-md rounded-2xl border border-zinc-700/60 bg-zinc-900/80 p-6 shadow-2xl shadow-black/40 backdrop-blur">
+
+          {/* En-tête carte */}
+          <p className="text-sm font-semibold text-zinc-100">
+            Demande ton accès
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            Les accès sont accordés progressivement.
           </p>
 
+          {/* ── Logique intacte à partir d'ici ── */}
           <form onSubmit={handleSubmit} className="mt-4 space-y-3">
             <input
               type="email"
@@ -279,11 +302,7 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
 
             <div className="min-h-[20px] text-sm">
               {feedback && (
-                <p
-                  className={
-                    feedback.tone === 'success' ? 'text-emerald-400' : 'text-red-400'
-                  }
-                >
+                <p className={feedback.tone === 'success' ? 'text-emerald-400' : 'text-red-400'}>
                   {feedback.message}
                 </p>
               )}
@@ -300,15 +319,14 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
               referrerPolicy="strict-origin-when-cross-origin"
               allow="autoplay; encrypted-media"
               allowFullScreen
-              className="aspect-video w-full rounded-xl"
+              className="aspect-video w-full rounded-xl border-0"
               title="Beatelion Launch Video"
-              frameBorder="0"
             />
           </div>
         )}
 
-        {/* Legal / footer */}
-        <p className="mt-12 text-xs text-zinc-600">
+        {/* Footer */}
+        <p className="mt-12 text-xs text-zinc-700">
           © {new Date().getFullYear()} Beatelion — Plateforme réservée aux producteurs.
         </p>
       </div>

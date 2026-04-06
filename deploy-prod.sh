@@ -48,81 +48,72 @@ if [ -z "${SUPABASE_PROJECT_REF:-}" ]; then
 fi
 
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
 if [ "$CURRENT_BRANCH" != "main" ]; then
   echo "❌ Déploiement autorisé uniquement depuis main"
   exit 1
 fi
 
+# 🔴 Vérifie que main est propre
+if [[ -n "$(git status -s)" ]]; then
+  echo "❌ Repo non clean — commit avant deploy"
+  exit 1
+fi
+
+# 🔴 Vérifie que main est à jour
+git fetch origin
+
+LOCAL=$(git rev-parse @)
+REMOTE=$(git rev-parse @{u})
+
+if [ "$LOCAL" != "$REMOTE" ]; then
+  echo "❌ Branche main non synchronisée avec origin"
+  exit 1
+fi
+
 # =========================
-# 3. VERCEL LINK FORCE
+# 3. VERCEL LINK
 # =========================
 echo "🔗 Vérification projet Vercel..."
 
 if [ ! -f ".vercel/project.json" ]; then
-  echo "⚠️ Aucun projet Vercel lié → linking..."
   vercel link --project "$EXPECTED_VERCEL_PROJECT"
 fi
 
 CURRENT_PROJECT_NAME=$(jq -r '.projectName' .vercel/project.json)
 
-echo "👉 Projet actuel : $CURRENT_PROJECT_NAME"
-
 if [ "$CURRENT_PROJECT_NAME" != "$EXPECTED_VERCEL_PROJECT" ]; then
-  echo "⚠️ Mauvais projet détecté → re-link..."
   vercel link --project "$EXPECTED_VERCEL_PROJECT"
 fi
 
-# Vérification finale
-FINAL_PROJECT_NAME=$(jq -r '.projectName' .vercel/project.json)
-
-if [ "$FINAL_PROJECT_NAME" != "$EXPECTED_VERCEL_PROJECT" ]; then
-  echo "❌ Impossible de lier au bon projet Vercel"
-  exit 1
-fi
-
-echo "✅ Projet Vercel OK : $FINAL_PROJECT_NAME"
+echo "✅ Projet Vercel OK"
 
 # =========================
-# 4. CONFIRMATION
+# 4. CONFIRMATION HARD
 # =========================
-read -p "⚠️ CONFIRMER DEPLOY PROD (yes): " confirm
-if [ "$confirm" != "yes" ]; then
+echo "⚠️ ATTENTION : DEPLOY PRODUCTION"
+
+read -p "Tape EXACTEMENT 'DEPLOY' pour continuer : " confirm
+
+if [ "$confirm" != "DEPLOY" ]; then
   echo "❌ Annulé"
   exit 1
 fi
 
 # =========================
-# 5. CHECK SECRETS
+# 5. CHECKS AVANT PROD
 # =========================
-if [ -f "./check-secrets.sh" ]; then
-  echo "🔐 Scan sécurité..."
-  ./check-secrets.sh
-fi
+echo "🔐 Scan sécurité..."
+[ -f "./check-secrets.sh" ] && ./check-secrets.sh
 
-# =========================
-# 6. AUDIT
-# =========================
-if [ -f "./audit.sh" ]; then
-  ./audit.sh || exit 1
-fi
+echo "🔍 Audit..."
+[ -f "./audit.sh" ] && ./audit.sh
 
-# =========================
-# 7. BUILD
-# =========================
 echo "🧪 Build..."
 npm run build
 
 # =========================
-# 8. COMMIT SI BESOIN
-# =========================
-if [[ -n "$(git status -s)" ]]; then
-  git add -A
-  git commit -m "auto: prod deploy" || true
-  git push origin main
-fi
-
-# =========================
-# 9. SUPABASE
+# 6. SUPABASE
 # =========================
 echo "🔗 Supabase link..."
 supabase link --project-ref "$SUPABASE_PROJECT_REF"
@@ -134,9 +125,9 @@ echo "⚡ Functions deploy..."
 supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF"
 
 # =========================
-# 10. VERCEL DEPLOY
+# 7. DEPLOY PROD (GIT ONLY)
 # =========================
-echo "🌐 Deploy Vercel PROD..."
-vercel --prod
+echo "🚀 Push PROD (trigger Vercel)..."
+git push origin main
 
 echo "🎉 DEPLOY PRODUCTION OK"
