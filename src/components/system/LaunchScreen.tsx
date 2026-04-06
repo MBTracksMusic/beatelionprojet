@@ -181,10 +181,10 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
     }
   };
 
-  // Fallbacks sécurisés — si l'admin n'a pas encore configuré les messages
-  const headline = messages?.headline || 'Beatelion est en accès privé';
+  // Fallbacks ultra-robustes — .trim() élimine les chaînes vides venant de la DB
+  const headline = messages?.headline?.trim() || 'Beatelion est en accès privé';
   const subline =
-    messages?.subline ||
+    messages?.subline?.trim() ||
     "Une sélection de producteurs est déjà à l'intérieur. Les prochains accès arrivent progressivement.";
 
   // Preuve sociale — null jusqu'à ce qu'on branche une vraie source ; fallback = 127
@@ -198,6 +198,16 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
         <div className="absolute -top-40 left-1/2 -translate-x-1/2 h-[600px] w-[600px] rounded-full bg-rose-600/12 blur-[140px]" />
         <div className="absolute top-1/2 -right-20 h-[280px] w-[280px] rounded-full bg-orange-500/8 blur-[100px]" />
         <div className="absolute bottom-0 left-1/3 h-[200px] w-[200px] rounded-full bg-rose-500/5 blur-[80px]" />
+      </div>
+
+      {/* Preview produit en fond — /preview.png à placer dans /public */}
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+        <img
+          src="/preview.png"
+          alt=""
+          aria-hidden="true"
+          className="h-full w-full object-cover opacity-[0.07] blur-2xl scale-110"
+        />
       </div>
 
       <div className="relative z-10 mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center px-6 py-16 text-center">
@@ -326,6 +336,11 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
             </div>
           </form>
         </div>
+
+        {/* Micro texte UX — rassurance post-formulaire */}
+        <p className="mt-3 text-center text-xs text-zinc-500">
+          Tu recevras un email dès que ton accès est disponible.
+        </p>
 
         {/* YouTube embed */}
         {embedUrl && (
