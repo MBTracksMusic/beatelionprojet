@@ -59,15 +59,11 @@ fi
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 echo "🌿 Branche actuelle : $CURRENT_BRANCH"
 
-if [[ "$CURRENT_BRANCH" == "main" ]]; then
-  echo "❌ Interdit depuis main"
-  exit 1
-fi
-
-# Vérifie repo clean
+# Auto-commit si repo non clean
 if [[ -n "$(git status -s)" ]]; then
-  echo "❌ Repo non clean — commit avant"
-  exit 1
+  echo "📝 Changements non commités détectés — commit automatique..."
+  git add -A
+  git commit -m "auto: staging deploy"
 fi
 
 # Si on n'est pas sur staging → merge auto
