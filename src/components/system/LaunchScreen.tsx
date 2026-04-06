@@ -58,7 +58,7 @@ function getEmbedUrl(url: string): string | null {
 }
 
 export function LaunchScreen({ messages }: LaunchScreenProps) {
-  const { launchDate, launchVideoUrl } = useMaintenanceModeContext();
+  const { launchDate, launchVideoUrl, waitlistCountDisplay } = useMaintenanceModeContext();
 
   const targetTime = useMemo(() => {
     if (!launchDate) return null;
@@ -187,8 +187,6 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
     messages?.subline?.trim() ||
     "Une sélection de producteurs est déjà à l'intérieur. Les prochains accès arrivent progressivement.";
 
-  // Preuve sociale — null jusqu'à ce qu'on branche une vraie source ; fallback = 127
-  const waitlistCount: number | null = null;
 
   return (
     <div className="relative min-h-screen bg-zinc-950 overflow-hidden">
@@ -240,13 +238,15 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
           Accès ouverts par vagues.
         </p>
 
-        {/* Preuve sociale dynamique */}
-        <p className="mt-4 text-sm text-zinc-400 text-center">
-          <span className="font-semibold text-yellow-400">
-            +{waitlistCount || 127}
-          </span>
-          {' '}producteurs ont déjà demandé leur accès
-        </p>
+        {/* Preuve sociale — affichée uniquement si l'admin a renseigné un nombre > 0 */}
+        {waitlistCountDisplay > 0 && (
+          <p className="mt-4 text-sm text-zinc-400 text-center">
+            <span className="font-semibold text-yellow-400">
+              +{waitlistCountDisplay}
+            </span>
+            {' '}producteurs ont déjà demandé leur accès
+          </p>
+        )}
 
         {/* Date de lancement — stylée en pill */}
         {formattedDate && (
