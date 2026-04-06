@@ -4,13 +4,10 @@ set -euo pipefail
 
 echo "🚀 Déploiement PRODUCTION"
 
-# =========================
-# CONFIG
-# =========================
 EXPECTED_VERCEL_PROJECT="beatelion-production"
 
 # =========================
-# 0. LOAD ENV
+# LOAD ENV
 # =========================
 if [ ! -f ".env.production" ]; then
   echo "❌ Fichier .env.production introuvable"
@@ -25,7 +22,7 @@ echo "🌍 ENVIRONMENT: ${ENVIRONMENT:-undefined}"
 echo "📡 SUPABASE_PROJECT_REF: ${SUPABASE_PROJECT_REF:-undefined}"
 
 # =========================
-# 1. CHECK TOOLS
+# CHECK TOOLS
 # =========================
 for cmd in git node npm supabase vercel jq; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -35,7 +32,7 @@ for cmd in git node npm supabase vercel jq; do
 done
 
 # =========================
-# 2. SAFE CHECKS
+# SAFE CHECKS
 # =========================
 if [ "${ENVIRONMENT:-}" != "production" ]; then
   echo "❌ ENVIRONMENT doit être égal à production"
@@ -47,20 +44,72 @@ if [ -z "${SUPABASE_PROJECT_REF:-}" ]; then
   exit 1
 fi
 
+# 🔴 Protection ENV sensible
+if git status --porcelain | grep ".env" >/dev/null; then
+  echo "❌ Modification .env détectée — commit manuel requis"
+  exit 1
+fi
+
+# =========================
+# AUTO COMMIT SAFE
+# =========================
+if [[ -n "$(git status -s)" ]]; then
+  echo "⚠️ Repo non clean — auto-commit sécurisé"
+
+  # Ajoute uniquement fichiers déjà suivis
+  git add -u
+
+  # Alerte sur fichiers non suivis
+  UNTRACKED=$(git ls-files --others --exclude-standard)
+  if [[ -n "$UNTRACKED" ]]; then
+    echo "⚠️ Fichiers non suivis ignorés :"
+    echo "$UNTRACKED"
+  fi
+
+  git commit -m "chore: auto-commit before production deploy" || true
+fi
+
+# =========================
+# GIT FLOW (AUTO MERGE → MAIN)
+# =========================
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+echo "📌 Branche actuelle : $CURRENT_BRANCH"
 
 if [ "$CURRENT_BRANCH" != "main" ]; then
-  echo "❌ Déploiement autorisé uniquement depuis main"
-  exit 1
+  echo "⚠️ Tu n'es pas sur main"
+
+  read -p "👉 Fusionner '$CURRENT_BRANCH' → main ? (y/n): " confirm_merge
+
+  if [ "$confirm_merge" != "y" ]; then
+    echo "❌ Déploiement annulé"
+    exit 1
+  fi
+
+  git fetch origin
+
+  echo "🔄 Checkout main..."
+  git checkout main
+  git pull origin main
+
+  echo "🔀 Merge $CURRENT_BRANCH → main"
+  git merge "$CURRENT_BRANCH" --no-ff
+
+  echo "🚀 Push main..."
+  git push origin main
 fi
 
-# 🔴 Vérifie que main est propre
+# =========================
+# CHECK CLEAN APRÈS MERGE
+# =========================
 if [[ -n "$(git status -s)" ]]; then
-  echo "❌ Repo non clean — commit avant deploy"
+  echo "❌ Repo non clean après merge"
+  git status -s
   exit 1
 fi
 
-# 🔴 Vérifie que main est à jour
+# =========================
+# SYNC CHECK
+# =========================
 git fetch origin
 
 LOCAL=$(git rev-parse @)
@@ -72,7 +121,7 @@ if [ "$LOCAL" != "$REMOTE" ]; then
 fi
 
 # =========================
-# 3. VERCEL LINK
+# VERCEL LINK
 # =========================
 echo "🔗 Vérification projet Vercel..."
 
@@ -89,7 +138,7 @@ fi
 echo "✅ Projet Vercel OK"
 
 # =========================
-# 4. CONFIRMATION HARD
+# CONFIRMATION HARD
 # =========================
 echo "⚠️ ATTENTION : DEPLOY PRODUCTION"
 
@@ -101,7 +150,7 @@ if [ "$confirm" != "DEPLOY" ]; then
 fi
 
 # =========================
-# 5. CHECKS AVANT PROD
+# CHECKS AVANT PROD
 # =========================
 echo "🔐 Scan sécurité..."
 [ -f "./check-secrets.sh" ] && ./check-secrets.sh
@@ -113,7 +162,7 @@ echo "🧪 Build..."
 npm run build
 
 # =========================
-# 6. SUPABASE
+# SUPABASE
 # =========================
 echo "🔗 Supabase link..."
 supabase link --project-ref "$SUPABASE_PROJECT_REF"
@@ -125,9 +174,14 @@ echo "⚡ Functions deploy..."
 supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF"
 
 # =========================
-# 7. DEPLOY PROD (GIT ONLY)
+# PUSH FINAL (si déjà sur main)
 # =========================
-echo "🚀 Push PROD (trigger Vercel)..."
-git push origin main
+if [ "$CURRENT_BRANCH" = "main" ]; then
+  echo "🚀 Push PROD..."
+  git push origin main
+fi
 
+# =========================
+# DONE
+# =========================
 echo "🎉 DEPLOY PRODUCTION OK"
