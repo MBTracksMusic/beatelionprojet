@@ -278,12 +278,19 @@ export function initializeAuth() {
         return;
       }
 
+      const prevUserId = currentState.user?.id ?? null;
+      const nextUserId = session?.user?.id ?? null;
+      const userChanged = prevUserId !== nextUserId;
+
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        useAuthStore.setState({ isProfileLoading: true });
+        // Only block useLaunchAccess when a DIFFERENT user logs in.
+        // Token refreshes (same user, new token) must NOT trigger isProfileLoading
+        // — that causes a dashboard ↔ login flicker every hour.
+        if (userChanged) useAuthStore.setState({ isProfileLoading: true });
         await fetchProfile();
-        useAuthStore.setState({ isProfileLoading: false });
+        if (userChanged) useAuthStore.setState({ isProfileLoading: false });
       } else {
         useAuthStore.setState({ profile: null, isProfileLoading: false });
         syncI18nLanguage();
