@@ -48,6 +48,169 @@ const ACCESS_MODE_DESCRIPTIONS: Record<SiteAccessMode, string> = {
     'Tout le monde a accès à la plateforme. Le système whitelist/waitlist reste actif pour les futures campagnes.',
 };
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function toDatetimeLocalValue(value: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - offset * 60_000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function toIsoStringOrNull(value: string) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error('invalid-launch-date');
+  return date.toISOString();
+}
+
+// ─── Section: Paramètres de lancement ─────────────────────────────────────────
+
+function LaunchSettingsCard() {
+  const {
+    launchDate,
+    launchVideoUrl,
+    isLoading,
+    updateSettings,
+  } = useMaintenanceModeContext();
+
+  const [launchDateInput, setLaunchDateInput] = useState(() => toDatetimeLocalValue(launchDate));
+  const [launchVideoUrlInput, setLaunchVideoUrlInput] = useState(() => launchVideoUrl ?? '');
+  const [isSavingLaunchDate, setIsSavingLaunchDate] = useState(false);
+  const [isSavingLaunchVideoUrl, setIsSavingLaunchVideoUrl] = useState(false);
+
+  useEffect(() => {
+    if (!isSavingLaunchDate) setLaunchDateInput(toDatetimeLocalValue(launchDate));
+  }, [isSavingLaunchDate, launchDate]);
+
+  useEffect(() => {
+    if (!isSavingLaunchVideoUrl) setLaunchVideoUrlInput(launchVideoUrl ?? '');
+  }, [isSavingLaunchVideoUrl, launchVideoUrl]);
+
+  const handleLaunchDateSave = async () => {
+    setIsSavingLaunchDate(true);
+    try {
+      await updateSettings({ launch_date: toIsoStringOrNull(launchDateInput) });
+      toast.success(launchDateInput ? 'Date de lancement enregistrée.' : 'Date de lancement supprimée.');
+    } catch {
+      toast.error("Impossible d'enregistrer la date de lancement.");
+    } finally {
+      setIsSavingLaunchDate(false);
+    }
+  };
+
+  const handleLaunchDateClear = async () => {
+    setIsSavingLaunchDate(true);
+    try {
+      setLaunchDateInput('');
+      await updateSettings({ launch_date: null });
+      toast.success('Date de lancement supprimée.');
+    } catch {
+      toast.error("Impossible de supprimer la date de lancement.");
+    } finally {
+      setIsSavingLaunchDate(false);
+    }
+  };
+
+  const handleLaunchVideoUrlSave = async () => {
+    setIsSavingLaunchVideoUrl(true);
+    try {
+      const trimmed = launchVideoUrlInput.trim();
+      await updateSettings({ launch_video_url: trimmed || null });
+      toast.success(trimmed ? 'URL vidéo enregistrée.' : 'URL vidéo supprimée.');
+    } catch {
+      toast.error("Impossible d'enregistrer l'URL vidéo.");
+    } finally {
+      setIsSavingLaunchVideoUrl(false);
+    }
+  };
+
+  const handleLaunchVideoUrlClear = async () => {
+    setIsSavingLaunchVideoUrl(true);
+    try {
+      setLaunchVideoUrlInput('');
+      await updateSettings({ launch_video_url: null });
+      toast.success('URL vidéo supprimée.');
+    } catch {
+      toast.error("Impossible de supprimer l'URL vidéo.");
+    } finally {
+      setIsSavingLaunchVideoUrl(false);
+    }
+  };
+
+  return (
+    <Card className="p-6 border-zinc-800">
+      <h2 className="text-xl font-semibold text-white">Paramètres de lancement</h2>
+      <p className="mt-1 text-sm text-zinc-400">
+        Configure la date de lancement et la vidéo affichée sur l&apos;écran de maintenance.
+      </p>
+
+      <div className="mt-6 flex flex-col gap-4">
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+          <div className="flex flex-col gap-4">
+            <div>
+              <p className="text-sm font-medium text-white">Date de lancement</p>
+              <p className="mt-1 text-sm text-zinc-400">
+                Laisse vide pour le mode simple. Renseigne une date pour afficher le mode lancement avec compte à rebours.
+              </p>
+            </div>
+            <Input
+              type="datetime-local"
+              label="Lancement prévu"
+              value={launchDateInput}
+              onChange={(e) => setLaunchDateInput(e.target.value)}
+              disabled={isLoading || isSavingLaunchDate}
+            />
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="primary" onClick={handleLaunchDateSave} isLoading={isSavingLaunchDate} disabled={isLoading}>
+                Enregistrer la date
+              </Button>
+              <Button variant="outline" onClick={handleLaunchDateClear} disabled={isLoading || isSavingLaunchDate || !launchDate}>
+                Vider la date
+              </Button>
+              <span className="text-sm text-zinc-500">
+                {launchDate ? `Date active : ${new Date(launchDate).toLocaleString()}` : 'Aucune date active'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+          <div className="flex flex-col gap-4">
+            <div>
+              <p className="text-sm font-medium text-white">Vidéo de lancement</p>
+              <p className="mt-1 text-sm text-zinc-400">
+                URL facultative. Si elle est vide, aucune vidéo ne sera affichée sur l&apos;écran de maintenance.
+              </p>
+            </div>
+            <Input
+              type="url"
+              label="URL vidéo"
+              value={launchVideoUrlInput}
+              onChange={(e) => setLaunchVideoUrlInput(e.target.value)}
+              placeholder="https://www.youtube.com/watch?v=..."
+              disabled={isLoading || isSavingLaunchVideoUrl}
+            />
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="primary" onClick={handleLaunchVideoUrlSave} isLoading={isSavingLaunchVideoUrl} disabled={isLoading}>
+                Enregistrer l&apos;URL
+              </Button>
+              <Button variant="outline" onClick={handleLaunchVideoUrlClear} disabled={isLoading || isSavingLaunchVideoUrl || !launchVideoUrl}>
+                Vider l&apos;URL
+              </Button>
+              <span className="text-sm text-zinc-500">
+                {launchVideoUrl ? 'Une vidéo est actuellement configurée' : 'Aucune vidéo active'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 // ─── Section: Phase de lancement ─────────────────────────────────────────────
 
 function LaunchPhaseCard() {
@@ -67,6 +230,7 @@ function LaunchPhaseCard() {
   const [msgWhitelist, setMsgWhitelist] = useState(launchMessageWhitelist ?? '');
   const [countDisplay, setCountDisplay] = useState(String(waitlistCountDisplay ?? 0));
   const [isSaving, setIsSaving] = useState(false);
+  const [isSendingCampaign, setIsSendingCampaign] = useState(false);
 
   // Sync when Realtime pushes an update
   useEffect(() => { setMode(siteAccessMode); }, [siteAccessMode]);
@@ -74,6 +238,29 @@ function LaunchPhaseCard() {
   useEffect(() => { setMsgPending(launchMessageWaitlistPending ?? ''); }, [launchMessageWaitlistPending]);
   useEffect(() => { setMsgWhitelist(launchMessageWhitelist ?? ''); }, [launchMessageWhitelist]);
   useEffect(() => { setCountDisplay(String(waitlistCountDisplay ?? 0)); }, [waitlistCountDisplay]);
+
+  const handleSendCampaign = async () => {
+    if (isSendingCampaign) return;
+    setIsSendingCampaign(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('User is not authenticated.');
+      const { data, error } = await supabase.functions.invoke<{
+        success?: boolean;
+        error?: string;
+        sent?: number;
+      }>('send-waitlist-campaign', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (error) { toast.error('Erreur réseau'); return; }
+      if (!data?.success) { toast.error('Erreur: ' + (data?.error ?? 'unknown')); return; }
+      toast.success(`Campagne envoyée 🚀 (${data.sent ?? 0} emails)`);
+    } catch {
+      toast.error("Erreur lors de l'envoi");
+    } finally {
+      setIsSendingCampaign(false);
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -203,6 +390,16 @@ function LaunchPhaseCard() {
           Sauvegarder
         </Button>
       </form>
+
+      <div className="mt-5 border-t border-zinc-800 pt-5">
+        <p className="mb-1 text-sm font-medium text-zinc-300">Campagne waitlist</p>
+        <p className="mb-3 text-xs text-zinc-500">
+          Envoie un email à tous les inscrits en attente pour les inviter à rejoindre la plateforme.
+        </p>
+        <Button variant="outline" onClick={handleSendCampaign} isLoading={isSendingCampaign}>
+          🚀 Envoyer la campagne
+        </Button>
+      </div>
     </Card>
   );
 }
@@ -576,6 +773,7 @@ export function AdminLaunchPage() {
   return (
     <div className="space-y-6">
       <LaunchPhaseCard />
+      <LaunchSettingsCard />
       <WaitlistCard />
       <WhitelistCard />
     </div>

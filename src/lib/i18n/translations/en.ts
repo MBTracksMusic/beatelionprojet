@@ -1318,6 +1318,10 @@ export const en: TranslationSchema = {
       messagesDescription: 'Read and handle contact/support requests.',
       beatAnalyticsTitle: 'Beat Analytics',
       beatAnalyticsDescription: 'Qualitative insights and secret Quality Index.',
+      forumTitle: 'Forum moderation',
+      forumDescription: 'Flagged posts and moderation review.',
+      forumPending: '{count} post(s) pending',
+      forumNoPending: 'Forum healthy',
     },
     messages: {
       title: 'Received messages',
@@ -1364,6 +1368,12 @@ export const en: TranslationSchema = {
       hide: 'Hide',
       latestPosts: 'Latest posts',
       noPost: 'No post.',
+      viewPublic: 'View topic',
+      by: 'by {username}',
+      unknownAuthor: 'Unknown',
+      previousPage: 'Previous',
+      nextPage: 'Next',
+      page: 'Page {page}',
     },
     news: {
       title: 'Video news',

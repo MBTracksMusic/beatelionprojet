@@ -1317,6 +1317,10 @@ export const fr = {
       messagesDescription: 'Lire et traiter les demandes contact/support.',
       beatAnalyticsTitle: 'Beat Analytics',
       beatAnalyticsDescription: 'Insights qualitatifs et Quality Index secret.',
+      forumTitle: 'Moderation forum',
+      forumDescription: 'Posts signales et en revue de moderation.',
+      forumPending: '{count} post(s) en attente',
+      forumNoPending: 'Forum sain',
     },
     messages: {
       title: 'Messages recus',
@@ -1363,6 +1367,12 @@ export const fr = {
       hide: 'Masquer',
       latestPosts: 'Derniers posts',
       noPost: 'Aucun post.',
+      viewPublic: 'Voir le topic',
+      by: 'par {username}',
+      unknownAuthor: 'Inconnu',
+      previousPage: 'Precedent',
+      nextPage: 'Suivant',
+      page: 'Page {page}',
     },
     news: {
       title: 'News videos',
