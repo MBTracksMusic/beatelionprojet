@@ -25,7 +25,8 @@ export function BeatsPage({ mode = 'beats' }: BeatsPageProps) {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const searchParamsString = searchParams.toString();
-  const { isActive: hasPremiumAccess } = useUserSubscriptionStatus(user?.id);
+  const { isActive: hasPremiumAccess, subscription: userSubscriptionStatus } = useUserSubscriptionStatus(user?.id);
+  const isUserPremium = hasPremiumAccess && userSubscriptionStatus?.plan_code === 'user_monthly';
   const { productIds: wishlistProductIds, fetchWishlist, toggleWishlist, clearWishlist } = useWishlistStore();
   const [beats, setBeats] = useState<ProductWithRelations[]>([]);
   const [genres, setGenres] = useState<Genre[]>([]);
@@ -308,6 +309,7 @@ export function BeatsPage({ mode = 'beats' }: BeatsPageProps) {
                 product={beat}
                 playbackQueue={playbackQueue}
                 hasPremiumAccess={hasPremiumAccess}
+                isUserPremium={isUserPremium}
                 isWishlisted={wishlistProductIds.includes(beat.id)}
                 onWishlistToggle={handleWishlistToggle}
               />

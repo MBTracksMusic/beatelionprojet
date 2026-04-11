@@ -62,7 +62,8 @@ const mapCreditPurchaseError = (message: string, t: TranslateFn) => {
 export function ProductDetailsPage() {
   const { t, language } = useTranslation();
   const { user, isAuthenticated } = useAuth();
-  const { isActive: hasPremiumAccess } = useUserSubscriptionStatus(user?.id);
+  const { isActive: hasPremiumAccess, subscription: userSubscriptionStatus } = useUserSubscriptionStatus(user?.id);
+  const isUserPremium = hasPremiumAccess && userSubscriptionStatus?.plan_code === 'user_monthly';
   const navigate = useNavigate();
   const { slug } = useParams<{ slug: string }>();
   const location = useLocation();
@@ -306,6 +307,7 @@ export function ProductDetailsPage() {
     product.status === 'active';
   const isOverCreditPriceLimit = displayPrice > MAX_CREDIT_PURCHASE_PRICE_CENTS;
   const isCreditEligible =
+    isUserPremium &&
     product?.product_type === 'beat' &&
     !product?.is_exclusive &&
     !product?.is_sold &&
