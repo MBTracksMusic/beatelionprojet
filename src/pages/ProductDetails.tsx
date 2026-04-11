@@ -62,8 +62,8 @@ const mapCreditPurchaseError = (message: string, t: TranslateFn) => {
 export function ProductDetailsPage() {
   const { t, language } = useTranslation();
   const { user, isAuthenticated } = useAuth();
-  const { isActive: hasPremiumAccess, subscription: userSubscriptionStatus } = useUserSubscriptionStatus(user?.id);
-  const isUserPremium = hasPremiumAccess && userSubscriptionStatus?.plan_code === 'user_monthly';
+  const { isActive: hasPremiumAccess, subscription: userSubStatus } = useUserSubscriptionStatus(user?.id);
+  const isUserPremium = hasPremiumAccess && userSubStatus?.plan_code === 'user_monthly';
   const navigate = useNavigate();
   const { slug } = useParams<{ slug: string }>();
   const location = useLocation();
