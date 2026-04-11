@@ -21,6 +21,7 @@ interface ProductCardProps {
   onWishlistToggle?: (productId: string) => void | Promise<void>;
   isWishlisted?: boolean;
   hasPremiumAccess?: boolean;
+  isUserPremium?: boolean;
 }
 
 export function ProductCard({
@@ -29,6 +30,7 @@ export function ProductCard({
   onWishlistToggle,
   isWishlisted,
   hasPremiumAccess = false,
+  isUserPremium = false,
 }: ProductCardProps) {
   const { t, language } = useTranslation();
   const { isAuthenticated } = useAuth();
@@ -141,7 +143,7 @@ export function ProductCard({
     : `/beats/${product.slug}`;
 
   const canAccessExclusive = product.is_exclusive ? permissions.canPurchaseExclusive : true;
-  const isCreditEligible = product.product_type === 'beat' && !product.is_exclusive && !product.is_sold;
+  const isCreditEligible = isUserPremium && product.product_type === 'beat' && !product.is_exclusive && !product.is_sold;
   const shouldShowCashOnlyBadge = !product.is_sold && !isCreditEligible && (product.is_exclusive || product.product_type !== 'beat');
 
   return (
