@@ -222,6 +222,27 @@ export function AdminForumPage() {
     await loadForumModeration(topicPage, postPage);
   };
 
+  const runPostHardDelete = async (postId: string) => {
+    if (!window.confirm(t('admin.forum.hardDeleteConfirm'))) return;
+    setActionKey(`post:${postId}:hardDelete`);
+
+    const { error } = await supabase
+      .from(FORUM_POSTS_TABLE)
+      .delete()
+      .eq('id', postId as any);
+
+    if (error) {
+      console.error('Error hard deleting forum post', error);
+      toast.error(t('admin.forum.postActionError'));
+      setActionKey(null);
+      return;
+    }
+
+    toast.success(t('admin.forum.postHardDeleted'));
+    setActionKey(null);
+    await loadForumModeration(topicPage, postPage);
+  };
+
   const runPostAction = async (postId: string, action: 'approve' | 'block' | 'delete' | 'restore') => {
     setActionKey(`post:${postId}:${action}`);
 
@@ -296,6 +317,15 @@ export function AdminForumPage() {
           {t('admin.forum.restore')}
         </Button>
       )}
+      <Button
+        variant="danger"
+        size="sm"
+        isLoading={actionKey === `post:${post.id}:hardDelete`}
+        disabled={!canAct}
+        onClick={() => void runPostHardDelete(post.id)}
+      >
+        {t('admin.forum.hardDelete')}
+      </Button>
     </div>
   );
 
