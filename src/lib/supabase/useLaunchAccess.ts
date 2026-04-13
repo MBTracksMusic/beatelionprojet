@@ -38,9 +38,9 @@ const FALLBACK_MESSAGES: Record<'public' | 'waitlist_pending', LaunchMessages> =
       'Un cercle de producteurs sélectionnés est déjà dedans. Rejoins la liste pour être parmi les premiers.',
   },
   waitlist_pending: {
-    headline: 'Tu es sur la liste.',
+    headline: 'Candidature reçue.',
     subline:
-      'Les accès s\'ouvrent progressivement. Tu recevras un email dès que c\'est ton tour.',
+      'Les meilleurs passent en premier. On te contacte dès que c\'est ton tour.',
   },
 };
 

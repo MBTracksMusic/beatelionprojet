@@ -172,7 +172,7 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
       }
 
       // success
-      toast.success('Tu es sur la liste. On te contacte dès que c\'est ton tour.');
+      toast.success('Candidature reçue. Les meilleurs passent en premier — on te contacte dès que c\'est ton tour.');
       setEmail('');
       resetCaptcha();
       setFeedback(null);
@@ -191,11 +191,11 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
   return (
     <div className="relative min-h-screen bg-zinc-950 overflow-hidden">
 
-      {/* Ambient glow — plus dramatique */}
+      {/* Ambient glow — palette unifiée amber */}
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-40 left-1/2 -translate-x-1/2 h-[600px] w-[600px] rounded-full bg-rose-600/12 blur-[140px]" />
-        <div className="absolute top-1/2 -right-20 h-[280px] w-[280px] rounded-full bg-orange-500/8 blur-[100px]" />
-        <div className="absolute bottom-0 left-1/3 h-[200px] w-[200px] rounded-full bg-rose-500/5 blur-[80px]" />
+        <div className="absolute -top-40 left-1/2 -translate-x-1/2 h-[700px] w-[700px] rounded-full bg-amber-500/8 blur-[160px]" />
+        <div className="absolute top-1/3 -right-20 h-[300px] w-[300px] rounded-full bg-yellow-400/4 blur-[120px]" />
+        <div className="absolute bottom-0 left-1/4 h-[250px] w-[250px] rounded-full bg-amber-400/3 blur-[100px]" />
       </div>
 
       {/* Preview produit en fond — /preview.png à placer dans /public */}
@@ -204,60 +204,56 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
           src="/preview.png"
           alt=""
           aria-hidden="true"
-          className="h-full w-full object-cover opacity-[0.07] blur-2xl scale-110"
+          className="h-full w-full object-cover opacity-[0.06] blur-2xl scale-110"
         />
       </div>
 
       <div className="relative z-10 mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center px-6 py-16 text-center">
 
-        {/* Badge "Accès privé" */}
-        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-rose-500/30 bg-rose-500/10 px-4 py-1.5">
-          <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
-          <span className="text-xs font-semibold uppercase tracking-widest text-rose-400">
+        {/* Badge "Accès privé" — amber unifié + pulse */}
+        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+          <span className="text-xs font-semibold uppercase tracking-widest text-amber-400">
             Accès privé
           </span>
         </div>
 
-        {/* Logo */}
-        <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500/30 to-orange-500/30 ring-1 ring-white/10">
+        {/* Logo — amber gradient + halo */}
+        <div className="mb-7 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500/25 to-yellow-500/20 ring-1 ring-amber-500/20 shadow-[0_0_32px_rgba(245,158,11,0.18)]">
           <span className="text-3xl">🎧</span>
         </div>
 
-        {/* Headline */}
-        <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
+        {/* Headline — plus grand, plus gras */}
+        <h1 className="text-balance text-5xl font-black tracking-tight text-white sm:text-6xl leading-[1.1]">
           {headline}
         </h1>
 
         {/* Subline */}
-        <p className="mt-5 max-w-sm text-base leading-relaxed text-zinc-400 sm:text-lg">
+        <p className="mt-5 max-w-sm text-base leading-relaxed text-zinc-400 sm:text-lg text-pretty">
           {subline}
         </p>
 
         {/* Micro texte UX */}
-        <p className="mt-2 text-sm text-zinc-500">
-          Accès ouverts par vagues.
-        </p>
+        <p className="mt-2 text-sm text-zinc-600">· Accès ouverts par vagues ·</p>
 
-        {/* Preuve sociale — affichée uniquement si l'admin a renseigné un nombre > 0 */}
-        {waitlistCountDisplay > 0 && (
-          <p className="mt-4 text-sm text-zinc-400 text-center">
-            <span className="font-semibold text-yellow-400">
-              +{waitlistCountDisplay}
-            </span>
-            {' '}producteurs ont déjà demandé leur accès
-          </p>
-        )}
+        {/* Divider visuel hero → conversion */}
+        <div className="mt-8 flex w-full items-center gap-3">
+          <div className="h-px flex-1 bg-gradient-to-r from-transparent to-zinc-800" />
+          <div className="h-1 w-1 rounded-full bg-zinc-700" />
+          <div className="h-px flex-1 bg-gradient-to-l from-transparent to-zinc-800" />
+        </div>
 
-        {/* Date de lancement — stylée en pill */}
+        {/* Date de lancement — texte inline, accent amber */}
         {formattedDate && (
-          <p className="mt-5 rounded-full border border-rose-500/20 bg-rose-500/8 px-4 py-1.5 text-sm font-medium text-rose-400">
-            Lancement prévu : {formattedDate}
+          <p className="mt-6 text-xs uppercase tracking-widest text-zinc-500">
+            Lancement prévu le{' '}
+            <span className="font-semibold text-amber-400/80">{formattedDate}</span>
           </p>
         )}
 
-        {/* Countdown */}
+        {/* Countdown — plus large, digits plus impactants */}
         {targetTime && (
-          <div className="mt-8 grid grid-cols-4 gap-3 w-full max-w-xs">
+          <div className="mt-5 grid grid-cols-4 gap-3 w-full max-w-sm">
             {[
               { label: 'Jours', value: countdown.days },
               { label: 'Heures', value: countdown.hours },
@@ -266,12 +262,16 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
             ].map((item) => (
               <div
                 key={item.label}
-                className="flex flex-col items-center rounded-2xl border border-zinc-800 bg-zinc-900/80 px-2 py-4"
+                className="flex flex-col items-center rounded-2xl border border-zinc-800 border-t-amber-500/20 bg-zinc-900/80 px-2 py-5 transition-colors hover:border-amber-500/20"
               >
-                <span className="text-3xl font-bold tabular-nums text-white">
+                {/* key sur le span = remount à chaque changement → animation flip-in */}
+                <span
+                  key={pad(item.value)}
+                  className="animate-flip-in text-4xl font-black tabular-nums text-white sm:text-5xl"
+                >
                   {pad(item.value)}
                 </span>
-                <span className="mt-1 text-[10px] uppercase tracking-widest text-zinc-500">
+                <span className="mt-1.5 text-[9px] font-semibold uppercase tracking-[0.15em] text-zinc-500">
                   {item.label}
                 </span>
               </div>
@@ -279,11 +279,22 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
           </div>
         )}
 
+        {/* Preuve sociale — juste au-dessus du form pour impact maximal */}
+        {waitlistCountDisplay > 0 && (
+          <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900/60 px-4 py-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            <p className="text-sm text-zinc-400">
+              <span className="font-semibold text-white">+{waitlistCountDisplay}</span>
+              {' '}producteurs déjà inscrits
+            </p>
+          </div>
+        )}
+
         {/* Formulaire waitlist — carte premium */}
-        <div className="mt-10 w-full max-w-md rounded-2xl border border-zinc-700/60 bg-zinc-900/80 p-6 shadow-2xl shadow-black/40 backdrop-blur">
+        <div className="mt-8 w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900/70 p-6 shadow-2xl shadow-black/60 backdrop-blur ring-1 ring-white/[0.03]">
 
           {/* En-tête carte */}
-          <p className="text-sm font-semibold text-zinc-100">
+          <p className="text-base font-bold text-white">
             Demande ton accès
           </p>
           <p className="mt-1 text-xs text-zinc-500">
@@ -291,7 +302,7 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
           </p>
 
           {/* ── Logique intacte à partir d'ici ── */}
-          <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+          <form onSubmit={handleSubmit} className="mt-5 space-y-3">
             <input
               type="email"
               inputMode="email"
@@ -301,7 +312,7 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
               placeholder="ton@email.com"
               disabled={isSubmitting}
               required
-              className="h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 text-sm text-white placeholder:text-zinc-500 focus:border-zinc-500 focus:outline-none disabled:opacity-60"
+              className="h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950/80 px-4 text-sm text-white placeholder:text-zinc-600 transition-all focus:border-amber-500/60 focus:outline-none focus:ring-2 focus:ring-amber-500/10 disabled:opacity-60"
             />
 
             {isCaptchaConfigured && (
@@ -322,9 +333,9 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="h-12 w-full rounded-xl bg-yellow-400 text-sm font-semibold text-zinc-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-70"
+              className="h-12 w-full rounded-xl bg-amber-400 text-sm font-bold text-zinc-950 shadow-[0_4px_20px_rgba(251,191,36,0.25)] transition-all hover:bg-amber-300 hover:shadow-[0_4px_30px_rgba(251,191,36,0.35)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {isSubmitting ? 'Envoi...' : 'Rejoindre la liste →'}
+              {isSubmitting ? 'Envoi en cours...' : 'Rejoindre la liste →'}
             </button>
 
             <div className="min-h-[20px] text-sm">
@@ -338,20 +349,21 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
         </div>
 
         {/* Micro texte UX — rassurance post-formulaire */}
-        <p className="mt-3 text-center text-xs text-zinc-500">
+        <p className="mt-3 text-center text-xs text-zinc-600">
           Tu recevras un email dès que ton accès est disponible.
         </p>
 
-        {/* YouTube embed */}
+        {/* YouTube embed — avec label d'intro */}
         {embedUrl && (
-          <div className="mt-10 w-full max-w-2xl">
+          <div className="mt-12 w-full max-w-2xl">
+            <p className="mb-3 text-xs uppercase tracking-widest text-zinc-600">Aperçu</p>
             <iframe
               src={embedUrl}
               sandbox="allow-scripts allow-same-origin allow-presentation"
               referrerPolicy="strict-origin-when-cross-origin"
               allow="autoplay; encrypted-media"
               allowFullScreen
-              className="aspect-video w-full rounded-xl border-0"
+              className="aspect-video w-full rounded-2xl border border-zinc-800"
               title="Beatelion Launch Video"
             />
           </div>
@@ -362,15 +374,15 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
           <p className="text-xs text-zinc-600">Tu as déjà un accès ?</p>
           <a
             href="/login"
-            className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-900/60 px-4 py-1.5 text-xs font-medium text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-200"
+            className="inline-flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/60 px-4 py-1.5 text-xs font-medium text-zinc-500 transition hover:border-zinc-600 hover:text-zinc-300"
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-yellow-400" />
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
             Accès VIP — Se connecter
           </a>
         </div>
 
         {/* Footer */}
-        <p className="mt-8 text-xs text-zinc-700">
+        <p className="mt-8 text-xs text-zinc-800">
           © {new Date().getFullYear()} Beatelion — Plateforme réservée aux producteurs.
         </p>
       </div>
