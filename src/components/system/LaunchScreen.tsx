@@ -233,23 +233,34 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
           <span className="text-3xl">🎧</span>
         </div>
 
-        {/* Headline — découpage automatique, taille adaptée à la longueur de chaque ligne */}
-        <h1 className="flex w-full flex-col items-center gap-3">
-          {headlineLines.map((line, i) => (
-            <span
-              key={i}
-              className={[
-                'block text-balance text-center font-black tracking-tight leading-tight',
-                line.length <= 15
-                  ? 'text-4xl text-white sm:text-5xl'
-                  : line.length <= 30
-                    ? 'text-3xl text-white sm:text-4xl'
-                    : 'text-2xl text-zinc-300 sm:text-3xl',
-              ].join(' ')}
-            >
-              {line}
-            </span>
-          ))}
+        {/* Headline — hiérarchie automatique : court = gros blanc, long = petit grisé */}
+        <h1 className="flex w-full flex-col items-center gap-2">
+          {headlineLines.map((line, i) => {
+            const isFirst = i === 0;
+            const isLast = i === headlineLines.length - 1;
+            const isShort = line.length <= 20;
+            return (
+              <span
+                key={i}
+                className={[
+                  'block text-balance text-center font-black tracking-tight',
+                  // Première ligne : accroche, toujours proéminente
+                  isFirst
+                    ? 'text-3xl leading-tight text-white sm:text-4xl mb-1'
+                  // Lignes courtes et percutantes (ex: "On va voir.", "Niveau réel.")
+                  : isShort
+                    ? 'text-3xl leading-tight text-white sm:text-4xl'
+                  // Dernière ligne : scarcité, plus douce
+                  : isLast
+                    ? 'text-base leading-snug text-zinc-500 mt-1 font-semibold'
+                  // Lignes longues : contexte, plus petites
+                    : 'text-lg leading-snug text-zinc-300 sm:text-xl',
+                ].join(' ')}
+              >
+                {line}
+              </span>
+            );
+          })}
         </h1>
 
         {/* Subline */}
