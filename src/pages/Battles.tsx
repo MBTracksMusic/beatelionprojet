@@ -11,19 +11,41 @@ import { fetchPublicProducerProfilesMap } from '../lib/supabase/publicProfiles';
 import { useAuth, useIsEmailVerified } from '../lib/auth/hooks';
 import type { BattleWithRelations } from '../lib/supabase/types';
 
+const PAGE_SIZE = 20;
+
 export function BattlesPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const isEmailVerified = useIsEmailVerified();
   const [battles, setBattles] = useState<BattleWithRelations[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [page, setPage] = useState(0);
   const [filter, setFilter] = useState<'active' | 'voting' | 'completed'>('active');
   const [error, setError] = useState<string | null>(null);
 
+  const handleFilterChange = (newFilter: 'active' | 'voting' | 'completed') => {
+    setBattles([]);
+    setPage(0);
+    setHasMore(false);
+    setFilter(newFilter);
+  };
+
   useEffect(() => {
+    let cancelled = false;
+
     async function fetchBattles() {
-      setIsLoading(true);
+      if (page === 0) {
+        setIsLoading(true);
+      } else {
+        setIsLoadingMore(true);
+      }
       setError(null);
+
+      const from = page * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
       try {
         const { data, error } = await supabase
           .from('battles')
@@ -50,7 +72,8 @@ export function BattlesPage() {
             product2:products!battles_product2_id_fkey(id, title, slug, product_type, cover_image_url, price)
           `)
           .eq('status', filter)
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false })
+          .range(from, to);
 
         if (error) throw error;
         const rows = ((data as BattleWithRelations[] | null) ?? []);
@@ -113,18 +136,27 @@ export function BattlesPage() {
           })) as BattleWithRelations[];
         }
 
-        setBattles(nextBattles);
-      } catch (error) {
-        console.error('Error fetching battles:', error);
-        setError(t('battles.loadError'));
-        setBattles([]);
+        if (!cancelled) {
+          setHasMore(rows.length === PAGE_SIZE);
+          setBattles((prev) => page === 0 ? nextBattles : [...prev, ...nextBattles]);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Error fetching battles:', err);
+          setError(t('battles.loadError'));
+          if (page === 0) setBattles([]);
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+          setIsLoadingMore(false);
+        }
       }
     }
 
-    fetchBattles();
-  }, [filter, t]);
+    void fetchBattles();
+    return () => { cancelled = true; };
+  }, [filter, page, t]);
 
   return (
     <div className="min-h-screen bg-zinc-950 pt-8 pb-32">
@@ -137,19 +169,19 @@ export function BattlesPage() {
         <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
           <Button
             variant={filter === 'active' ? 'primary' : 'outline'}
-            onClick={() => setFilter('active')}
+            onClick={() => handleFilterChange('active')}
           >
             {t('battles.activeBattles')}
           </Button>
           <Button
             variant={filter === 'completed' ? 'primary' : 'outline'}
-            onClick={() => setFilter('completed')}
+            onClick={() => handleFilterChange('completed')}
           >
             {t('battles.completedBattles')}
           </Button>
           <Button
             variant={filter === 'voting' ? 'primary' : 'outline'}
-            onClick={() => setFilter('voting')}
+            onClick={() => handleFilterChange('voting')}
           >
             {t('battles.legacyVoting')}
           </Button>
@@ -202,6 +234,17 @@ export function BattlesPage() {
             {battles.map((battle) => (
               <BattleCard key={battle.id} battle={battle} />
             ))}
+            {hasMore && (
+              <div className="flex justify-center pt-4">
+                <Button
+                  variant="outline"
+                  isLoading={isLoadingMore}
+                  onClick={() => setPage((prev) => prev + 1)}
+                >
+                  {t('battles.loadMore')}
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

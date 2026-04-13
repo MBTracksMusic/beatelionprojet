@@ -302,6 +302,7 @@ export const de: TranslationSchema = {
     joinBattle: 'Battle beitreten',
     selectTrack: 'Track auswahlen',
     loadError: 'Battles konnen derzeit nicht geladen werden.',
+    loadMore: 'Mehr laden',
     legacyVoting: 'Legacy Voting',
     verifyEmailToInteract: 'Bestatigen Sie Ihre E-Mail, um abzustimmen und zu kommentieren.',
     empty: 'Derzeit keine Battle',
