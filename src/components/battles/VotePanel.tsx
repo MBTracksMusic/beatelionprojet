@@ -14,7 +14,7 @@ interface VotePanelProps {
     producer1?: { username: string | null };
     producer2?: { username: string | null };
   };
-  onVoteSuccess?: () => Promise<void> | void;
+  onVoteSuccess?: (votedForProducerId: string) => Promise<void> | void;
 }
 
 const isVotingOpen = (status: BattleWithRelations['status']) => status === 'active';
@@ -90,7 +90,7 @@ export function VotePanel({ battle, onVoteSuccess }: VotePanelProps) {
   const handleVoteWithFeedbackSuccess = async (winnerProducerId: string) => {
     setUserVote(winnerProducerId);
     try {
-      await onVoteSuccess?.();
+      await onVoteSuccess?.(winnerProducerId);
     } catch (refreshError) {
       console.error('Error refreshing battle after vote-with-feedback flow:', refreshError);
     }

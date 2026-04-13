@@ -302,6 +302,7 @@ export const en: TranslationSchema = {
     joinBattle: 'Join battle',
     selectTrack: 'Select a track',
     loadError: 'Unable to load battles right now.',
+    loadMore: 'Load more',
     legacyVoting: 'Legacy voting',
     verifyEmailToInteract: 'Confirm your email to vote and comment.',
     empty: 'No battle right now',

@@ -1166,6 +1166,28 @@ export function ProducerBattlesPage() {
                           diff: opponent.elo_diff,
                         })}
                       </p>
+                      {(opponent.final_score != null || opponent.ai_score != null || opponent.elo_score != null) && (
+                        <div className="mt-1 flex items-center gap-3">
+                          {opponent.final_score != null && (
+                            <span className="text-xs font-semibold text-orange-400">
+                              Match {Math.round(opponent.final_score * 100)}%
+                            </span>
+                          )}
+                          {opponent.elo_score != null && (
+                            <span className="text-xs text-zinc-500">
+                              ELO {Math.round(opponent.elo_score * 100)}%
+                            </span>
+                          )}
+                          {opponent.ai_score != null && (
+                            <span className="text-xs text-zinc-500">
+                              IA {Math.round(opponent.ai_score * 100)}%
+                            </span>
+                          )}
+                          {opponent.source && opponent.source !== 'sql' && (
+                            <span className="text-xs text-zinc-600 italic">{opponent.source}</span>
+                          )}
+                        </div>
+                      )}
                       {opponent.reason && (
                         <p className="mt-1 text-xs text-zinc-500">{opponent.reason}</p>
                       )}

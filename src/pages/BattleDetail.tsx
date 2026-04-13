@@ -203,6 +203,57 @@ export function BattleDetailPage() {
     void fetchBattle();
   }, [fetchBattle]);
 
+  // Realtime subscription — met à jour uniquement les compteurs de votes
+  useEffect(() => {
+    if (!battle?.id) return;
+
+    const channel = supabase
+      .channel(`battle-votes:${battle.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'battles',
+          filter: `id=eq.${battle.id}`,
+        },
+        (payload) => {
+          const updated = payload.new as { votes_producer1?: number; votes_producer2?: number };
+          setBattle((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              votes_producer1: updated.votes_producer1 ?? prev.votes_producer1,
+              votes_producer2: updated.votes_producer2 ?? prev.votes_producer2,
+            };
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [battle?.id]);
+
+  // Mise à jour optimiste locale après vote (sans re-fetch)
+  const handleVoteSuccess = useCallback((votedForProducerId: string) => {
+    setBattle((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        votes_producer1:
+          votedForProducerId === prev.producer1_id
+            ? prev.votes_producer1 + 1
+            : prev.votes_producer1,
+        votes_producer2:
+          votedForProducerId === prev.producer2_id
+            ? prev.votes_producer2 + 1
+            : prev.votes_producer2,
+      };
+    });
+  }, []);
+
   const totalVotes = useMemo(() => {
     if (!battle) return 0;
     return (battle.votes_producer1 || 0) + (battle.votes_producer2 || 0);
@@ -461,7 +512,7 @@ export function BattleDetailPage() {
 
         <VotePanel
           battle={battle}
-          onVoteSuccess={fetchBattle}
+          onVoteSuccess={handleVoteSuccess}
         />
 
         <CommentsPanel

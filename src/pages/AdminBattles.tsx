@@ -152,7 +152,7 @@ interface AdminBattlesPageProps {
   onAwaitingAdminCountChange?: (count: number) => void;
 }
 
-const BATTLES_DEFAULT_PAGE_SIZE = 200;
+const BATTLES_DEFAULT_PAGE_SIZE = 50;
 const CAMPAIGN_IMAGES_BUCKET = 'battle-campaign-images';
 
 const badgeByStatus: Record<BattleStatus, 'default' | 'success' | 'warning' | 'danger' | 'info' | 'premium'> = {

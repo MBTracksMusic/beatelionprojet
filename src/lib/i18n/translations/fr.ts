@@ -301,6 +301,7 @@ export const fr = {
     joinBattle: 'Rejoindre la battle',
     selectTrack: 'Selectionner un titre',
     loadError: 'Impossible de charger les battles pour le moment.',
+    loadMore: 'Charger plus',
     legacyVoting: 'Voting legacy',
     verifyEmailToInteract: 'Confirmez votre email pour voter et commenter.',
     empty: 'Aucune battle pour le moment',

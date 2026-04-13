@@ -49,6 +49,9 @@ verify_jwt = false
 [functions.agent-finalize-expired-battles]
 verify_jwt = false
 
+[functions.agent-auto-execute-ai-actions]
+verify_jwt = false
+
 [functions.ai-evaluate-battle]
 verify_jwt = false
 
