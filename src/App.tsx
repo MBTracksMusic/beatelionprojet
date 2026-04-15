@@ -26,6 +26,7 @@ const LAUNCH_BYPASS_PATHS = new Set([
   '/forgot-password',
   '/reset-password',
   '/email-confirmation',
+  '/auth/callback',
 ]);
 
 function lazyNamed(
@@ -49,6 +50,7 @@ const RegisterPage = lazyNamed(() => import('./pages/auth/Register'), 'RegisterP
 const EmailConfirmation = lazy(() => import('./pages/auth/EmailConfirmation'));
 const ForgotPasswordPage = lazyNamed(() => import('./pages/auth/ForgotPassword'), 'ForgotPasswordPage');
 const ResetPasswordPage = lazyNamed(() => import('./pages/auth/ResetPassword'), 'ResetPasswordPage');
+const AuthCallbackPage = lazyNamed(() => import('./pages/auth/AuthCallback'), 'AuthCallback');
 const DashboardPage = lazyNamed(() => import('./pages/Dashboard'), 'DashboardPage');
 const SettingsPage = lazyNamed(() => import('./pages/Settings'), 'SettingsPage');
 const ProducerDashboardPage = lazyNamed(() => import('./pages/ProducerDashboard'), 'ProducerDashboardPage');
@@ -147,6 +149,7 @@ function AppContent() {
         <Route path="/email-confirmation" element={<EmailConfirmation />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route path="/" element={<Layout />}>
           <Route index element={<HomePage />} />
           <Route path="beats" element={<BeatsPage mode="beats" />} />

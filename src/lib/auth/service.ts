@@ -168,6 +168,17 @@ export async function updatePassword(newPassword: string) {
   if (error) throw error;
 }
 
+export async function loginWithGoogle() {
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: getAuthRedirectUrl('/auth/callback'),
+    },
+  });
+  if (error) throw error;
+  return data;
+}
+
 export async function updateProfile(updates: {
   username?: string;
   full_name?: string;
