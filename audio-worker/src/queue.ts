@@ -27,42 +27,22 @@ const PRODUCT_SELECT = [
   "processed_at",
 ].join(", ");
 
-const isClaimArgumentMismatch = (error: { message?: string; details?: string; hint?: string }) => {
-  const message = `${error.message ?? ""} ${error.details ?? ""} ${error.hint ?? ""}`.toLowerCase();
-  return (
-    message.includes("p_limit") ||
-    message.includes("p_worker") ||
-    message.includes("worker_id") ||
-    message.includes("function") ||
-    message.includes("argument")
-  );
-};
 
 export const claimAudioProcessingJobs = async (
   supabase: SupabaseAdminClient,
   limit: number,
   workerId: string,
 ): Promise<AudioProcessingJobRow[]> => {
-  const attempts = [
-    { p_limit: limit, p_worker: workerId },
-    { limit, worker_id: workerId },
-  ];
+  const { data, error } = await supabase.rpc("claim_audio_processing_jobs", {
+    p_limit: limit,
+    p_worker: workerId,
+  });
 
-  let lastError: Error | null = null;
-
-  for (const args of attempts) {
-    const { data, error } = await supabase.rpc("claim_audio_processing_jobs", args);
-    if (!error) {
-      return (data ?? []) as AudioProcessingJobRow[];
-    }
-
-    lastError = new Error(`claim_audio_processing_jobs failed: ${error.message}`);
-    if (!isClaimArgumentMismatch(error)) {
-      break;
-    }
+  if (error) {
+    throw new Error(`claim_audio_processing_jobs failed: ${error.message}`);
   }
 
-  throw lastError ?? new Error("claim_audio_processing_jobs failed");
+  return (data ?? []) as AudioProcessingJobRow[];
 };
 
 export const loadSiteAudioSettings = async (
