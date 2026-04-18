@@ -157,7 +157,7 @@ export function HomePage() {
         {/* Subtle grid overlay */}
         <div className="absolute inset-0 opacity-[0.03] hero-grid-overlay" />
 
-        <div className="relative z-10 max-w-5xl mx-auto px-4 text-center">
+        <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           {/* Badge */}
           {showHomepageBadge && (
             <motion.div
@@ -259,7 +259,7 @@ export function HomePage() {
 
       {isExclusiveSectionEnabled && exclusives.length > 0 && (
         <section className="py-20 bg-gradient-to-b from-zinc-950 to-zinc-900">
-          <div className="max-w-7xl mx-auto px-4">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between mb-10">
               <div>
                 <div className="flex items-center gap-2 mb-2">
@@ -295,7 +295,7 @@ export function HomePage() {
       )}
 
       <section className="py-12 md:py-20 bg-zinc-950">
-        <div className="max-w-7xl mx-auto px-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
               {t('home.startSelling')}
@@ -354,7 +354,7 @@ export function HomePage() {
       </section>
 
       <section className="py-12 md:py-20 bg-gradient-to-br from-violet-950/40 via-zinc-950 to-orange-950/30">
-        <div className="max-w-4xl mx-auto px-4 text-center">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-violet-300 via-rose-300 to-orange-300 bg-clip-text text-transparent mb-6">
             {t('home.finalCtaTitle')}
           </h2>
