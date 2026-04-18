@@ -81,7 +81,7 @@ export function HomeBattleOfTheDay() {
   }, []);
 
   return (
-    <section className="py-20 bg-zinc-900/40 border-y border-zinc-900">
+    <section className="py-12 md:py-20 bg-zinc-900/40 border-y border-zinc-900">
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center gap-2 mb-2">
           <Trophy className="w-5 h-5 text-amber-400" />

@@ -176,7 +176,7 @@ export function HomePage() {
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.1, ease: [0.21, 0.47, 0.32, 0.98] }}
-            className="text-6xl md:text-8xl font-black leading-[0.92] tracking-tight text-white mb-6"
+            className="text-4xl sm:text-6xl md:text-8xl font-black leading-[0.92] tracking-tight text-white mb-6"
           >
             <span className="block">{t('home.heroTitle').split(' ').slice(0, Math.ceil(t('home.heroTitle').split(' ').length / 2)).join(' ')}</span>
             <span className="block bg-gradient-to-r from-violet-400 via-rose-400 to-orange-400 bg-clip-text text-transparent">
@@ -294,7 +294,7 @@ export function HomePage() {
         </section>
       )}
 
-      <section className="py-20 bg-zinc-950">
+      <section className="py-12 md:py-20 bg-zinc-950">
         <div className="max-w-7xl mx-auto px-4">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
@@ -353,7 +353,7 @@ export function HomePage() {
         </div>
       </section>
 
-      <section className="py-20 bg-gradient-to-br from-violet-950/40 via-zinc-950 to-orange-950/30">
+      <section className="py-12 md:py-20 bg-gradient-to-br from-violet-950/40 via-zinc-950 to-orange-950/30">
         <div className="max-w-4xl mx-auto px-4 text-center">
           <h2 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-violet-300 via-rose-300 to-orange-300 bg-clip-text text-transparent mb-6">
             {t('home.finalCtaTitle')}

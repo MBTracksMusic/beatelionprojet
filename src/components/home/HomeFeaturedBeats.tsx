@@ -240,7 +240,7 @@ export function HomeFeaturedBeats() {
   };
 
   return (
-    <section className="py-20 bg-zinc-950">
+    <section className="py-12 md:py-20 bg-zinc-950">
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between mb-10">
           <div>

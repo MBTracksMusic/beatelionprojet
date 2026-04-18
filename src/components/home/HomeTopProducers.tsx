@@ -99,7 +99,7 @@ export function HomeTopProducers() {
 
   return (
     <motion.section
-      className="py-20 bg-zinc-900"
+      className="py-12 md:py-20 bg-zinc-900"
       initial={{ opacity: 0, y: 24 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: '-80px' }}
@@ -120,7 +120,7 @@ export function HomeTopProducers() {
               type="button"
               aria-label="Scroll left"
               onClick={() => scroll('left')}
-              className="w-8 h-8 rounded-full border border-zinc-700 bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors"
+              className="w-11 h-11 rounded-full border border-zinc-700 bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -128,7 +128,7 @@ export function HomeTopProducers() {
               type="button"
               aria-label="Scroll right"
               onClick={() => scroll('right')}
-              className="w-8 h-8 rounded-full border border-zinc-700 bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors"
+              className="w-11 h-11 rounded-full border border-zinc-700 bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

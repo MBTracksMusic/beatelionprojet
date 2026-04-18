@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Menu,
@@ -45,6 +45,8 @@ export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const mobileSearchRef = useRef<HTMLInputElement>(null);
 
   const { showUserPremiumCredits, showUserPremiumPlan } = useMaintenanceModeContext();
   const cartItemCount = items.length;
@@ -62,7 +64,14 @@ export function Header() {
     setIsLangMenuOpen(false);
     setIsUserMenuOpen(false);
     setIsMenuOpen(false);
+    setIsMobileSearchOpen(false);
   }, []);
+
+  useEffect(() => {
+    if (isMobileSearchOpen) {
+      mobileSearchRef.current?.focus();
+    }
+  }, [isMobileSearchOpen]);
 
   useEffect(() => {
     if (!isLangMenuOpen && !isUserMenuOpen && !isMenuOpen) {
@@ -213,6 +222,18 @@ export function Header() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              aria-label="Rechercher"
+              onClick={() => {
+                closeAllMenus();
+                setIsMobileSearchOpen((prev) => !prev);
+              }}
+              className="md:hidden p-2 text-zinc-400 hover:text-white transition-colors"
+            >
+              <Search className="w-5 h-5" />
+            </button>
+
             <form onSubmit={handleSearchSubmit} className="hidden md:flex items-center relative">
               <Search className="absolute left-3 w-4 h-4 text-zinc-500" />
               <input
@@ -483,6 +504,23 @@ export function Header() {
           </div>
         </div>
       </div>
+
+      {isMobileSearchOpen && (
+        <div className="md:hidden border-t border-zinc-800 bg-zinc-950 px-4 py-3">
+          <form onSubmit={(e) => { handleSearchSubmit(e); setIsMobileSearchOpen(false); }} className="flex items-center relative">
+            <Search className="absolute left-3 w-4 h-4 text-zinc-500" />
+            <input
+              ref={mobileSearchRef}
+              name="header-search-mobile"
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t('home.searchPlaceholder')}
+              className="w-full pl-10 pr-4 py-2.5 bg-zinc-900 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-600"
+            />
+          </form>
+        </div>
+      )}
 
       {isMenuOpen && (
         <div
