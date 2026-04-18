@@ -111,8 +111,10 @@ export class AudioWorkerService {
     while (!this.stopRequested) {
       try {
         const processedCount = await this.processBatch();
-        if (processedCount === 0 && !this.stopRequested) {
-          await sleep(this.config.pollIntervalMs);
+        if (!this.stopRequested) {
+          // Always wait between cycles — avoids tight loop when jobs arrive in batches
+          const delay = processedCount === 0 ? this.config.pollIntervalMs : Math.floor(this.config.pollIntervalMs / 3);
+          await sleep(delay);
         }
       } catch (error) {
         log("error", "worker_loop_failed", {
