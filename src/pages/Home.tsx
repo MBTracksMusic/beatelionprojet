@@ -40,7 +40,7 @@ export function HomePage() {
   const { user } = useAuth();
   const { isActive: hasPremiumAccess, subscription: userSubStatus } = useUserSubscriptionStatus(user?.id);
   const isUserPremium = hasPremiumAccess && userSubStatus?.plan_code === 'user_monthly';
-  const { showHomepageStats } = useMaintenanceModeContext();
+  const { showHomepageStats, showHomepageBadge } = useMaintenanceModeContext();
   const { productIds: wishlistProductIds, fetchWishlist, toggleWishlist, clearWishlist } = useWishlistStore();
   // TODO(levelup): reactiver cette section quand les categories Exclusifs/Kits reviennent.
   const isExclusiveSectionEnabled = false;
@@ -159,15 +159,17 @@ export function HomePage() {
 
         <div className="relative z-10 max-w-5xl mx-auto px-4 text-center">
           {/* Badge */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: 'easeOut' }}
-            className="inline-flex items-center gap-2 rounded-full border border-violet-500/30 bg-violet-500/10 px-4 py-1.5 mb-8 text-sm font-medium text-violet-300"
-          >
-            <Zap className="w-3.5 h-3.5" />
-            <span>La marketplace de beats #1 en France</span>
-          </motion.div>
+          {showHomepageBadge && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, ease: 'easeOut' }}
+              className="inline-flex items-center gap-2 rounded-full border border-violet-500/30 bg-violet-500/10 px-4 py-1.5 mb-8 text-sm font-medium text-violet-300"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span>La marketplace de beats #1 en France</span>
+            </motion.div>
+          )}
 
           {/* Title */}
           <motion.h1
