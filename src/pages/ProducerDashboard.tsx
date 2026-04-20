@@ -245,7 +245,7 @@ export function ProducerDashboardPage() {
             .or(`producer1_id.eq.${profile.id},producer2_id.eq.${profile.id}`),
           supabase
             .from('products')
-            .select('*', { count: 'exact', head: true })
+            .select('id', { count: 'exact', head: true })
             .eq('producer_id', profile.id)
             .eq('is_published', true)
             .is('genre_id', null)

@@ -347,8 +347,8 @@ export function UploadBeatPage() {
   useEffect(() => {
     const fetchCategoryData = async () => {
       const [{ data: genreData }, { data: moodData }] = await Promise.all([
-        supabase.from('genres').select('*').order('sort_order', { ascending: true }),
-        supabase.from('moods').select('*').order('sort_order', { ascending: true }),
+        supabase.from('genres').select('*').eq('is_active', true).order('sort_order'),
+        supabase.from('moods').select('*').eq('is_active', true).order('sort_order'),
       ]);
       if (genreData) setGenres(genreData as Genre[]);
       if (moodData) setMoods(moodData as Mood[]);
@@ -785,7 +785,7 @@ export function UploadBeatPage() {
       return;
     }
 
-    if (!genreId && !editingProduct) {
+    if (!genreId && !editingProduct && !versionSource) {
       setErrors((prev) => ({ ...prev, form: t('uploadBeat.genreRequired') }));
       return;
     }
@@ -1174,6 +1174,7 @@ export function UploadBeatPage() {
                   {tag}
                   <button
                     type="button"
+                    aria-label={`Supprimer le tag ${tag}`}
                     onClick={(e) => { e.stopPropagation(); setTags(tags.filter((existing) => existing !== tag)); }}
                     className="text-zinc-400 hover:text-white leading-none"
                     disabled={isUploading || isMetadataLocked}
