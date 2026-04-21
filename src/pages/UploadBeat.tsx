@@ -21,9 +21,12 @@ import { supabase } from '@/lib/supabase/client';
 import type { Database } from '../lib/supabase/types';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { Select } from '../components/ui/Select';
 import { Badge } from '../components/ui/Badge';
 import { slugify } from '../lib/utils/format';
 import { normalizeStoragePath } from '../lib/utils/storage';
+import { getLocalizedName } from '../lib/i18n/localized';
+import type { Genre, Mood } from '../lib/supabase/types';
 
 type UploadPhase = 'idle' | 'uploading' | 'success' | 'error';
 
@@ -59,6 +62,9 @@ interface EditProductRow {
   cover_image_url: string | null;
   is_published: boolean;
   file_format: string | null;
+  genre_id: string | null;
+  mood_id: string | null;
+  tags: string[] | null;
 }
 
 interface EditPermissions {
@@ -99,6 +105,19 @@ const getErrorMessage = (error: unknown, fallback: string) => {
   }
 
   return fallback;
+};
+
+const getReturnedProductId = (value: unknown) => {
+  if (Array.isArray(value)) {
+    const firstRow = value[0];
+    return firstRow && typeof firstRow === 'object' && typeof (firstRow as { id?: unknown }).id === 'string'
+      ? (firstRow as { id: string }).id
+      : null;
+  }
+
+  return value && typeof value === 'object' && typeof (value as { id?: unknown }).id === 'string'
+    ? (value as { id: string }).id
+    : null;
 };
 
 const getEditLockMessage = (
@@ -285,10 +304,27 @@ export async function uploadBeatProduct({
   };
 }
 
+async function enqueuePreviewGeneration(productId: string) {
+  const { data, error } = await supabase.rpc('enqueue_audio_processing_job', {
+    p_product_id: productId,
+    p_job_type: 'generate_preview',
+  });
+
+  if (error) {
+    console.error('[upload-beat] explicit preview enqueue failed', {
+      productId,
+      error,
+    });
+    return false;
+  }
+
+  return Boolean(data);
+}
+
 // Page d'upload minimaliste pour les producteurs actifs.
 export function UploadBeatPage() {
   const { currentTrack, isPlaying, playTrack } = useAudioPlayer();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { profile } = useAuth();
   const { foundingTrialExpired } = usePermissions();
   const navigate = useNavigate();
@@ -315,6 +351,13 @@ export function UploadBeatPage() {
   const [description, setDescription] = useState('');
   const [bpm, setBpm] = useState('');
   const [keySignature, setKeySignature] = useState('');
+  const [genreId, setGenreId] = useState<string>('');
+  const [moodId, setMoodId] = useState<string>('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const [genres, setGenres] = useState<Genre[]>([]);
+  const [moods, setMoods] = useState<Mood[]>([]);
+  const tagInputRef = useRef<HTMLInputElement>(null);
   const [isWatermarkProcessing, setIsWatermarkProcessing] = useState(false);
   const [versionSource, setVersionSource] = useState<VersionSourceRow | null>(null);
   const [isVersionSourceLoading, setIsVersionSourceLoading] = useState(false);
@@ -329,6 +372,18 @@ export function UploadBeatPage() {
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    const fetchCategoryData = async () => {
+      const [{ data: genreData }, { data: moodData }] = await Promise.all([
+        supabase.from('genres').select('*').eq('is_active', true).order('sort_order'),
+        supabase.from('moods').select('*').eq('is_active', true).order('sort_order'),
+      ]);
+      if (genreData) setGenres(genreData as Genre[]);
+      if (moodData) setMoods(moodData as Mood[]);
+    };
+    void fetchCategoryData();
   }, []);
 
   useEffect(() => {
@@ -382,6 +437,9 @@ export function UploadBeatPage() {
           setDescription(sourceRow.description ?? '');
           setBpm(sourceRow.bpm ? String(sourceRow.bpm) : '');
           setKeySignature(sourceRow.key_signature ?? '');
+          setGenreId(sourceRow.genre_id ?? '');
+          setMoodId(sourceRow.mood_id ?? '');
+          setTags(sourceRow.tags ?? []);
           setImagePreviewUrl(sourceRow.cover_image_url);
           setErrors((prev) => ({ ...prev, form: undefined }));
         }
@@ -426,7 +484,7 @@ export function UploadBeatPage() {
         const [{ data: productData, error: productError }, { data: editabilityData, error: editabilityError }] = await Promise.all([
           supabase
             .from('products')
-            .select('id, title, description, price, bpm, key_signature, cover_image_url, is_published, file_format')
+            .select('id, title, description, price, bpm, key_signature, cover_image_url, is_published, file_format, genre_id, mood_id, tags')
             .eq('id', editProductId)
             .eq('producer_id', profile.id)
             .maybeSingle(),
@@ -455,6 +513,9 @@ export function UploadBeatPage() {
           setDescription(sourceRow.description ?? '');
           setBpm(sourceRow.bpm ? String(sourceRow.bpm) : '');
           setKeySignature(sourceRow.key_signature ?? '');
+          setGenreId(sourceRow.genre_id ?? '');
+          setMoodId(sourceRow.mood_id ?? '');
+          setTags(sourceRow.tags ?? []);
           setImagePreviewUrl(sourceRow.cover_image_url);
           setErrors((prev) => ({
             ...prev,
@@ -714,6 +775,19 @@ export function UploadBeatPage() {
     );
   };
 
+  const handleTagKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const value = tagInput.trim().toLowerCase().slice(0, 25);
+      if (value && !tags.includes(value) && tags.length < 8) {
+        setTags([...tags, value]);
+      }
+      setTagInput('');
+    } else if (e.key === 'Backspace' && tagInput === '' && tags.length > 0) {
+      setTags(tags.slice(0, -1));
+    }
+  };
+
   const uploadToSupabase = async () => {
     if (requiresAudioFile && !audioFile) {
       setErrors((prev) => ({ ...prev, form: t('producer.audioRequired') }));
@@ -741,6 +815,11 @@ export function UploadBeatPage() {
       return;
     }
 
+    if (!genreId && !editingProduct && !versionSource) {
+      setErrors((prev) => ({ ...prev, form: t('uploadBeat.genreRequired') }));
+      return;
+    }
+
     if (hasValidationErrors) return;
     if (!isProducerActive) {
       setErrors((prev) => ({ ...prev, form: t('producer.subscriptionRequired') }));
@@ -763,6 +842,7 @@ export function UploadBeatPage() {
     let coverPath = '';
     let persistedVersion = false;
     let updatedExistingProduct = false;
+    let queuedPreview = false;
 
     try {
       const { data: authData, error: authError } = await supabase.auth.getUser();
@@ -831,6 +911,9 @@ export function UploadBeatPage() {
         is_published: editingProduct?.is_published ?? true,
         duration_seconds: audioFile ? Math.round(audioDuration) || null : null,
         file_format: audioFile?.type || editingProduct?.file_format || 'audio/mpeg',
+        genre_id: genreId || null,
+        mood_id: moodId || null,
+        tags: tags.length > 0 ? tags : [],
       };
 
       if (versionSource) {
@@ -846,13 +929,18 @@ export function UploadBeatPage() {
           license_terms: versionSource.license_terms,
         };
 
-        const { error: versionPublishError } = await supabase.rpc('rpc_publish_product_version', {
+        const { data: versionData, error: versionPublishError } = await supabase.rpc('rpc_publish_product_version', {
           p_source_product_id: versionSource.id,
           p_new_data: versionPayload,
         });
 
         if (versionPublishError) {
           throw versionPublishError;
+        }
+
+        const versionProductId = getReturnedProductId(versionData);
+        if (versionProductId) {
+          queuedPreview = await enqueuePreviewGeneration(versionProductId);
         }
 
         persistedVersion = true;
@@ -864,6 +952,9 @@ export function UploadBeatPage() {
           bpm: bpm ? parseInt(bpm) : null,
           key_signature: keySignature || null,
           cover_image_url: coverPublicUrl,
+          genre_id: genreId || null,
+          mood_id: moodId || null,
+          tags: tags.length > 0 ? tags : [],
           updated_at: new Date().toISOString(),
         };
 
@@ -883,6 +974,10 @@ export function UploadBeatPage() {
           throw updateError;
         }
 
+        if (masterStorageReference) {
+          queuedPreview = await enqueuePreviewGeneration(editingProduct.id);
+        }
+
         updatedExistingProduct = true;
       } else {
         if (!audioFile) {
@@ -897,11 +992,12 @@ export function UploadBeatPage() {
           payload: basePayload,
         });
         masterStorageReference = created.masterPath;
+        queuedPreview = await enqueuePreviewGeneration(created.product.id);
         setUploadStatus((prev) => ({ ...prev, audio: 'success' }));
         setUploadProgress((prev) => ({ ...prev, audio: 100 }));
       }
 
-      setIsWatermarkProcessing(Boolean(versionSource || audioFile));
+      setIsWatermarkProcessing(Boolean(queuedPreview || versionSource || audioFile));
       toast.success(
         versionSource
           ? t('uploadBeat.versionPublished')
@@ -922,6 +1018,10 @@ export function UploadBeatPage() {
       setDescription('');
       setBpm('');
       setKeySignature('');
+      setGenreId('');
+      setMoodId('');
+      setTags([]);
+      setTagInput('');
       resetAudio();
       resetImage();
       setVersionSource(null);
@@ -1067,6 +1167,77 @@ export function UploadBeatPage() {
               onChange={(e) => setDescription(e.target.value)}
               disabled={isUploading || isMetadataLocked}
             />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Select
+                label={t('uploadBeat.genreLabel')}
+                name="genre"
+                value={genreId}
+                onChange={(e) => setGenreId(e.target.value)}
+                disabled={isUploading || isMetadataLocked}
+                options={[
+                  { value: '', label: t('uploadBeat.genrePlaceholder') },
+                  ...genres.map((g) => ({ value: g.id, label: getLocalizedName(g, language) })),
+                ]}
+              />
+              {!genreId && editingProduct && (
+                <p className="mt-1 text-xs text-amber-400">{t('uploadBeat.genreRecommended')}</p>
+              )}
+            </div>
+            <Select
+              label={t('uploadBeat.moodLabel')}
+              name="mood"
+              value={moodId}
+              onChange={(e) => setMoodId(e.target.value)}
+              disabled={isUploading || isMetadataLocked}
+              options={[
+                { value: '', label: t('uploadBeat.moodPlaceholder') },
+                ...moods.map((m) => ({ value: m.id, label: getLocalizedName(m, language) })),
+              ]}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+              {t('uploadBeat.tagsLabel')}
+            </label>
+            <div
+              className="flex flex-wrap gap-1.5 w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 focus-within:ring-2 focus-within:ring-rose-500/50 focus-within:border-rose-500 min-h-[44px] cursor-text"
+              onClick={() => tagInputRef.current?.focus()}
+            >
+              {tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="flex items-center gap-1 bg-zinc-700 text-zinc-200 text-xs px-2 py-1 rounded-full"
+                >
+                  {tag}
+                  <button
+                    type="button"
+                    aria-label={`Supprimer le tag ${tag}`}
+                    onClick={(e) => { e.stopPropagation(); setTags(tags.filter((existing) => existing !== tag)); }}
+                    className="text-zinc-400 hover:text-white leading-none"
+                    disabled={isUploading || isMetadataLocked}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {tags.length < 8 && (
+                <input
+                  ref={tagInputRef}
+                  type="text"
+                  aria-label={t('uploadBeat.tagsLabel')}
+                  className="flex-1 min-w-[120px] bg-transparent text-sm text-white placeholder-zinc-500 outline-none"
+                  placeholder={tags.length === 0 ? t('uploadBeat.tagsPlaceholder') : ''}
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={handleTagKeyDown}
+                  disabled={isUploading || isMetadataLocked}
+                />
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

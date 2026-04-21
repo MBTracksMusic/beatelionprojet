@@ -100,7 +100,8 @@ docker run --rm \
 Créer un nouveau `Background Worker` ou `Web Service` Render avec Docker:
 
 - Root Directory: `audio-worker`
-- Dockerfile Path: `audio-worker/Dockerfile`
+- Dockerfile Path: `./Dockerfile`
+- Docker Context: `.`
 - Start command: laisser Render utiliser `CMD`
 
 Variables d'environnement Render:

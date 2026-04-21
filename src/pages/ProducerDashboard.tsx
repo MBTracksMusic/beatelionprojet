@@ -179,6 +179,8 @@ export function ProducerDashboardPage() {
   const [stripeConnectStatus, setStripeConnectStatus] = useState<StripeConnectStatus | null>(null);
   const [isStripeConnectLoading, setIsStripeConnectLoading] = useState(false);
   const [stripeConnectError, setStripeConnectError] = useState<string | null>(null);
+  const [uncategorizedCount, setUncategorizedCount] = useState(0);
+  const [nudgeDismissed, setNudgeDismissed] = useState(false);
 
   useEffect(() => {
     // Scroll to top when arriving on dashboard
@@ -213,6 +215,7 @@ export function ProducerDashboardPage() {
           { data: purchaseRows, error: salesError },
           { data: activeBattleRows, error: activeBattleError },
           { data: terminatedBattleRows, error: terminatedBattleError },
+          { count: uncategorized },
         ] = await Promise.all([
           supabase
             .from('products')
@@ -240,6 +243,13 @@ export function ProducerDashboardPage() {
             .select('product1_id, product2_id')
             .eq('status', 'completed')
             .or(`producer1_id.eq.${profile.id},producer2_id.eq.${profile.id}`),
+          supabase
+            .from('products')
+            .select('id', { count: 'exact', head: true })
+            .eq('producer_id', profile.id)
+            .eq('is_published', true)
+            .is('genre_id', null)
+            .is('deleted_at', null),
         ]);
 
         if (productCountError) {
@@ -247,6 +257,7 @@ export function ProducerDashboardPage() {
         }
         if (!isCancelled) {
           setProductCount(totalProducts ?? 0);
+          setUncategorizedCount(uncategorized ?? 0);
         }
 
         const salesByProduct = (((purchaseRows as Array<{ product_id: string }> | null) || [])).reduce<ProductSalesCountMap>(
@@ -952,6 +963,20 @@ export function ProducerDashboardPage() {
             <p className="text-zinc-400 text-sm">
               {isProducerUser ? t('producerDashboard.noProducts') : t('producer.subscriptionRequired')}
             </p>
+          )}
+          {!isLoading && !error && uncategorizedCount > 0 && !nudgeDismissed && (
+            <div className="flex items-start justify-between gap-3 mb-4 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 text-sm">
+              <p className="text-amber-300">
+                {t('producerDashboard.uncategorizedNudge', { count: uncategorizedCount })}
+              </p>
+              <button
+                type="button"
+                onClick={() => setNudgeDismissed(true)}
+                className="text-zinc-400 hover:text-white shrink-0 mt-0.5"
+              >
+                {t('producerDashboard.uncategorizedDismiss')}
+              </button>
+            </div>
           )}
           {!isLoading && !error && products.length > 0 && (
             <ul className="divide-y divide-zinc-800">
