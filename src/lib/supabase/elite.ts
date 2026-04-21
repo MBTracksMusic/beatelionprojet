@@ -4,10 +4,9 @@ import type { LabelRequest, ProductWithRelations } from './types';
 import { fetchPublicProducerProfilesMap } from './publicProfiles';
 import { GENRE_SAFE_COLUMNS, MOOD_SAFE_COLUMNS, PRODUCT_SAFE_COLUMNS } from './selects';
 
-type EliteProductRow = Database['public']['Tables']['products']['Row'] & {
-  genre: Database['public']['Tables']['genres']['Row'] | null;
-  mood: Database['public']['Tables']['moods']['Row'] | null;
-};
+type EliteProductRow = Database['public']['Tables']['products']['Row'];
+type GenreRow = Database['public']['Tables']['genres']['Row'];
+type MoodRow = Database['public']['Tables']['moods']['Row'];
 
 type LabelRequestRow = Database['public']['Tables']['label_requests']['Row'];
 
@@ -37,8 +36,6 @@ export interface EliteAdminProductSummary {
 const ELITE_PRODUCT_COLUMNS = [
   PRODUCT_SAFE_COLUMNS,
   'is_elite',
-  `genre:genres(${GENRE_SAFE_COLUMNS})`,
-  `mood:moods(${MOOD_SAFE_COLUMNS})`,
 ].join(', ');
 
 const ADMIN_PROFILE_COLUMNS = [
@@ -65,14 +62,8 @@ const ADMIN_PRODUCT_COLUMNS = [
 ].join(', ');
 
 export async function fetchEliteProducts(): Promise<ProductWithRelations[]> {
-  const { data, error } = await supabase
-    .from('products')
-    .select(ELITE_PRODUCT_COLUMNS as any)
-    .eq('product_type', 'beat')
-    .eq('is_published', true)
-    .eq('status', 'active')
-    .eq('is_elite', true)
-    .is('deleted_at', null)
+  const { data, error } = await (supabase.from('elite_catalog_products' as any) as any)
+    .select(ELITE_PRODUCT_COLUMNS)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -80,15 +71,22 @@ export async function fetchEliteProducts(): Promise<ProductWithRelations[]> {
   }
 
   const rows = (data as unknown as EliteProductRow[] | null) ?? [];
-  const producerProfiles = await fetchPublicProducerProfilesMap(rows.map((row) => row.producer_id));
+  const genreIds = Array.from(new Set(rows.map((row) => row.genre_id).filter((id): id is string => Boolean(id))));
+  const moodIds = Array.from(new Set(rows.map((row) => row.mood_id).filter((id): id is string => Boolean(id))));
+
+  const [producerProfiles, genresById, moodsById] = await Promise.all([
+    fetchPublicProducerProfilesMap(rows.map((row) => row.producer_id)),
+    fetchGenresMap(genreIds),
+    fetchMoodsMap(moodIds),
+  ]);
 
   return rows.map((row) => {
     const producerProfile = producerProfiles.get(row.producer_id);
 
     return {
       ...(row as ProductWithRelations),
-      genre: row.genre ?? undefined,
-      mood: row.mood ?? undefined,
+      genre: row.genre_id ? genresById.get(row.genre_id) : undefined,
+      mood: row.mood_id ? moodsById.get(row.mood_id) : undefined,
       producer: row.producer_id
         ? {
             id: row.producer_id,
@@ -98,6 +96,40 @@ export async function fetchEliteProducts(): Promise<ProductWithRelations[]> {
         : undefined,
     } as ProductWithRelations;
   });
+}
+
+async function fetchGenresMap(ids: string[]): Promise<Map<string, GenreRow>> {
+  if (ids.length === 0) {
+    return new Map();
+  }
+
+  const { data, error } = await supabase
+    .from('genres')
+    .select(GENRE_SAFE_COLUMNS as any)
+    .in('id', ids);
+
+  if (error) {
+    throw error;
+  }
+
+  return new Map((((data as unknown as GenreRow[] | null) ?? []).map((genre) => [genre.id, genre])));
+}
+
+async function fetchMoodsMap(ids: string[]): Promise<Map<string, MoodRow>> {
+  if (ids.length === 0) {
+    return new Map();
+  }
+
+  const { data, error } = await supabase
+    .from('moods')
+    .select(MOOD_SAFE_COLUMNS as any)
+    .in('id', ids);
+
+  if (error) {
+    throw error;
+  }
+
+  return new Map((((data as unknown as MoodRow[] | null) ?? []).map((mood) => [mood.id, mood])));
 }
 
 export async function fetchOwnLabelRequests(userId: string): Promise<LabelRequest[]> {
