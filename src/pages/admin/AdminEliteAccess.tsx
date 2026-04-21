@@ -216,7 +216,6 @@ export function AdminEliteAccessPage() {
                   <th className="py-2 text-left">Role</th>
                   <th className="py-2 text-left">Type de compte</th>
                   <th className="py-2 text-left">Abonnement actif</th>
-                  <th className="py-2 text-left">Verifie</th>
                   <th className="py-2 text-right">Action</th>
                 </tr>
               </thead>
@@ -242,7 +241,6 @@ export function AdminEliteAccessPage() {
                         <td className="py-3 pr-4 text-zinc-300">{profile.role}</td>
                         <td className="py-3 pr-4 text-zinc-300">{profile.account_type}</td>
                         <td className="py-3 pr-4 text-zinc-300">{profile.is_producer_active ? 'oui' : 'non'}</td>
-                        <td className="py-3 pr-4 text-zinc-300">{profile.is_verified ? 'oui' : 'non'}</td>
                         <td className="py-3 text-right">
                           <Button
                             size="sm"
