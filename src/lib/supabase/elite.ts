@@ -249,11 +249,11 @@ export async function approveLabelRequest(options: {
   }
 }
 
-export async function promoteEliteProducer(userId: string): Promise<void> {
+export async function setEliteProducerStatus(userId: string, isElite: boolean): Promise<void> {
   const { error } = await supabase
     .from('user_profiles')
     .update({
-      account_type: 'elite_producer',
+      account_type: isElite ? 'elite_producer' : 'producer',
     })
     .eq('id', userId);
 

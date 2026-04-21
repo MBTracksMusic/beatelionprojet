@@ -9,7 +9,7 @@ import {
   listEliteProductsAdmin,
   listEliteProfilesAdmin,
   listLabelRequestsAdmin,
-  promoteEliteProducer,
+  setEliteProducerStatus,
   toggleEliteProduct,
   type EliteAdminProductSummary,
   type EliteAdminProfileSummary,
@@ -87,15 +87,17 @@ export function AdminEliteAccessPage() {
     }
   };
 
-  const handlePromoteElite = async (profile: EliteAdminProfileSummary) => {
+  const handleSetEliteStatus = async (profile: EliteAdminProfileSummary) => {
+    const makeElite = profile.account_type !== 'elite_producer';
+
     setActionKey(`profile:${profile.id}`);
     try {
-      await promoteEliteProducer(profile.id);
-      toast.success('Producer promoted to elite_producer.');
+      await setEliteProducerStatus(profile.id, makeElite);
+      toast.success(makeElite ? 'Producteur passe en elite.' : 'Statut elite retire.');
       await loadAdminData();
     } catch (error) {
       console.error('promote elite producer error', error);
-      toast.error('Unable to promote this producer.');
+      toast.error(makeElite ? 'Impossible de promouvoir ce producteur.' : 'Impossible de retirer le statut elite.');
     } finally {
       setActionKey(null);
     }
@@ -190,7 +192,7 @@ export function AdminEliteAccessPage() {
       <Card>
         <CardHeader>
           <CardTitle>Promotion producteur elite</CardTitle>
-          <CardDescription>Donnez l'acces elite a un producteur existant.</CardDescription>
+          <CardDescription>Donnez ou retirez l'acces elite a un producteur existant.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <Input
@@ -212,26 +214,34 @@ export function AdminEliteAccessPage() {
               </thead>
               <tbody>
                 {filteredProfiles.map((profile) => (
-                  <tr key={profile.id} className="border-b border-zinc-900">
-                    <td className="py-3 pr-4">
-                      <div className="text-white">{profile.full_name || profile.username || profile.email}</div>
-                      <div className="text-zinc-400">{profile.email}</div>
-                    </td>
-                    <td className="py-3 pr-4 text-zinc-300">{profile.role}</td>
-                    <td className="py-3 pr-4 text-zinc-300">{profile.account_type}</td>
-                    <td className="py-3 pr-4 text-zinc-300">{profile.is_verified ? 'yes' : 'no'}</td>
-                    <td className="py-3 text-right">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => void handlePromoteElite(profile)}
-                        isLoading={actionKey === `profile:${profile.id}`}
-                        disabled={profile.account_type === 'elite_producer'}
-                      >
-                        Promouvoir
-                      </Button>
-                    </td>
-                  </tr>
+                  (() => {
+                    const canManageEliteStatus =
+                      profile.account_type === 'producer' || profile.account_type === 'elite_producer';
+                    const isEliteProducer = profile.account_type === 'elite_producer';
+
+                    return (
+                      <tr key={profile.id} className="border-b border-zinc-900">
+                        <td className="py-3 pr-4">
+                          <div className="text-white">{profile.full_name || profile.username || profile.email}</div>
+                          <div className="text-zinc-400">{profile.email}</div>
+                        </td>
+                        <td className="py-3 pr-4 text-zinc-300">{profile.role}</td>
+                        <td className="py-3 pr-4 text-zinc-300">{profile.account_type}</td>
+                        <td className="py-3 pr-4 text-zinc-300">{profile.is_verified ? 'yes' : 'no'}</td>
+                        <td className="py-3 text-right">
+                          <Button
+                            size="sm"
+                            variant={isEliteProducer ? 'outline' : 'secondary'}
+                            onClick={() => void handleSetEliteStatus(profile)}
+                            isLoading={actionKey === `profile:${profile.id}`}
+                            disabled={!canManageEliteStatus}
+                          >
+                            {isEliteProducer ? 'Retirer elite' : 'Promouvoir'}
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })()
                 ))}
               </tbody>
             </table>
