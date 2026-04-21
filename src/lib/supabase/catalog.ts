@@ -502,7 +502,7 @@ export async function fetchCatalogProductBySlug({
       return null;
     }
 
-    return isEarlyAccessActive(fallbackRow.early_access_until) ? fallbackRow : null;
+    return fallbackRow;
   }
 
   const product = toProduct(row);
