@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
+import { Link } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
@@ -331,8 +332,15 @@ export function AdminEliteAccessPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Beats prives</CardTitle>
-          <CardDescription>Choisissez les beats publies visibles dans l'Elite Hub.</CardDescription>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <CardTitle>Beats prives</CardTitle>
+              <CardDescription>Choisissez les beats publies visibles dans l'Elite Hub.</CardDescription>
+            </div>
+            <Link to="/elite-hub">
+              <Button variant="outline" size="sm">Ouvrir Elite Hub</Button>
+            </Link>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <Input

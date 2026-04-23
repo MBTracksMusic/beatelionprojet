@@ -80,7 +80,7 @@ export function EliteHubPage() {
           <p className="text-xs uppercase tracking-[0.16em] text-amber-300">Private ecosystem</p>
           <h1 className="text-3xl font-bold text-white">Elite Hub</h1>
           <p className="text-zinc-400 max-w-2xl">
-            Private access for elite producers and verified labels. Only beats flagged as elite are listed here.
+            Private access for admins, elite producers and verified labels. Only beats flagged as elite are listed here.
           </p>
         </div>
 
