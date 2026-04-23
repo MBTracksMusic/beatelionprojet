@@ -51,8 +51,9 @@ export function AdminEliteAccessPage() {
 
   const filteredProfiles = useMemo(() => {
     const search = profileSearch.trim().toLowerCase();
-    if (!search) return profiles;
-    return profiles.filter((profile) =>
+    const promotableProfiles = profiles.filter((profile) => profile.account_type !== 'label');
+    if (!search) return promotableProfiles;
+    return promotableProfiles.filter((profile) =>
       [profile.email, profile.username ?? '', profile.full_name ?? '', profile.account_type]
         .join(' ')
         .toLowerCase()

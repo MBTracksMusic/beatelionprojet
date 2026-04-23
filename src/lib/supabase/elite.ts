@@ -189,7 +189,8 @@ export async function listEliteProfilesAdmin(): Promise<EliteAdminProfileSummary
   const { data, error } = await supabase
     .from('user_profiles')
     .select(ADMIN_PROFILE_COLUMNS)
-    .or('role.eq.producer,is_producer_active.eq.true,account_type.eq.producer,account_type.eq.elite_producer,account_type.eq.label')
+    .neq('account_type', 'label')
+    .or('role.eq.producer,is_producer_active.eq.true,account_type.eq.producer,account_type.eq.elite_producer')
     .order('updated_at', { ascending: false })
     .limit(50);
 
