@@ -1,6 +1,7 @@
 import { supabase } from './client';
 import type { Database } from './database.types';
 import type { LabelRequest, ProductWithRelations } from './types';
+import { attachProductLicenses } from '../pricing';
 import { fetchPublicProducerProfilesMap } from './publicProfiles';
 import { GENRE_SAFE_COLUMNS, MOOD_SAFE_COLUMNS, PRODUCT_SAFE_COLUMNS } from './selects';
 
@@ -9,6 +10,7 @@ type GenreRow = Database['public']['Tables']['genres']['Row'];
 type MoodRow = Database['public']['Tables']['moods']['Row'];
 
 type LabelRequestRow = Database['public']['Tables']['label_requests']['Row'];
+type EliteCatalogRoutePrefix = 'beats' | 'exclusives' | 'kits' | string;
 
 export interface EliteAdminProfileSummary {
   id: string;
@@ -65,16 +67,29 @@ const ADMIN_PRODUCT_COLUMNS = [
   'created_at',
 ].join(', ');
 
-export async function fetchEliteProducts(): Promise<ProductWithRelations[]> {
-  const { data, error } = await (supabase.from('elite_catalog_products' as any) as any)
-    .select(ELITE_PRODUCT_COLUMNS)
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    throw error;
+const matchesEliteRoutePrefix = (
+  row: Pick<EliteProductRow, 'product_type' | 'is_exclusive'>,
+  routePrefix: EliteCatalogRoutePrefix,
+) => {
+  if (routePrefix === 'exclusives') {
+    return row.product_type === 'exclusive' || row.is_exclusive === true;
   }
 
-  const rows = (data as unknown as EliteProductRow[] | null) ?? [];
+  if (routePrefix === 'kits') {
+    return row.product_type === 'kit';
+  }
+
+  return row.product_type === 'beat' && row.is_exclusive === false;
+};
+
+async function hydrateEliteProducts(
+  rows: EliteProductRow[],
+  options?: { withLicenses?: boolean },
+): Promise<ProductWithRelations[]> {
+  if (rows.length === 0) {
+    return [];
+  }
+
   const genreIds = Array.from(new Set(rows.map((row) => row.genre_id).filter((id): id is string => Boolean(id))));
   const moodIds = Array.from(new Set(rows.map((row) => row.mood_id).filter((id): id is string => Boolean(id))));
 
@@ -84,7 +99,7 @@ export async function fetchEliteProducts(): Promise<ProductWithRelations[]> {
     fetchMoodsMap(moodIds),
   ]);
 
-  return rows.map((row) => {
+  const hydratedProducts = rows.map((row) => {
     const producerProfile = producerProfiles.get(row.producer_id);
 
     return {
@@ -100,6 +115,53 @@ export async function fetchEliteProducts(): Promise<ProductWithRelations[]> {
         : undefined,
     } as ProductWithRelations;
   });
+
+  if (options?.withLicenses) {
+    return attachProductLicenses(hydratedProducts);
+  }
+
+  return hydratedProducts;
+}
+
+export async function fetchEliteProducts(): Promise<ProductWithRelations[]> {
+  const { data, error } = await supabase
+    .from('elite_catalog_products' as never)
+    .select(ELITE_PRODUCT_COLUMNS)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  const rows = (data as unknown as EliteProductRow[] | null) ?? [];
+  return hydrateEliteProducts(rows);
+}
+
+export async function fetchEliteProductBySlug(options: {
+  slug: string;
+  routePrefix: EliteCatalogRoutePrefix;
+}): Promise<ProductWithRelations | null> {
+  const { data, error } = await supabase
+    .from('elite_catalog_products' as never)
+    .select(ELITE_PRODUCT_COLUMNS)
+    .eq('slug', options.slug)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  const row = (data as unknown as EliteProductRow | null) ?? null;
+  if (!row) {
+    return null;
+  }
+
+  if (!matchesEliteRoutePrefix(row, options.routePrefix)) {
+    return null;
+  }
+
+  const [product] = await hydrateEliteProducts([row], { withLicenses: true });
+  return product ?? null;
 }
 
 async function fetchGenresMap(ids: string[]): Promise<Map<string, GenreRow>> {
@@ -109,7 +171,7 @@ async function fetchGenresMap(ids: string[]): Promise<Map<string, GenreRow>> {
 
   const { data, error } = await supabase
     .from('genres')
-    .select(GENRE_SAFE_COLUMNS as any)
+    .select(GENRE_SAFE_COLUMNS)
     .in('id', ids);
 
   if (error) {
@@ -126,7 +188,7 @@ async function fetchMoodsMap(ids: string[]): Promise<Map<string, MoodRow>> {
 
   const { data, error } = await supabase
     .from('moods')
-    .select(MOOD_SAFE_COLUMNS as any)
+    .select(MOOD_SAFE_COLUMNS)
     .in('id', ids);
 
   if (error) {
