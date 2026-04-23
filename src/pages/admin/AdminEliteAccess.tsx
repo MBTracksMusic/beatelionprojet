@@ -66,7 +66,7 @@ export function AdminEliteAccessPage() {
     const search = productSearch.trim().toLowerCase();
     if (!search) return products;
     return products.filter((product) =>
-      [product.title, product.slug].join(' ').toLowerCase().includes(search),
+      [product.title, product.slug, product.product_type].join(' ').toLowerCase().includes(search),
     );
   }, [productSearch, products]);
 
@@ -155,11 +155,11 @@ export function AdminEliteAccessPage() {
     setActionKey(`product:${product.id}`);
     try {
       await toggleEliteProduct(product.id, !product.is_elite);
-      toast.success(product.is_elite ? 'Beat removed from Elite Hub.' : 'Beat added to Elite Hub.');
+      toast.success(product.is_elite ? "Titre retire de l'Elite Hub." : "Titre ajoute a l'Elite Hub.");
       await loadAdminData();
     } catch (error) {
       console.error('toggle elite product error', error);
-      toast.error('Unable to update elite beat visibility.');
+      toast.error('Impossible de mettre a jour la visibilite du titre prive.');
     } finally {
       setActionKey(null);
     }
@@ -335,7 +335,7 @@ export function AdminEliteAccessPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-1">
               <CardTitle>Beats prives</CardTitle>
-              <CardDescription>Choisissez les beats publies visibles dans l'Elite Hub.</CardDescription>
+              <CardDescription>Choisissez les titres publies visibles dans l'Elite Hub et retirez-les si besoin.</CardDescription>
             </div>
             <Link to="/elite-hub">
               <Button variant="outline" size="sm">Ouvrir Elite Hub</Button>
@@ -353,8 +353,10 @@ export function AdminEliteAccessPage() {
             <table className="w-full text-sm">
               <thead className="text-zinc-500">
                 <tr className="border-b border-zinc-800">
-                  <th className="py-2 text-left">Beat</th>
+                  <th className="py-2 text-left">Titre</th>
+                  <th className="py-2 text-left">Type</th>
                   <th className="py-2 text-left">Statut</th>
+                  <th className="py-2 text-left">Exclusif</th>
                   <th className="py-2 text-left">Publie</th>
                   <th className="py-2 text-left">Prive</th>
                   <th className="py-2 text-right">Action</th>
@@ -367,7 +369,9 @@ export function AdminEliteAccessPage() {
                       <div className="text-white">{product.title}</div>
                       <div className="text-zinc-400">{product.slug}</div>
                     </td>
+                    <td className="py-3 pr-4 text-zinc-300">{product.product_type}</td>
                     <td className="py-3 pr-4 text-zinc-300">{product.status}</td>
+                    <td className="py-3 pr-4 text-zinc-300">{product.is_exclusive ? 'yes' : 'no'}</td>
                     <td className="py-3 pr-4 text-zinc-300">{product.is_published ? 'yes' : 'no'}</td>
                     <td className="py-3 pr-4 text-zinc-300">{product.is_elite ? 'yes' : 'no'}</td>
                     <td className="py-3 text-right">

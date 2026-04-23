@@ -80,7 +80,7 @@ export function EliteHubPage() {
           <p className="text-xs uppercase tracking-[0.16em] text-amber-300">Private ecosystem</p>
           <h1 className="text-3xl font-bold text-white">Elite Hub</h1>
           <p className="text-zinc-400 max-w-2xl">
-            Private access for admins, elite producers and verified labels. Only beats flagged as elite are listed here.
+            Private access for admins, elite producers and verified labels. Only private beats and exclusive titles flagged as elite are listed here.
           </p>
         </div>
 
@@ -98,9 +98,9 @@ export function EliteHubPage() {
           </div>
         ) : products.length === 0 ? (
           <Card className="p-8 text-center space-y-4">
-            <h2 className="text-xl font-semibold text-white">No elite beats yet</h2>
+            <h2 className="text-xl font-semibold text-white">No private titles yet</h2>
             <p className="text-zinc-400">
-              An admin must flag beats as elite before they appear in this private catalog.
+              An admin must flag a beat or exclusive title as elite before it appears in this private catalog.
             </p>
             <div className="flex items-center justify-center gap-3">
               <Link to="/beats">

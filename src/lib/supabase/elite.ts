@@ -27,6 +27,8 @@ export interface EliteAdminProductSummary {
   producer_id: string;
   title: string;
   slug: string;
+  product_type: string;
+  is_exclusive: boolean;
   is_elite: boolean;
   is_published: boolean;
   status: string;
@@ -55,6 +57,8 @@ const ADMIN_PRODUCT_COLUMNS = [
   'producer_id',
   'title',
   'slug',
+  'product_type',
+  'is_exclusive',
   'is_elite',
   'is_published',
   'status',
@@ -205,7 +209,7 @@ export async function listEliteProductsAdmin(): Promise<EliteAdminProductSummary
   const { data, error } = await supabase
     .from('products')
     .select(ADMIN_PRODUCT_COLUMNS)
-    .eq('product_type', 'beat')
+    .in('product_type', ['beat', 'exclusive'])
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(50);
