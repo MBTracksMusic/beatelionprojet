@@ -5,9 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../..
 import { Input } from '../../components/ui/Input';
 import {
   approveLabelRequest,
+  deleteRejectedLabelRequest,
   listEliteProductsAdmin,
   listEliteProfilesAdmin,
   listLabelRequestsAdmin,
+  revokeLabelRequest,
   setEliteProducerStatus,
   toggleEliteProduct,
   type EliteAdminProductSummary,
@@ -67,7 +69,7 @@ export function AdminEliteAccessPage() {
   }, [productSearch, products]);
 
   const handleApproveLabel = async (request: LabelRequest) => {
-    setActionKey(`request:${request.id}`);
+    setActionKey(`request:${request.id}:approve`);
     try {
       await approveLabelRequest({
         requestId: request.id,
@@ -78,6 +80,43 @@ export function AdminEliteAccessPage() {
     } catch (error) {
       console.error('approve label request error', error);
       toast.error('Unable to verify the label request.');
+    } finally {
+      setActionKey(null);
+    }
+  };
+
+  const handleRevokeLabel = async (request: LabelRequest) => {
+    const confirmed = window.confirm("Retirer l'acces label pour cette societe ?");
+    if (!confirmed) return;
+
+    setActionKey(`request:${request.id}:revoke`);
+    try {
+      await revokeLabelRequest({
+        requestId: request.id,
+        userId: request.user_id,
+      });
+      toast.success('Acces label retire.');
+      await loadAdminData();
+    } catch (error) {
+      console.error('revoke label request error', error);
+      toast.error("Impossible de retirer l'acces label.");
+    } finally {
+      setActionKey(null);
+    }
+  };
+
+  const handleDeleteRejectedLabel = async (request: LabelRequest) => {
+    const confirmed = window.confirm('Supprimer definitivement cette demande label rejetee ?');
+    if (!confirmed) return;
+
+    setActionKey(`request:${request.id}:delete`);
+    try {
+      await deleteRejectedLabelRequest(request.id);
+      toast.success('Demande label supprimee.');
+      await loadAdminData();
+    } catch (error) {
+      console.error('delete rejected label request error', error);
+      toast.error('Impossible de supprimer cette demande label.');
     } finally {
       setActionKey(null);
     }
@@ -177,15 +216,41 @@ export function AdminEliteAccessPage() {
                       <td className="py-3 pr-4 text-zinc-300">{request.status}</td>
                       <td className="py-3 pr-4 text-zinc-400 max-w-md whitespace-pre-wrap">{request.message}</td>
                       <td className="py-3 text-right">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => void handleApproveLabel(request)}
-                          isLoading={actionKey === `request:${request.id}`}
-                          disabled={request.status !== 'pending'}
-                        >
-                          Valider le label
-                        </Button>
+                        <div className="flex justify-end gap-2">
+                          {request.status === 'pending' && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => void handleApproveLabel(request)}
+                              isLoading={actionKey === `request:${request.id}:approve`}
+                              disabled={actionKey !== null}
+                            >
+                              Valider le label
+                            </Button>
+                          )}
+                          {request.status === 'approved' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void handleRevokeLabel(request)}
+                              isLoading={actionKey === `request:${request.id}:revoke`}
+                              disabled={actionKey !== null}
+                            >
+                              Retirer le label
+                            </Button>
+                          )}
+                          {request.status === 'rejected' && (
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              onClick={() => void handleDeleteRejectedLabel(request)}
+                              isLoading={actionKey === `request:${request.id}:delete`}
+                              disabled={actionKey !== null}
+                            >
+                              Supprimer
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}

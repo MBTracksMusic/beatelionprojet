@@ -230,6 +230,30 @@ export async function approveLabelRequest(options: {
   }
 }
 
+export async function revokeLabelRequest(options: {
+  requestId: string;
+  userId: string;
+}): Promise<void> {
+  const { error } = await supabase.rpc('admin_revoke_label_request', {
+    p_request_id: options.requestId,
+    p_user_id: options.userId,
+  });
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function deleteRejectedLabelRequest(requestId: string): Promise<void> {
+  const { error } = await supabase.rpc('admin_delete_rejected_label_request', {
+    p_request_id: requestId,
+  });
+
+  if (error) {
+    throw error;
+  }
+}
+
 export async function setEliteProducerStatus(userId: string, isElite: boolean): Promise<void> {
   const { error } = await supabase.rpc('admin_set_private_access_profile', {
     p_user_id: userId,

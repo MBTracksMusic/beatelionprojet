@@ -7903,6 +7903,10 @@ export type Database = {
         Args: { p_request_id: string; p_user_id: string }
         Returns: boolean
       }
+      admin_delete_rejected_label_request: {
+        Args: { p_request_id: string }
+        Returns: boolean
+      }
       admin_adjust_reputation: {
         Args: {
           p_delta_xp: number
@@ -7987,6 +7991,10 @@ export type Database = {
           p_is_verified?: boolean
           p_user_id: string
         }
+        Returns: boolean
+      }
+      admin_revoke_label_request: {
+        Args: { p_request_id: string; p_user_id: string }
         Returns: boolean
       }
       admin_validate_battle: { Args: { p_battle_id: string }; Returns: boolean }
