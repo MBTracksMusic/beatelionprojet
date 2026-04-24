@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
+import { Modal } from '../../components/ui/Modal';
 import {
   approveLabelRequest,
   deleteRejectedLabelRequest,
@@ -17,6 +19,28 @@ import {
   type EliteAdminProfileSummary,
 } from '../../lib/supabase/elite';
 import type { LabelRequest } from '../../lib/supabase/types';
+import { formatDateTime } from '../../lib/utils/format';
+
+const labelRequestStatusLabels: Record<LabelRequest['status'], string> = {
+  pending: 'En attente',
+  approved: 'Validee',
+  rejected: 'Rejetee',
+};
+
+function formatOptionalDate(value: string | null) {
+  return value ? formatDateTime(value, 'fr-FR') : '-';
+}
+
+function RequestDetailItem({ label, value }: { label: string; value: string | null }) {
+  const displayValue = value && value.trim() ? value : '-';
+
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2">
+      <p className="text-xs uppercase tracking-wide text-zinc-500">{label}</p>
+      <p className="mt-1 break-words text-sm text-zinc-200">{displayValue}</p>
+    </div>
+  );
+}
 
 export function AdminEliteAccessPage() {
   const [requests, setRequests] = useState<LabelRequest[]>([]);
@@ -24,6 +48,7 @@ export function AdminEliteAccessPage() {
   const [products, setProducts] = useState<EliteAdminProductSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [actionKey, setActionKey] = useState<string | null>(null);
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [profileSearch, setProfileSearch] = useState('');
   const [productSearch, setProductSearch] = useState('');
 
@@ -49,6 +74,11 @@ export function AdminEliteAccessPage() {
   useEffect(() => {
     void loadAdminData();
   }, []);
+
+  const selectedRequest = useMemo(
+    () => requests.find((request) => request.id === selectedRequestId) ?? null,
+    [requests, selectedRequestId],
+  );
 
   const filteredProfiles = useMemo(() => {
     const search = profileSearch.trim().toLowerCase();
@@ -79,6 +109,7 @@ export function AdminEliteAccessPage() {
       });
       toast.success('Label verified.');
       await loadAdminData();
+      setSelectedRequestId(null);
     } catch (error) {
       console.error('approve label request error', error);
       toast.error('Unable to verify the label request.');
@@ -99,6 +130,7 @@ export function AdminEliteAccessPage() {
       });
       toast.success('Acces label retire.');
       await loadAdminData();
+      setSelectedRequestId(null);
     } catch (error) {
       console.error('revoke label request error', error);
       toast.error("Impossible de retirer l'acces label.");
@@ -116,6 +148,7 @@ export function AdminEliteAccessPage() {
       await deleteRejectedLabelRequest(request.id);
       toast.success('Demande label supprimee.');
       await loadAdminData();
+      setSelectedRequestId(null);
     } catch (error) {
       console.error('delete rejected label request error', error);
       toast.error('Impossible de supprimer cette demande label.');
@@ -165,6 +198,54 @@ export function AdminEliteAccessPage() {
     }
   };
 
+  const renderLabelRequestActions = (request: LabelRequest, options?: { showViewButton?: boolean }) => (
+    <div className="flex flex-wrap justify-end gap-2">
+      {options?.showViewButton && (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setSelectedRequestId(request.id)}
+          leftIcon={<Eye className="h-4 w-4" />}
+        >
+          Voir
+        </Button>
+      )}
+      {request.status === 'pending' && (
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => void handleApproveLabel(request)}
+          isLoading={actionKey === `request:${request.id}:approve`}
+          disabled={actionKey !== null}
+        >
+          Valider le label
+        </Button>
+      )}
+      {request.status === 'approved' && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void handleRevokeLabel(request)}
+          isLoading={actionKey === `request:${request.id}:revoke`}
+          disabled={actionKey !== null}
+        >
+          Retirer le label
+        </Button>
+      )}
+      {request.status === 'rejected' && (
+        <Button
+          size="sm"
+          variant="danger"
+          onClick={() => void handleDeleteRejectedLabel(request)}
+          isLoading={actionKey === `request:${request.id}:delete`}
+          disabled={actionKey !== null}
+        >
+          Supprimer
+        </Button>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       <Card>
@@ -207,7 +288,7 @@ export function AdminEliteAccessPage() {
                     <th className="py-2 text-left">Email</th>
                     <th className="py-2 text-left">Statut</th>
                     <th className="py-2 text-left">Message</th>
-                    <th className="py-2 text-right">Action</th>
+                    <th className="py-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -215,44 +296,14 @@ export function AdminEliteAccessPage() {
                     <tr key={request.id} className="border-b border-zinc-900 align-top">
                       <td className="py-3 pr-4 text-white">{request.company_name}</td>
                       <td className="py-3 pr-4 text-zinc-300">{request.email}</td>
-                      <td className="py-3 pr-4 text-zinc-300">{request.status}</td>
-                      <td className="py-3 pr-4 text-zinc-400 max-w-md whitespace-pre-wrap">{request.message}</td>
+                      <td className="py-3 pr-4 text-zinc-300">{labelRequestStatusLabels[request.status]}</td>
+                      <td className="py-3 pr-4 text-zinc-400">
+                        <span className="block max-w-xs truncate" title={request.message}>
+                          {request.message || '-'}
+                        </span>
+                      </td>
                       <td className="py-3 text-right">
-                        <div className="flex justify-end gap-2">
-                          {request.status === 'pending' && (
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => void handleApproveLabel(request)}
-                              isLoading={actionKey === `request:${request.id}:approve`}
-                              disabled={actionKey !== null}
-                            >
-                              Valider le label
-                            </Button>
-                          )}
-                          {request.status === 'approved' && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => void handleRevokeLabel(request)}
-                              isLoading={actionKey === `request:${request.id}:revoke`}
-                              disabled={actionKey !== null}
-                            >
-                              Retirer le label
-                            </Button>
-                          )}
-                          {request.status === 'rejected' && (
-                            <Button
-                              size="sm"
-                              variant="danger"
-                              onClick={() => void handleDeleteRejectedLabel(request)}
-                              isLoading={actionKey === `request:${request.id}:delete`}
-                              disabled={actionKey !== null}
-                            >
-                              Supprimer
-                            </Button>
-                          )}
-                        </div>
+                        {renderLabelRequestActions(request, { showViewButton: true })}
                       </td>
                     </tr>
                   ))}
@@ -262,6 +313,44 @@ export function AdminEliteAccessPage() {
           )}
         </CardContent>
       </Card>
+
+      <Modal
+        isOpen={Boolean(selectedRequest)}
+        onClose={() => setSelectedRequestId(null)}
+        title="Demande label complete"
+        description="Informations transmises par le label et suivi de traitement."
+        size="xl"
+      >
+        {selectedRequest && (
+          <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <RequestDetailItem label="Societe" value={selectedRequest.company_name} />
+              <RequestDetailItem label="Email" value={selectedRequest.email} />
+              <RequestDetailItem label="Statut" value={labelRequestStatusLabels[selectedRequest.status]} />
+              <RequestDetailItem label="Date de demande" value={formatOptionalDate(selectedRequest.created_at)} />
+              <RequestDetailItem label="Derniere mise a jour" value={formatOptionalDate(selectedRequest.updated_at)} />
+              <RequestDetailItem label="Revisee le" value={formatOptionalDate(selectedRequest.reviewed_at)} />
+              <RequestDetailItem label="Revisee par" value={selectedRequest.reviewed_by} />
+              <RequestDetailItem label="ID utilisateur" value={selectedRequest.user_id} />
+              <RequestDetailItem label="ID demande" value={selectedRequest.id} />
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs uppercase tracking-wide text-zinc-500">Message complet</p>
+              <div className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-800 bg-zinc-950/60 p-3 text-sm leading-6 text-zinc-200">
+                {selectedRequest.message || '-'}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-2 border-t border-zinc-800 pt-4">
+              <Button size="sm" variant="ghost" onClick={() => setSelectedRequestId(null)}>
+                Fermer
+              </Button>
+              {renderLabelRequestActions(selectedRequest)}
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Card>
         <CardHeader>
