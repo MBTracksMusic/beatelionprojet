@@ -74,8 +74,46 @@ const FIXED_WATERMARK_PATH = "admin/global-watermark.wav";
 const ALLOWED_TYPES = new Set(["audio/wav", "audio/x-wav", "audio/wave"]);
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
-const cleanupLegacyWatermarks = async (supabaseAdmin: any) => {
-  const { data, error } = await supabaseAdmin.storage.from(WATERMARK_BUCKET).list("admin", {
+type EdgeError = { message: string };
+type QueryResult<T> = Promise<{ data: T | null; error: EdgeError | null }>;
+type StorageListEntry = { name?: string | null };
+type SiteAudioSettingsIdRow = { id: string };
+
+interface StorageBucketApi {
+  list(path: string, options: Record<string, unknown>): Promise<{ data: StorageListEntry[] | null; error: EdgeError | null }>;
+  remove(paths: string[]): Promise<{ error: EdgeError | null }>;
+  upload(path: string, body: ArrayBuffer, options: Record<string, unknown>): Promise<{ error: EdgeError | null }>;
+}
+
+interface SiteAudioSettingsSelectQuery {
+  select(columns: string): {
+    order(column: string, options: Record<string, unknown>): {
+      limit(count: number): {
+        maybeSingle(): QueryResult<SiteAudioSettingsIdRow>;
+      };
+    };
+  };
+  update(payload: Record<string, unknown>): {
+    eq(column: string, value: string): SiteAudioSettingsMutationQuery;
+  };
+  insert(payload: Record<string, unknown>): SiteAudioSettingsMutationQuery;
+}
+
+interface SiteAudioSettingsMutationQuery {
+  select(columns: string): {
+    maybeSingle(): QueryResult<Record<string, unknown>>;
+  };
+}
+
+interface AdminClient {
+  storage: {
+    from(bucket: string): StorageBucketApi;
+  };
+  from(table: "site_audio_settings"): SiteAudioSettingsSelectQuery;
+}
+
+const cleanupLegacyWatermarks = async (adminClient: AdminClient) => {
+  const { data, error } = await adminClient.storage.from(WATERMARK_BUCKET).list("admin", {
     limit: 1000,
     sortBy: { column: "name", order: "asc" },
   });
@@ -85,17 +123,17 @@ const cleanupLegacyWatermarks = async (supabaseAdmin: any) => {
     return;
   }
 
-  const legacyPaths = (data ?? [])
-    .map((entry) => entry.name?.trim())
-    .filter((name): name is string => Boolean(name))
-    .map((name) => `admin/${name}`)
-    .filter((path) => path !== FIXED_WATERMARK_PATH);
+  const legacyPaths = ((data ?? []) as Array<{ name?: string | null }>)
+    .map((entry: { name?: string | null }) => entry.name?.trim() ?? null)
+    .filter((name: string | null): name is string => Boolean(name))
+    .map((name: string) => `admin/${name}`)
+    .filter((path: string) => path !== FIXED_WATERMARK_PATH);
 
   if (legacyPaths.length === 0) {
     return;
   }
 
-  const { error: deleteError } = await supabaseAdmin.storage.from(WATERMARK_BUCKET).remove(legacyPaths);
+  const { error: deleteError } = await adminClient.storage.from(WATERMARK_BUCKET).remove(legacyPaths);
   if (deleteError) {
     console.error("[admin-upload-watermark] failed to cleanup legacy watermark assets", {
       deleteError,
@@ -132,6 +170,7 @@ serveWithErrorHandling("admin-upload-watermark", async (req: Request): Promise<R
     const authResult = await requireAdminUser(req, corsHeaders);
     if ("error" in authResult) return authResult.error;
     const { supabaseAdmin, user } = authResult;
+    const adminClient = supabaseAdmin as unknown as AdminClient;
     const userId = user.id;
     const formData = await req.formData().catch(() => null);
     if (!formData) {
@@ -163,6 +202,22 @@ serveWithErrorHandling("admin-upload-watermark", async (req: Request): Promise<R
       });
     }
 
+    const { data: existingSettingsData, error: settingsLoadError } = await adminClient
+      .from("site_audio_settings")
+      .select("id")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const existingSettings = (existingSettingsData ?? null) as { id: string } | null;
+
+    if (settingsLoadError) {
+      console.error("[admin-upload-watermark] failed to load settings", settingsLoadError);
+      return new Response(JSON.stringify({ error: "Failed to load site audio settings" }), {
+        status: 500,
+        headers: jsonHeaders,
+      });
+    }
+
     const filePath = FIXED_WATERMARK_PATH;
     const fileBuffer = await file.arrayBuffer();
 
@@ -174,7 +229,7 @@ serveWithErrorHandling("admin-upload-watermark", async (req: Request): Promise<R
       size: file.size,
     });
 
-    const { error } = await supabaseAdmin.storage.from("watermark-assets").upload(filePath, fileBuffer, {
+    const { error } = await adminClient.storage.from("watermark-assets").upload(filePath, fileBuffer, {
       contentType: "audio/wav",
       upsert: true,
     });
@@ -187,36 +242,26 @@ serveWithErrorHandling("admin-upload-watermark", async (req: Request): Promise<R
       });
     }
 
-    const { data: activeSettings, error: activeSettingsError } = await supabaseAdmin
-      .from("site_audio_settings")
-      .select("id")
-      .eq("enabled", true)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const settingsMutation = existingSettings?.id
+      ? adminClient
+          .from("site_audio_settings")
+          .update({
+            watermark_audio_path: filePath,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existingSettings.id)
+      : adminClient
+          .from("site_audio_settings")
+          .insert({
+            enabled: true,
+            watermark_audio_path: filePath,
+            gain_db: -10.00,
+            min_interval_sec: 20,
+            max_interval_sec: 45,
+            updated_at: new Date().toISOString(),
+          });
 
-    if (activeSettingsError) {
-      console.error("[admin-upload-watermark] failed to load active settings", activeSettingsError);
-      return new Response(JSON.stringify({ error: "Failed to load site audio settings" }), {
-        status: 500,
-        headers: jsonHeaders,
-      });
-    }
-
-    if (!activeSettings) {
-      return new Response(JSON.stringify({ error: "No active site audio settings found" }), {
-        status: 500,
-        headers: jsonHeaders,
-      });
-    }
-
-    const { data: updatedSettings, error: updateError } = await supabaseAdmin
-      .from("site_audio_settings")
-      .update({
-        watermark_audio_path: filePath,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", activeSettings.id)
+    const { data: updatedSettings, error: updateError } = await settingsMutation
       .select("id, enabled, watermark_audio_path, gain_db, min_interval_sec, max_interval_sec, updated_at, created_at")
       .maybeSingle();
 
@@ -228,7 +273,7 @@ serveWithErrorHandling("admin-upload-watermark", async (req: Request): Promise<R
       });
     }
 
-    await cleanupLegacyWatermarks(supabaseAdmin);
+    await cleanupLegacyWatermarks(adminClient);
 
     console.log("[admin-upload-watermark] success", {
       userId,

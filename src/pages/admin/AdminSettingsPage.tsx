@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Pause, Play } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
@@ -58,6 +58,13 @@ interface AiAutoExecRunResult {
   threshold?: number;
 }
 
+type UntypedRpcResult<T = unknown> = {
+  data: T | null;
+  error: { message: string } | null;
+};
+
+type UntypedRpc = (fn: string, args: Record<string, unknown>) => Promise<UntypedRpcResult>;
+
 const DEFAULT_AI_AUTO_EXEC: AiAutoExecutionSettings = {
   enabled: false,
   confidence_threshold: 0.85,
@@ -68,6 +75,15 @@ const DEFAULT_AI_AUTO_EXEC: AiAutoExecutionSettings = {
 interface ReprocessStats {
   enqueued: number;
   skipped: number;
+}
+
+interface WatermarkQueueStats {
+  queued: number;
+  processing: number;
+  error: number;
+  dead: number;
+  latestError: string | null;
+  latestUpdatedAt: string | null;
 }
 
 interface VisibilityToggleFieldConfig {
@@ -99,6 +115,17 @@ const EMPTY_WATERMARK_FORM: WatermarkSettingsForm = {
   min_interval_sec: '20',
   max_interval_sec: '45',
 };
+
+const EMPTY_WATERMARK_QUEUE_STATS: WatermarkQueueStats = {
+  queued: 0,
+  processing: 0,
+  error: 0,
+  dead: 0,
+  latestError: null,
+  latestUpdatedAt: null,
+};
+
+const WATERMARK_QUEUE_STATUSES = ['queued', 'processing', 'error', 'dead'] as const;
 
 const URL_PROTOCOL_REGEX = /^[a-z][a-z\d+.-]*:/i;
 
@@ -203,6 +230,8 @@ export function AdminSettingsPage() {
   const [selectedWatermarkFile, setSelectedWatermarkFile] = useState<File | null>(null);
   const [reprocessStats, setReprocessStats] = useState<ReprocessStats | null>(null);
   const [watermarkPreviewUrl, setWatermarkPreviewUrl] = useState<string | null>(null);
+  const [watermarkQueueStats, setWatermarkQueueStats] = useState<WatermarkQueueStats>(EMPTY_WATERMARK_QUEUE_STATS);
+  const [isWatermarkQueueLoading, setIsWatermarkQueueLoading] = useState(false);
 
   const [aiAutoExecSettings, setAiAutoExecSettings] = useState<AiAutoExecutionSettings>(DEFAULT_AI_AUTO_EXEC);
   const [isAiAutoExecLoading, setIsAiAutoExecLoading] = useState(true);
@@ -218,6 +247,48 @@ export function AdminSettingsPage() {
     if (Number.isNaN(parsed.getTime())) return t('common.unknown');
     return formatDateTime(parsed);
   }, [siteAudioSettings?.updated_at, t]);
+  const latestWatermarkQueueErrorLabel = useMemo(() => {
+    if (!watermarkQueueStats.latestUpdatedAt) return null;
+    const parsed = new Date(watermarkQueueStats.latestUpdatedAt);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return formatDateTime(parsed);
+  }, [watermarkQueueStats.latestUpdatedAt]);
+
+  const loadWatermarkQueueStats = useCallback(async () => {
+    setIsWatermarkQueueLoading(true);
+    const { data, error } = await supabase
+      .from('audio_processing_jobs')
+      .select('status, last_error, updated_at')
+      .in('status', [...WATERMARK_QUEUE_STATUSES])
+      .order('updated_at', { ascending: false })
+      .limit(5000);
+
+    if (error) {
+      console.error('admin audio processing queue stats load error', error);
+      setIsWatermarkQueueLoading(false);
+      return;
+    }
+
+    const rows = (data ?? []) as Array<{
+      status: string | null;
+      last_error: string | null;
+      updated_at: string | null;
+    }>;
+    const nextStats = rows.reduce<WatermarkQueueStats>((acc, row) => {
+      if (row.status === 'queued') acc.queued += 1;
+      if (row.status === 'processing') acc.processing += 1;
+      if (row.status === 'error') acc.error += 1;
+      if (row.status === 'dead') acc.dead += 1;
+      if (!acc.latestError && (row.status === 'error' || row.status === 'dead') && row.last_error) {
+        acc.latestError = row.last_error;
+        acc.latestUpdatedAt = row.updated_at;
+      }
+      return acc;
+    }, { ...EMPTY_WATERMARK_QUEUE_STATS });
+
+    setWatermarkQueueStats(nextStats);
+    setIsWatermarkQueueLoading(false);
+  }, []);
 
   useEffect(() => {
     if (!isHomepageStatsSaving) {
@@ -333,8 +404,8 @@ export function AdminSettingsPage() {
       setIsAiAutoExecLoading(false);
     };
 
-    void Promise.all([loadSocialLinks(), loadSiteAudioSettings(), loadAiAutoExecSettings()]);
-  }, [t]);
+    void Promise.all([loadSocialLinks(), loadSiteAudioSettings(), loadAiAutoExecSettings(), loadWatermarkQueueStats()]);
+  }, [loadWatermarkQueueStats, t]);
 
   const handlePlayWatermarkPreview = () => {
     if (!watermarkPreviewUrl) {
@@ -649,6 +720,7 @@ export function AdminSettingsPage() {
       const count = Number.isFinite(payload.enqueued_count) ? Number(payload.enqueued_count) : 0;
       const skipped = Number.isFinite(payload.skipped_count) ? Number(payload.skipped_count) : 0;
       setReprocessStats({ enqueued: count, skipped });
+      void loadWatermarkQueueStats();
       toast.success(t('admin.settingsPage.reprocessSuccess', { count, skipped }));
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : t('admin.settingsPage.reprocessError');
@@ -690,9 +762,10 @@ export function AdminSettingsPage() {
     setIsAiAutoExecRunning(true);
     setAiAutoExecRunResult(null);
 
-    const { data, error } = await supabase.rpc(
-      'agent_auto_execute_ai_battle_actions' as any,
-      { p_limit: 50 }
+    const runUntypedRpc = supabase.rpc as unknown as UntypedRpc;
+    const { data, error } = await runUntypedRpc(
+      'agent_auto_execute_ai_battle_actions',
+      { p_limit: 50 },
     );
 
     if (error) {
@@ -882,6 +955,19 @@ export function AdminSettingsPage() {
                   <span className="text-zinc-500">{t('admin.settingsPage.jobsSkippedLabel')}:</span> {reprocessStats.skipped}
                 </p>
               </>
+            )}
+            <p>
+              <span className="text-zinc-500">Queue previews:</span>{' '}
+              {isWatermarkQueueLoading
+                ? 'chargement...'
+                : `en attente ${watermarkQueueStats.queued} · en cours ${watermarkQueueStats.processing} · erreurs ${watermarkQueueStats.error} · morts ${watermarkQueueStats.dead}`}
+            </p>
+            {watermarkQueueStats.latestError && (
+              <p className="text-amber-300">
+                <span className="text-zinc-500">Derniere erreur:</span>{' '}
+                <span className="break-all">{watermarkQueueStats.latestError}</span>
+                {latestWatermarkQueueErrorLabel ? ` (${latestWatermarkQueueErrorLabel})` : null}
+              </p>
             )}
           </div>
 

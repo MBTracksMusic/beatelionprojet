@@ -71,11 +71,41 @@ interface SiteAudioSettingsRow {
   gain_db: number | null;
   min_interval_sec: number | null;
   max_interval_sec: number | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 interface WatermarkAsset {
   path: string;
   bytes: Uint8Array;
+}
+
+type EdgeError = { message: string };
+type QueryResult<T> = Promise<{ data: T | null; error: EdgeError | null }>;
+
+interface StorageObjectApi {
+  getPublicUrl(path: string): { data: { publicUrl: string } };
+  list(path: string, options: Record<string, unknown>): Promise<{ data: Array<{ name?: string | null }> | null; error: EdgeError | null }>;
+  download(path: string): QueryResult<Blob>;
+  upload(path: string, body: Blob, options: Record<string, unknown>): Promise<{ error: EdgeError | null }>;
+}
+
+interface AdminTableQuery {
+  select(columns: string): {
+    eq(column: string, value: string): {
+      maybeSingle(): QueryResult<unknown>;
+    };
+  };
+  update(payload: Record<string, unknown>): {
+    eq(column: string, value: string): Promise<{ error: EdgeError | null }>;
+  };
+}
+
+interface AudioJobAdminClient {
+  storage: {
+    from(bucket: string): StorageObjectApi;
+  };
+  from(table: string): AdminTableQuery;
 }
 
 interface InvocationFfmpegContext {
@@ -153,6 +183,13 @@ const toIntervalSignatureComponent = (value: number | null | undefined, fallback
   return String(Math.max(0, Math.round(normalized)));
 };
 
+const toTimestampSignatureComponent = (value: string | null | undefined) => {
+  const normalized = asNonEmptyString(value);
+  if (!normalized) return "";
+  const timestamp = new Date(normalized);
+  return Number.isNaN(timestamp.getTime()) ? normalized : timestamp.toISOString();
+};
+
 const sha256Hex = async (value: string) => {
   const encoded = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", encoded);
@@ -167,6 +204,7 @@ const computeWatermarkHash = async (settings: SiteAudioSettingsRow) => {
     toGainSignatureComponent(settings.gain_db),
     toIntervalSignatureComponent(settings.min_interval_sec, 20),
     toIntervalSignatureComponent(settings.max_interval_sec, 45),
+    toTimestampSignatureComponent(settings.updated_at),
   ].join("|");
 
   return await sha256Hex(source);
@@ -242,12 +280,29 @@ const parseStorageCandidate = (
   return null;
 };
 
-const getPublicPreviewUrl = (supabaseAdmin: any, bucket: string, path: string) => {
+const getPublicPreviewUrl = (supabaseAdmin: AudioJobAdminClient, bucket: string, path: string) => {
   return supabaseAdmin.storage.from(bucket).getPublicUrl(path).data.publicUrl;
 };
 
+const objectExists = async (supabaseAdmin: AudioJobAdminClient, bucket: string, objectPath: string) => {
+  const slashIndex = objectPath.lastIndexOf("/");
+  const directory = slashIndex >= 0 ? objectPath.slice(0, slashIndex) : "";
+  const fileName = slashIndex >= 0 ? objectPath.slice(slashIndex + 1) : objectPath;
+
+  const { data, error } = await supabaseAdmin.storage.from(bucket).list(directory, {
+    limit: 100,
+    search: fileName,
+  });
+
+  if (error) {
+    throw new Error(`preview_object_check_failed:${error.message}`);
+  }
+
+  return (data ?? []).some((entry: { name?: string | null }) => entry.name === fileName);
+};
+
 const updateJobStatus = async (
-  supabaseAdmin: any,
+  supabaseAdmin: AudioJobAdminClient,
   jobId: string,
   payload: Record<string, unknown>,
 ) => {
@@ -262,7 +317,7 @@ const updateJobStatus = async (
 };
 
 const updateProductProcessingState = async (
-  supabaseAdmin: any,
+  supabaseAdmin: AudioJobAdminClient,
   productId: string,
   payload: Record<string, unknown>,
 ) => {
@@ -409,7 +464,7 @@ const buildFilterComplex = (
 };
 
 const getWatermarkAssetLoader = (
-  supabaseAdmin: any,
+  supabaseAdmin: AudioJobAdminClient,
   settings: SiteAudioSettingsRow,
 ) => {
   let watermarkPromise: Promise<WatermarkAsset> | null = null;
@@ -466,7 +521,7 @@ const resolveMasterSource = (product: ProductRow) => {
 };
 
 const processJob = async (
-  supabaseAdmin: any,
+  supabaseAdmin: AudioJobAdminClient,
   getFfmpeg: () => Promise<FFmpeg>,
   job: AudioProcessingJobRow,
   settings: SiteAudioSettingsRow,
@@ -514,7 +569,10 @@ const processJob = async (
   }
 
   const typedProduct = product as ProductRow;
-  if (typedProduct.product_type !== "beat" || !typedProduct.is_published || typedProduct.deleted_at) {
+  const isWatermarkableProduct =
+    typedProduct.product_type === "beat" || typedProduct.product_type === "exclusive";
+
+  if (!isWatermarkableProduct || !typedProduct.is_published || typedProduct.deleted_at) {
     await updateJobStatus(supabaseAdmin, job.id, {
       status: "done",
       last_error: null,
@@ -532,9 +590,18 @@ const processJob = async (
   const masterReference = `${resolvedMaster.bucket}/${resolvedMaster.path}`;
   const currentWatermarkHash = await computeWatermarkHash(settings);
   const currentPreviewSignature = await computePreviewSignature(masterReference, settings);
+  const targetVersion = Math.max(typedProduct.preview_version ?? 1, 1);
+  const targetBucket = asNonEmptyString(typedProduct.watermarked_bucket) || WATERMARKED_BUCKET;
+  const targetPath = `${typedProduct.id}/preview_v${targetVersion}.mp3`;
 
-  if (typedProduct.preview_signature === currentPreviewSignature) {
+  if (
+    typedProduct.preview_signature === currentPreviewSignature &&
+    typedProduct.last_watermark_hash === currentWatermarkHash &&
+    await objectExists(supabaseAdmin, targetBucket, targetPath).catch(() => false)
+  ) {
     const processedAt = new Date().toISOString();
+    const publicUrl = getPublicPreviewUrl(supabaseAdmin, targetBucket, targetPath);
+    const storageReference = `${targetBucket}/${targetPath}`;
 
     console.log("[process-audio-jobs] skip - signature identical", {
       jobId: job.id,
@@ -543,6 +610,10 @@ const processJob = async (
     });
 
     await updateProductProcessingState(supabaseAdmin, typedProduct.id, {
+      watermarked_path: storageReference,
+      preview_url: publicUrl,
+      ...(typedProduct.product_type === "exclusive" ? { exclusive_preview_url: publicUrl } : {}),
+      watermarked_bucket: targetBucket,
       processing_status: "done",
       processing_error: null,
       processed_at: processedAt,
@@ -579,9 +650,6 @@ const processJob = async (
   }
 
   const watermarkAsset = await loadWatermarkAsset();
-  const targetVersion = Math.max(typedProduct.preview_version ?? 1, 1);
-  const targetBucket = asNonEmptyString(typedProduct.watermarked_bucket) || WATERMARKED_BUCKET;
-  const targetPath = `${typedProduct.id}/preview_v${targetVersion}.mp3`;
   const tempPrefix = `${typedProduct.id}-${job.id}`;
   const masterInputName = `${tempPrefix}-master.${guessMasterExtension(typedProduct, resolvedMaster.path)}`;
   const tagInputName = `${tempPrefix}-tag.mp3`;
@@ -690,6 +758,7 @@ const processJob = async (
     await updateProductProcessingState(supabaseAdmin, typedProduct.id, {
       watermarked_path: storageReference,
       preview_url: publicUrl,
+      ...(typedProduct.product_type === "exclusive" ? { exclusive_preview_url: publicUrl } : {}),
       processing_status: "done",
       processing_error: null,
       processed_at: processedAt,
@@ -759,6 +828,7 @@ serveWithErrorHandling("process-audio-jobs", async (req: Request, context: Reque
 
   try {
     const supabaseAdmin = createAdminClient();
+    const audioJobClient = supabaseAdmin as unknown as AudioJobAdminClient;
     const actor = "service-role";
     const body = await req.json().catch(() => ({} as Record<string, unknown>));
     const limit = normalizeLimit(body.limit);
@@ -785,9 +855,27 @@ serveWithErrorHandling("process-audio-jobs", async (req: Request, context: Reque
     let errorCount = 0;
     let deadCount = 0;
 
+    if (jobs.length === 0) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          claimed: 0,
+          processed: 0,
+          errors: 0,
+          dead: 0,
+          results,
+        }),
+        { headers: jsonHeaders },
+      );
+    }
+
     const { data: settingsRow, error: settingsError } = await supabaseAdmin
       .from("site_audio_settings")
-      .select("id, enabled, watermark_audio_path, gain_db, min_interval_sec, max_interval_sec")
+      .select("id, enabled, watermark_audio_path, gain_db, min_interval_sec, max_interval_sec, created_at, updated_at")
+      .eq("enabled", true)
+      .not("watermark_audio_path", "is", null)
+      .order("updated_at", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
@@ -800,7 +888,7 @@ serveWithErrorHandling("process-audio-jobs", async (req: Request, context: Reque
     }
 
     const typedSettings = settingsRow as SiteAudioSettingsRow;
-    const loadWatermarkAsset = getWatermarkAssetLoader(supabaseAdmin, typedSettings);
+    const loadWatermarkAsset = getWatermarkAssetLoader(audioJobClient, typedSettings);
 
     console.log("[process-audio-jobs] claimed jobs", {
       actor,
@@ -813,7 +901,7 @@ serveWithErrorHandling("process-audio-jobs", async (req: Request, context: Reque
     for (const job of jobs) {
       try {
         const result = await processJob(
-          supabaseAdmin,
+          audioJobClient,
           async () => {
             if (!ffmpegContext) {
               ffmpegContext = await initFfmpeg();
@@ -844,14 +932,14 @@ serveWithErrorHandling("process-audio-jobs", async (req: Request, context: Reque
           nextStatus,
         });
 
-        await updateJobStatus(supabaseAdmin, job.id, {
+        await updateJobStatus(audioJobClient, job.id, {
           status: nextStatus,
           last_error: message,
           locked_at: null,
           locked_by: null,
         });
 
-        await updateProductProcessingState(supabaseAdmin, job.product_id, {
+        await updateProductProcessingState(audioJobClient, job.product_id, {
           processing_status: "error",
           processing_error: message,
           processed_at: null,
