@@ -31,6 +31,7 @@ import type { Genre, Mood } from '../lib/supabase/types';
 type UploadPhase = 'idle' | 'uploading' | 'success' | 'error';
 
 type ErrorState = Partial<Record<'audio' | 'image' | 'form', string>>;
+type UploadProductType = Extract<Database['public']['Enums']['product_type'], 'beat' | 'exclusive'>;
 
 interface VersionSourceRow {
   id: string;
@@ -909,13 +910,14 @@ export function UploadBeatPage() {
       const coverPublicUrl = coverPath
         ? supabase.storage.from(COVER_BUCKET).getPublicUrl(coverPath).data?.publicUrl
         : editingProduct?.cover_image_url ?? versionSource?.cover_image_url ?? null;
+      const productType: UploadProductType = isExclusive ? 'exclusive' : 'beat';
 
       const basePayload: Database['public']['Tables']['products']['Insert'] = {
         producer_id: producerId,
         title: trimmedTitle,
         slug,
         description: description.trim() || null,
-        product_type: 'beat',
+        product_type: productType,
         price: priceCents,
         bpm: bpm ? parseInt(bpm) : null,
         key_signature: keySignature || null,
@@ -969,6 +971,7 @@ export function UploadBeatPage() {
           mood_id: moodId || null,
           tags: tags.length > 0 ? tags : [],
           is_exclusive: isExclusive,
+          product_type: productType,
           updated_at: new Date().toISOString(),
         };
 
