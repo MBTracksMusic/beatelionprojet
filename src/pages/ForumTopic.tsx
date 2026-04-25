@@ -6,6 +6,7 @@ import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
 import { ReputationBadge } from '../components/reputation/ReputationBadge';
+import { ForumMediaField, ForumPostMedia } from '../components/forum/ForumMedia';
 import { useAuth } from '../lib/auth/hooks';
 import { useTranslation } from '../lib/i18n';
 import { getForumFunctionErrorCode, getForumFunctionErrorMessage, useForumActions, useForumPosts } from '../lib/forum/hooks';
@@ -19,6 +20,7 @@ export function ForumTopicPage() {
   const { user } = useAuth();
   const [page, setPage] = useState(1);
   const [reply, setReply] = useState('');
+  const [replyMediaFile, setReplyMediaFile] = useState<File | null>(null);
 
   const { category, topic, posts, totalCount, totalPages, isLoading, error, refresh } = useForumPosts({
     categorySlug,
@@ -49,8 +51,10 @@ export function ForumTopicPage() {
       const result = await createReply({
         topicId: topic.id,
         content: trimmedReply,
+        mediaFile: category?.allow_media === false ? null : replyMediaFile,
       });
       setReply('');
+      setReplyMediaFile(null);
       if (result.status === 'review') {
         toast.success(t('forum.replyPending'));
       } else {
@@ -168,6 +172,9 @@ export function ForumTopicPage() {
                     ? t('forum.blockedByModeration')
                     : post.content}
                 </p>
+                {!post.is_deleted && post.is_visible !== false && (
+                  <ForumPostMedia attachments={post.attachments} />
+                )}
               </CardContent>
             </Card>
           ))}
@@ -220,6 +227,17 @@ export function ForumTopicPage() {
                     className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-white placeholder-zinc-500 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/50"
                     placeholder={t('forum.replyPlaceholder')}
                   />
+                  {category?.allow_media !== false && (
+                    <ForumMediaField
+                      file={replyMediaFile}
+                      disabled={isSubmitting}
+                      label={t('forum.mediaAttachmentLabel')}
+                      hint={t('forum.mediaAttachmentHint')}
+                      chooseLabel={t('forum.mediaChooseFile')}
+                      removeLabel={t('forum.mediaRemove')}
+                      onChange={setReplyMediaFile}
+                    />
+                  )}
                   <div className="flex justify-end">
                     <Button type="submit" isLoading={isSubmitting}>
                       {t('forum.publishReply')}

@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, Info } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/Card';
+import { ForumMediaField } from '../../components/forum/ForumMedia';
 import { Input } from '../../components/ui/Input';
 import { useTranslation } from '../../lib/i18n';
 import { getForumFunctionErrorCode, getForumFunctionErrorMessage, useForumActions, useForumCategories } from '../../lib/forum/hooks';
@@ -19,6 +20,7 @@ export function CreateTopicPage() {
   const [categoryId, setCategoryId] = useState('');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (!categorySlugParam || categories.length === 0) return;
@@ -33,6 +35,12 @@ export function CreateTopicPage() {
     [categories, categoryId],
   );
   const isLabelAnnouncementsCategory = selectedCategory?.slug === 'annonces-label';
+
+  useEffect(() => {
+    if (selectedCategory?.allow_media === false) {
+      setMediaFile(null);
+    }
+  }, [selectedCategory?.allow_media]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -50,6 +58,7 @@ export function CreateTopicPage() {
         categorySlug: selectedCategory?.slug ?? categorySlugParam,
         title: trimmedTitle,
         content: trimmedContent,
+        mediaFile: selectedCategory?.allow_media === false ? null : mediaFile,
       });
 
       if (topic.status === 'review') {
@@ -140,6 +149,18 @@ export function CreateTopicPage() {
                   placeholder={t('forum.createTopicMessagePlaceholder')}
                 />
               </div>
+
+              {selectedCategory?.allow_media !== false && selectedCategory && (
+                <ForumMediaField
+                  file={mediaFile}
+                  disabled={isSubmitting}
+                  label={t('forum.mediaAttachmentLabel')}
+                  hint={t('forum.mediaAttachmentHint')}
+                  chooseLabel={t('forum.mediaChooseFile')}
+                  removeLabel={t('forum.mediaRemove')}
+                  onChange={setMediaFile}
+                />
+              )}
 
               {error && (
                 <p className="text-sm text-red-300">{error}</p>

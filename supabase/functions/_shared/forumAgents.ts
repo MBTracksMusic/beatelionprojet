@@ -46,6 +46,11 @@ const DEFAULT_REVIEW_THRESHOLD = 0.45;
 const DEFAULT_BLOCK_THRESHOLD = 0.85;
 const DEFAULT_MODERATION_MODEL = "omni-moderation-latest";
 const DEFAULT_ASSISTANT_MODEL = "gpt-5-mini";
+const FORUM_MEDIA_BUCKET = "forum-media";
+const FORUM_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const FORUM_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
+const FORUM_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const FORUM_VIDEO_MIME_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
 
 type SupabaseAdminClient = any;
 
@@ -87,10 +92,195 @@ export type ModerationDecision = {
   rawResponse: Record<string, unknown>;
 };
 
+export type PendingForumMedia = {
+  path: string;
+  mediaType: "image" | "video";
+  mimeType: string;
+  fileSize: number;
+  originalFilename: string | null;
+};
+
+export type ForumMediaValidationResult =
+  | { media: PendingForumMedia | null }
+  | { error: string; code: string; status: number };
+
 export function asNonEmptyString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function sanitizeForumMediaFilename(value: string | null) {
+  const fallback = "forum-media";
+  if (!value) return fallback;
+
+  const cleaned = value
+    .normalize("NFKD")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 100);
+
+  return cleaned || fallback;
+}
+
+function normalizeForumMediaType(value: string | null, mimeType: string | null): "image" | "video" | null {
+  if (value === "image" || value === "video") return value;
+  if (mimeType?.startsWith("image/")) return "image";
+  if (mimeType?.startsWith("video/")) return "video";
+  return null;
+}
+
+export function validatePendingForumMedia(params: {
+  rawMedia: unknown;
+  userId: string;
+  allowMedia: boolean;
+}): ForumMediaValidationResult {
+  if (!params.rawMedia) {
+    return { media: null };
+  }
+
+  if (!params.allowMedia) {
+    return {
+      error: "Les medias ne sont pas autorises dans cette categorie.",
+      code: "media_not_allowed",
+      status: 403,
+    };
+  }
+
+  if (typeof params.rawMedia !== "object") {
+    return {
+      error: "Media invalide.",
+      code: "invalid_media",
+      status: 400,
+    };
+  }
+
+  const payload = params.rawMedia as Record<string, unknown>;
+  const path = asNonEmptyString(payload.path);
+  const mimeType = asNonEmptyString(payload.mime_type)?.toLowerCase() ?? null;
+  const mediaType = normalizeForumMediaType(asNonEmptyString(payload.media_type), mimeType);
+  const fileSizeRaw = typeof payload.file_size === "number"
+    ? payload.file_size
+    : Number.parseInt(String(payload.file_size ?? ""), 10);
+  const originalFilename = sanitizeForumMediaFilename(asNonEmptyString(payload.original_filename));
+
+  if (!path || path.includes("..") || path.startsWith("/") || !path.startsWith(`pending/${params.userId}/`)) {
+    return {
+      error: "Chemin media invalide.",
+      code: "invalid_media_path",
+      status: 400,
+    };
+  }
+
+  if (!mimeType || !mediaType) {
+    return {
+      error: "Type de media invalide.",
+      code: "invalid_media_type",
+      status: 400,
+    };
+  }
+
+  const allowedMime = mediaType === "image"
+    ? FORUM_IMAGE_MIME_TYPES.has(mimeType)
+    : FORUM_VIDEO_MIME_TYPES.has(mimeType);
+
+  if (!allowedMime) {
+    return {
+      error: "Format media non autorise.",
+      code: "invalid_media_type",
+      status: 400,
+    };
+  }
+
+  const maxBytes = mediaType === "image" ? FORUM_IMAGE_MAX_BYTES : FORUM_VIDEO_MAX_BYTES;
+  if (!Number.isFinite(fileSizeRaw) || fileSizeRaw <= 0 || fileSizeRaw > maxBytes) {
+    return {
+      error: mediaType === "image"
+        ? "Image trop lourde."
+        : "Video trop lourde.",
+      code: "media_too_large",
+      status: 400,
+    };
+  }
+
+  return {
+    media: {
+      path,
+      mediaType,
+      mimeType,
+      fileSize: fileSizeRaw,
+      originalFilename,
+    },
+  };
+}
+
+export async function attachForumMediaToPost(params: {
+  supabaseAdmin: SupabaseAdminClient;
+  postId: string;
+  userId: string;
+  media: PendingForumMedia | null;
+}) {
+  if (!params.media) return null;
+
+  const pendingPath = params.media.path;
+  const slashIndex = pendingPath.lastIndexOf("/");
+  const pendingDirectory = slashIndex >= 0 ? pendingPath.slice(0, slashIndex) : "";
+  const pendingFilename = slashIndex >= 0 ? pendingPath.slice(slashIndex + 1) : pendingPath;
+
+  const { data: pendingFiles, error: pendingListError } = await params.supabaseAdmin.storage
+    .from(FORUM_MEDIA_BUCKET)
+    .list(pendingDirectory, {
+      limit: 10,
+      search: pendingFilename,
+    });
+
+  if (pendingListError || !Array.isArray(pendingFiles) || !pendingFiles.some((file: { name?: string }) => file.name === pendingFilename)) {
+    console.error("[forum-agents] pending forum media not found", {
+      path: pendingPath,
+      error: pendingListError,
+    });
+    throw new Error("media_upload_missing");
+  }
+
+  const targetFilename = `${crypto.randomUUID()}-${sanitizeForumMediaFilename(params.media.originalFilename)}`;
+  const targetPath = `posts/${params.postId}/${targetFilename}`;
+
+  const { error: moveError } = await params.supabaseAdmin.storage
+    .from(FORUM_MEDIA_BUCKET)
+    .move(pendingPath, targetPath);
+
+  if (moveError) {
+    console.error("[forum-agents] forum media move failed", {
+      from: pendingPath,
+      to: targetPath,
+      error: moveError,
+    });
+    throw new Error("media_upload_failed");
+  }
+
+  const { data: attachment, error: insertError } = await params.supabaseAdmin
+    .from("forum_post_attachments")
+    .insert({
+      post_id: params.postId,
+      user_id: params.userId,
+      bucket: FORUM_MEDIA_BUCKET,
+      storage_path: targetPath,
+      media_type: params.media.mediaType,
+      mime_type: params.media.mimeType,
+      file_size: params.media.fileSize,
+      original_filename: params.media.originalFilename,
+    })
+    .select("id, storage_path, media_type, mime_type, file_size, original_filename")
+    .maybeSingle();
+
+  if (insertError) {
+    console.error("[forum-agents] forum attachment insert failed", insertError);
+    await params.supabaseAdmin.storage.from(FORUM_MEDIA_BUCKET).remove([targetPath]);
+    throw new Error(insertError.message || "media_attach_failed");
+  }
+
+  return attachment;
 }
 
 export function slugify(value: string) {

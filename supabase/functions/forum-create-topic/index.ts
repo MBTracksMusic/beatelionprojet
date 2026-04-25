@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
   applyReputationEvent,
   asNonEmptyString,
+  attachForumMediaToPost,
   buildCorsHeaders,
   containsAssistantMention,
   enforceRateLimit,
@@ -13,6 +14,7 @@ import {
   requireUser,
   resolveRequestCorsOrigin,
   slugify,
+  validatePendingForumMedia,
 } from "../_shared/forumAgents.ts";
 import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 
@@ -20,14 +22,23 @@ interface CreateTopicBody {
   category_slug?: string;
   title?: string;
   content?: string;
+  media?: unknown;
 }
 
-function mapRpcError(errorMessage: string) {
+type JsonResponder = (payload: unknown, status?: number) => Response;
+
+function mapRpcError(errorMessage: string, jsonResponse: JsonResponder) {
   switch (errorMessage) {
     case "category_not_found":
       return jsonResponse({ error: "Categorie introuvable.", code: errorMessage }, 404);
     case "category_access_denied":
       return jsonResponse({ error: "Acces refuse a cette categorie.", code: errorMessage }, 403);
+    case "media_not_allowed":
+      return jsonResponse({ error: "Les medias ne sont pas autorises dans cette categorie.", code: errorMessage }, 403);
+    case "media_upload_missing":
+    case "media_upload_failed":
+    case "media_attach_failed":
+      return jsonResponse({ error: "Impossible d'ajouter le media.", code: errorMessage }, 500);
     default:
       return jsonResponse({ error: "Impossible de creer ce topic.", code: "topic_create_failed" }, 500);
   }
@@ -75,6 +86,16 @@ serveWithErrorHandling("forum-create-topic", async (req: Request): Promise<Respo
 
   const settings = await loadForumSettings(supabaseAdmin);
   const categoryPolicy = await loadForumCategoryPolicyBySlug(supabaseAdmin, categorySlug);
+  const mediaValidation = validatePendingForumMedia({
+    rawMedia: body?.media,
+    userId: user.id,
+    allowMedia: categoryPolicy ? categoryPolicy.allowMedia : true,
+  });
+
+  if ("error" in mediaValidation) {
+    return jsonResponse({ error: mediaValidation.error, code: mediaValidation.code }, mediaValidation.status);
+  }
+
   const moderation = await evaluateForumContent({
     content,
     title,
@@ -132,12 +153,26 @@ serveWithErrorHandling("forum-create-topic", async (req: Request): Promise<Respo
 
   if (error) {
     console.error("[forum-create-topic] rpc_forum_create_topic failed", error);
-    return mapRpcError(error.message);
+    return mapRpcError(error.message, jsonResponse);
   }
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row?.topic_id || !row?.post_id) {
     return jsonResponse({ error: "Topic creation returned no data", code: "topic_create_failed" }, 500);
+  }
+
+  let attachment: unknown = null;
+  try {
+    attachment = await attachForumMediaToPost({
+      supabaseAdmin,
+      postId: row.post_id,
+      userId: user.id,
+      media: mediaValidation.media,
+    });
+  } catch (mediaError) {
+    await supabaseAdmin.from("forum_topics").delete().eq("id", row.topic_id);
+    const message = mediaError instanceof Error ? mediaError.message : "media_attach_failed";
+    return mapRpcError(message, jsonResponse);
   }
 
   if (moderation.decision === "review") {
@@ -202,6 +237,7 @@ serveWithErrorHandling("forum-create-topic", async (req: Request): Promise<Respo
     topic_slug: row.topic_slug ?? topicSlug,
     category_slug: row.category_slug ?? categorySlug,
     post_id: row.post_id,
+    attachment,
     moderation_score: moderation.score,
     moderation_reason: moderation.reason,
   });
