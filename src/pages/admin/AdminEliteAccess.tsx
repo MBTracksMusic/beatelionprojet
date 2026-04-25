@@ -32,6 +32,9 @@ const labelRequestStatusLabels: Record<LabelRequest['status'], string> = {
   rejected: 'Rejetee',
 };
 
+const tableScrollClass = 'max-h-80 overflow-auto rounded-lg border border-zinc-800';
+const stickyTableHeadClass = 'sticky top-0 z-10 bg-zinc-900 text-zinc-500';
+
 function formatOptionalDate(value: string | null) {
   return value ? formatDateTime(value, 'fr-FR') : '-';
 }
@@ -350,9 +353,9 @@ export function AdminEliteAccessPage() {
           ) : requests.length === 0 ? (
             <p className="text-sm text-zinc-400">Aucune demande de label pour le moment.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className={tableScrollClass}>
               <table className="w-full text-sm">
-                <thead className="text-zinc-500">
+                <thead className={stickyTableHeadClass}>
                   <tr className="border-b border-zinc-800">
                     <th className="py-2 text-left">Societe</th>
                     <th className="py-2 text-left">Email</th>
@@ -434,9 +437,9 @@ export function AdminEliteAccessPage() {
             onChange={(event) => setProfileSearch(event.target.value)}
             placeholder="email, pseudo, nom complet"
           />
-          <div className="overflow-x-auto">
+          <div className={tableScrollClass}>
             <table className="w-full text-sm">
-              <thead className="text-zinc-500">
+              <thead className={stickyTableHeadClass}>
                 <tr className="border-b border-zinc-800">
                   <th className="py-2 text-left">Utilisateur</th>
                   <th className="py-2 text-left">Role</th>
@@ -516,9 +519,9 @@ export function AdminEliteAccessPage() {
               options={productProducerOptions}
             />
           </div>
-          <div className="overflow-x-auto">
+          <div className={tableScrollClass}>
             <table className="w-full text-sm">
-              <thead className="text-zinc-500">
+              <thead className={stickyTableHeadClass}>
                 <tr className="border-b border-zinc-800">
                   <th className="py-2 text-left">Titre</th>
                   <th className="py-2 text-left">Producteur</th>
