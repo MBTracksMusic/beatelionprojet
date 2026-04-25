@@ -13,6 +13,12 @@ const asIntervalSignatureComponent = (value: number | null | undefined, fallback
   return String(Math.max(0, Math.round(normalized)));
 };
 
+const asTimestampSignatureComponent = (value: string | null | undefined) => {
+  if (!value) return "";
+  const timestamp = new Date(value);
+  return Number.isNaN(timestamp.getTime()) ? value : timestamp.toISOString();
+};
+
 export const asFfmpegGainDb = (value: number) => `${value.toFixed(2)}dB`;
 
 export const computeWatermarkHash = (settings: SiteAudioSettingsRow) => {
@@ -21,7 +27,7 @@ export const computeWatermarkHash = (settings: SiteAudioSettingsRow) => {
     asGainSignatureComponent(settings.gain_db),
     asIntervalSignatureComponent(settings.min_interval_sec, 20),
     asIntervalSignatureComponent(settings.max_interval_sec, 45),
-    settings.updated_at ?? "",
+    asTimestampSignatureComponent(settings.updated_at),
   ].join("|");
 
   return createHash("sha256").update(source).digest("hex");
