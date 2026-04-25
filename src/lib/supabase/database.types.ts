@@ -3215,6 +3215,88 @@ export type Database = {
           },
         ]
       }
+      forum_post_attachments: {
+        Row: {
+          bucket: string
+          created_at: string
+          file_size: number
+          id: string
+          media_type: string
+          mime_type: string
+          original_filename: string | null
+          post_id: string
+          storage_path: string
+          user_id: string
+        }
+        Insert: {
+          bucket?: string
+          created_at?: string
+          file_size: number
+          id?: string
+          media_type: string
+          mime_type: string
+          original_filename?: string | null
+          post_id: string
+          storage_path: string
+          user_id: string
+        }
+        Update: {
+          bucket?: string
+          created_at?: string
+          file_size?: number
+          id?: string
+          media_type?: string
+          mime_type?: string
+          original_filename?: string | null
+          post_id?: string
+          storage_path?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "forum_post_attachments_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: true
+            referencedRelation: "forum_posts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "forum_post_attachments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "my_user_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "forum_post_attachments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "my_user_profile"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "forum_post_attachments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "public_producer_profiles"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "forum_post_attachments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "forum_post_attachments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "weekly_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       forum_moderation_logs: {
         Row: {
           created_at: string
@@ -7899,6 +7981,14 @@ export type Database = {
       }
     }
     Functions: {
+      admin_approve_label_request: {
+        Args: { p_request_id: string; p_user_id: string }
+        Returns: boolean
+      }
+      admin_delete_rejected_label_request: {
+        Args: { p_request_id: string }
+        Returns: boolean
+      }
       admin_adjust_reputation: {
         Args: {
           p_delta_xp: number
@@ -7940,6 +8030,10 @@ export type Database = {
           watermarked_path: string
         }[]
       }
+      admin_set_product_elite_status: {
+        Args: { p_is_elite: boolean; p_product_id: string }
+        Returns: boolean
+      }
       admin_launch_battle_campaign: {
         Args: { p_campaign_id: string }
         Returns: {
@@ -7972,6 +8066,18 @@ export type Database = {
           status: string
           success: boolean
         }[]
+      }
+      admin_set_private_access_profile: {
+        Args: {
+          p_account_type: string
+          p_is_verified?: boolean
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      admin_revoke_label_request: {
+        Args: { p_request_id: string; p_user_id: string }
+        Returns: boolean
       }
       admin_validate_battle: { Args: { p_battle_id: string }; Returns: boolean }
       agent_finalize_expired_battles: {
@@ -8510,6 +8616,10 @@ export type Database = {
         Returns: boolean
       }
       forum_is_assistant_user: { Args: { p_user_id: string }; Returns: boolean }
+      forum_is_verified_label: {
+        Args: { p_user_id?: string }
+        Returns: boolean
+      }
       forum_user_meets_rank_requirement: {
         Args: { p_required_rank_tier?: string; p_user_id?: string }
         Returns: boolean
@@ -8527,6 +8637,26 @@ export type Database = {
       }
       get_admin_bootstrap_emails: { Args: never; Returns: string[] }
       get_admin_business_metrics: { Args: never; Returns: Json }
+      get_forum_categories_with_stats: {
+        Args: never
+        Returns: {
+          allow_links: boolean
+          allow_media: boolean
+          created_at: string
+          description: string | null
+          id: string
+          is_competitive: boolean
+          is_premium_only: boolean
+          moderation_strictness: string
+          name: string
+          position: number
+          post_count: number
+          required_rank_tier: string | null
+          slug: string
+          topic_count: number
+          xp_multiplier: number
+        }[]
+      }
       get_admin_metrics_timeseries: { Args: never; Returns: Json }
       get_admin_pilotage_deltas: { Args: never; Returns: Json }
       get_admin_pilotage_metrics: { Args: never; Returns: Json }

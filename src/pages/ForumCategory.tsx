@@ -9,6 +9,7 @@ import { formatRankTier } from '../components/reputation/ReputationBadge';
 import { ReputationBadge } from '../components/reputation/ReputationBadge';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
+import { ForumMediaField } from '../components/forum/ForumMedia';
 import { useAuth } from '../lib/auth/hooks';
 import { useTranslation } from '../lib/i18n';
 import { getForumFunctionErrorCode, getForumFunctionErrorMessage, useForumActions, useForumTopics } from '../lib/forum/hooks';
@@ -28,6 +29,7 @@ export function ForumCategoryPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
 
   const { category, topics, totalCount, totalPages, isLoading, error, refresh } = useForumTopics({
     categorySlug,
@@ -47,6 +49,7 @@ export function ForumCategoryPage() {
   const resetCreateForm = () => {
     setTitle('');
     setContent('');
+    setMediaFile(null);
   };
 
   const handleCreateTopic = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -66,6 +69,7 @@ export function ForumCategoryPage() {
         categorySlug: category.slug,
         title: trimmedTitle,
         content: trimmedContent,
+        mediaFile: category.allow_media === false ? null : mediaFile,
       });
 
       resetCreateForm();
@@ -296,6 +300,17 @@ export function ForumCategoryPage() {
               placeholder={t('forum.replyPlaceholder')}
             />
           </div>
+          {category?.allow_media !== false && (
+            <ForumMediaField
+              file={mediaFile}
+              disabled={isSubmitting}
+              label={t('forum.mediaAttachmentLabel')}
+              hint={t('forum.mediaAttachmentHint')}
+              chooseLabel={t('forum.mediaChooseFile')}
+              removeLabel={t('forum.mediaRemove')}
+              onChange={setMediaFile}
+            />
+          )}
           <div className="flex justify-end gap-3">
             <Button
               type="button"

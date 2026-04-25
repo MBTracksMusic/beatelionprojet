@@ -436,6 +436,21 @@ export interface ForumPost {
   source_post_id?: string | null;
   created_at: string;
   author?: ForumAuthor;
+  attachments?: ForumPostAttachment[];
+}
+
+export interface ForumPostAttachment {
+  id: string;
+  post_id: string;
+  user_id: string;
+  bucket: string;
+  storage_path: string;
+  media_type: 'image' | 'video';
+  mime_type: string;
+  file_size: number;
+  original_filename: string | null;
+  created_at: string;
+  signed_url?: string | null;
 }
 
 export interface LatestForumTopic extends ForumTopic {

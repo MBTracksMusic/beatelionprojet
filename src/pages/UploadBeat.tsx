@@ -31,6 +31,7 @@ import type { Genre, Mood } from '../lib/supabase/types';
 type UploadPhase = 'idle' | 'uploading' | 'success' | 'error';
 
 type ErrorState = Partial<Record<'audio' | 'image' | 'form', string>>;
+type UploadProductType = Extract<Database['public']['Enums']['product_type'], 'beat' | 'exclusive'>;
 
 interface VersionSourceRow {
   id: string;
@@ -65,6 +66,7 @@ interface EditProductRow {
   genre_id: string | null;
   mood_id: string | null;
   tags: string[] | null;
+  is_exclusive: boolean;
 }
 
 interface EditPermissions {
@@ -205,7 +207,7 @@ const sanitizeStorageFilename = (value: string) => {
   return sanitized || 'master.wav';
 };
 
-export async function uploadBeatProduct({
+async function uploadBeatProduct({
   producerId,
   bucket,
   file,
@@ -355,6 +357,7 @@ export function UploadBeatPage() {
   const [moodId, setMoodId] = useState<string>('');
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
+  const [isExclusive, setIsExclusive] = useState(false);
   const [genres, setGenres] = useState<Genre[]>([]);
   const [moods, setMoods] = useState<Mood[]>([]);
   const tagInputRef = useRef<HTMLInputElement>(null);
@@ -373,6 +376,12 @@ export function UploadBeatPage() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
+
+  useEffect(() => {
+    if (!isEditMode && !isVersionMode) {
+      setIsExclusive(false);
+    }
+  }, [isEditMode, isVersionMode]);
 
   useEffect(() => {
     const fetchCategoryData = async () => {
@@ -440,6 +449,7 @@ export function UploadBeatPage() {
           setGenreId(sourceRow.genre_id ?? '');
           setMoodId(sourceRow.mood_id ?? '');
           setTags(sourceRow.tags ?? []);
+          setIsExclusive(sourceRow.is_exclusive);
           setImagePreviewUrl(sourceRow.cover_image_url);
           setErrors((prev) => ({ ...prev, form: undefined }));
         }
@@ -484,7 +494,7 @@ export function UploadBeatPage() {
         const [{ data: productData, error: productError }, { data: editabilityData, error: editabilityError }] = await Promise.all([
           supabase
             .from('products')
-            .select('id, title, description, price, bpm, key_signature, cover_image_url, is_published, file_format, genre_id, mood_id, tags')
+            .select('id, title, description, price, bpm, key_signature, cover_image_url, is_published, file_format, genre_id, mood_id, tags, is_exclusive')
             .eq('id', editProductId)
             .eq('producer_id', profile.id)
             .maybeSingle(),
@@ -516,6 +526,7 @@ export function UploadBeatPage() {
           setGenreId(sourceRow.genre_id ?? '');
           setMoodId(sourceRow.mood_id ?? '');
           setTags(sourceRow.tags ?? []);
+          setIsExclusive(sourceRow.is_exclusive);
           setImagePreviewUrl(sourceRow.cover_image_url);
           setErrors((prev) => ({
             ...prev,
@@ -596,7 +607,7 @@ export function UploadBeatPage() {
   };
 
   const getAudioDuration = (src: string) =>
-    new Promise<number>(async (resolve, reject) => {
+    new Promise<number>((resolve, reject) => {
       const AudioContextCtor =
         typeof window !== 'undefined'
           ? window.AudioContext ||
@@ -610,16 +621,18 @@ export function UploadBeatPage() {
 
       const audioContext = new AudioContextCtor();
 
-      try {
-        const response = await fetch(src);
-        const arrayBuffer = await response.arrayBuffer();
-        const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
-        resolve(decodedBuffer.duration || 0);
-      } catch {
-        reject(new Error(t('uploadBeat.audioReadError')));
-      } finally {
-        void audioContext.close();
-      }
+      void (async () => {
+        try {
+          const response = await fetch(src);
+          const arrayBuffer = await response.arrayBuffer();
+          const decodedBuffer = await audioContext.decodeAudioData(arrayBuffer);
+          resolve(decodedBuffer.duration || 0);
+        } catch {
+          reject(new Error(t('uploadBeat.audioReadError')));
+        } finally {
+          void audioContext.close();
+        }
+      })();
     });
 
   const getImageDimensions = (src: string) =>
@@ -897,13 +910,14 @@ export function UploadBeatPage() {
       const coverPublicUrl = coverPath
         ? supabase.storage.from(COVER_BUCKET).getPublicUrl(coverPath).data?.publicUrl
         : editingProduct?.cover_image_url ?? versionSource?.cover_image_url ?? null;
+      const productType: UploadProductType = isExclusive ? 'exclusive' : 'beat';
 
       const basePayload: Database['public']['Tables']['products']['Insert'] = {
         producer_id: producerId,
         title: trimmedTitle,
         slug,
         description: description.trim() || null,
-        product_type: 'beat',
+        product_type: productType,
         price: priceCents,
         bpm: bpm ? parseInt(bpm) : null,
         key_signature: keySignature || null,
@@ -914,6 +928,7 @@ export function UploadBeatPage() {
         genre_id: genreId || null,
         mood_id: moodId || null,
         tags: tags.length > 0 ? tags : [],
+        is_exclusive: isExclusive,
       };
 
       if (versionSource) {
@@ -922,7 +937,7 @@ export function UploadBeatPage() {
           master_path: masterStorageReference,
           master_url: masterStorageReference,
           watermarked_bucket: versionSource.watermarked_bucket,
-          is_exclusive: versionSource.is_exclusive,
+          is_exclusive: isExclusive,
           genre_id: versionSource.genre_id,
           mood_id: versionSource.mood_id,
           tags: versionSource.tags,
@@ -955,6 +970,8 @@ export function UploadBeatPage() {
           genre_id: genreId || null,
           mood_id: moodId || null,
           tags: tags.length > 0 ? tags : [],
+          is_exclusive: isExclusive,
+          product_type: productType,
           updated_at: new Date().toISOString(),
         };
 
@@ -1022,6 +1039,7 @@ export function UploadBeatPage() {
       setMoodId('');
       setTags([]);
       setTagInput('');
+      setIsExclusive(false);
       resetAudio();
       resetImage();
       setVersionSource(null);
@@ -1257,6 +1275,32 @@ export function UploadBeatPage() {
               onChange={(e) => setKeySignature(e.target.value)}
               disabled={isUploading || isMetadataLocked}
             />
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <h2 className="text-sm font-medium text-zinc-200">{t('uploadBeat.publishOptionsTitle')}</h2>
+              <p className="mt-1 text-xs text-zinc-500">{t('uploadBeat.publishOptionsSubtitle')}</p>
+            </div>
+
+            <label className="flex items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 px-4 py-3 text-sm text-zinc-200">
+              <input
+                type="checkbox"
+                checked={isExclusive}
+                onChange={(event) => setIsExclusive(event.target.checked)}
+                disabled={isUploading || isMetadataLocked}
+                className="mt-0.5 h-4 w-4 rounded border-zinc-700 bg-zinc-900 text-rose-500 focus:ring-rose-500/50"
+              />
+              <div className="space-y-1">
+                <span className="font-medium text-zinc-100">{t('uploadBeat.exclusiveOptionLabel')}</span>
+                <p className="text-xs text-zinc-500">{t('uploadBeat.exclusiveOptionHint')}</p>
+                {isExclusive && (
+                  <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-200">
+                    {t('uploadBeat.exclusiveStemsNotice')}
+                  </p>
+                )}
+              </div>
+            </label>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

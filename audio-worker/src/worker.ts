@@ -67,6 +67,16 @@ const toErrorMessage = (error: unknown) => {
   return String(error);
 };
 
+const isWatermarkPausedError = (error: unknown) => {
+  const message = toErrorMessage(error);
+  return (
+    message.includes("watermark_disabled") ||
+    message.includes("watermark_audio_path_missing") ||
+    message.includes("active site_audio_settings row not found") ||
+    message.includes("Failed to load site_audio_settings")
+  );
+};
+
 const toAbortError = (signal: AbortSignal | undefined, fallbackMessage: string) => {
   const reason = signal?.reason;
   if (reason instanceof Error) {
@@ -155,6 +165,11 @@ export class AudioWorkerService {
       currentWatermarkHash = computeWatermarkHash(settings);
       watermarkAsset = await this.getWatermarkAsset(settings, currentWatermarkHash);
     } catch (error) {
+      if (isWatermarkPausedError(error)) {
+        await this.pauseClaimedJobs(jobs, error);
+        return 0;
+      }
+
       for (const job of jobs) {
         await this.failClaimedJob(job, error);
       }
@@ -248,6 +263,37 @@ export class AudioWorkerService {
     }
   }
 
+  private async pauseClaimedJobs(jobs: AudioProcessingJobRow[], error: unknown) {
+    const message = toErrorMessage(error);
+
+    for (const job of jobs) {
+      try {
+        await updateAudioProcessingJob(this.supabase, job.id, {
+          status: "queued",
+          attempts: Math.max((job.attempts ?? 1) - 1, 0),
+          last_error: message,
+          locked_at: null,
+          locked_by: null,
+        });
+      } catch (pauseError) {
+        log("error", "job_pause_requeue_failed", {
+          workerId: this.config.workerId,
+          jobId: job.id,
+          productId: job.product_id,
+          originalError: message,
+          error: toErrorMessage(pauseError),
+        });
+      }
+    }
+
+    log("warn", "watermark_queue_paused", {
+      workerId: this.config.workerId,
+      reason: message,
+      jobCount: jobs.length,
+      jobIds: jobs.map((job) => job.id),
+    });
+  }
+
   private async getWatermarkAsset(
     settings: SiteAudioSettingsRow,
     currentWatermarkHash: string,
@@ -313,7 +359,10 @@ export class AudioWorkerService {
       return;
     }
 
-    if (product.product_type !== "beat" || !product.is_published || product.deleted_at) {
+    const isWatermarkableProduct =
+      product.product_type === "beat" || product.product_type === "exclusive";
+
+    if (!isWatermarkableProduct || !product.is_published || product.deleted_at) {
       await updateProductProcessingState(this.supabase, product.id, {
         processing_status: "done",
         processing_error: null,
@@ -347,11 +396,10 @@ export class AudioWorkerService {
     const downloadMasterRef = masterSource.downloadRef;
     throwIfAborted(signal);
 
-    const currentVersion = Math.max(product.preview_version ?? 0, 0);
-    const nextVersion = currentVersion + 1;
+    const targetVersion = Math.max(product.preview_version ?? 1, 1);
     const targetRef: StorageObjectRef = {
       bucket: product.watermarked_bucket?.trim() || this.config.watermarkedBucket,
-      path: `${product.id}/preview_v${nextVersion}.mp3`,
+      path: `${product.id}/preview_v${targetVersion}.mp3`,
     };
     const masterReference = storageRefToString(masterRef);
     const previewSignature = computePreviewSignature(masterReference, settings);
@@ -363,9 +411,11 @@ export class AudioWorkerService {
       const targetExists = await objectExists(this.supabase, targetRef).catch(() => false);
 
       if (targetExists) {
+        const previewPublicUrl = getPublicObjectUrl(this.supabase, targetRef);
         await updateProductProcessingState(this.supabase, product.id, {
           watermarked_path: storageRefToString(targetRef),
-          preview_url: getPublicObjectUrl(this.supabase, targetRef),
+          preview_url: previewPublicUrl,
+          ...(product.product_type === "exclusive" ? { exclusive_preview_url: previewPublicUrl } : {}),
           watermarked_bucket: targetRef.bucket,
           processing_status: "done",
           processing_error: null,
@@ -386,7 +436,7 @@ export class AudioWorkerService {
           jobId: job.id,
           productId: product.id,
           previewRef: storageRefToString(targetRef),
-          previewVersion: currentVersion,
+          previewVersion: targetVersion,
         });
         return;
       }
@@ -470,14 +520,16 @@ export class AudioWorkerService {
       await uploadPreviewFile(this.supabase, targetRef, outputFilePath);
       throwIfAborted(signal);
 
+      const previewPublicUrl = getPublicObjectUrl(this.supabase, targetRef);
       await updateProductProcessingState(this.supabase, product.id, {
         watermarked_path: storageRefToString(targetRef),
-        preview_url: getPublicObjectUrl(this.supabase, targetRef),
+        preview_url: previewPublicUrl,
+        ...(product.product_type === "exclusive" ? { exclusive_preview_url: previewPublicUrl } : {}),
         processing_status: "done",
         processing_error: null,
         processed_at: new Date().toISOString(),
         watermarked_bucket: targetRef.bucket,
-        preview_version: nextVersion,
+        preview_version: targetVersion,
         preview_signature: previewSignature,
         last_watermark_hash: currentWatermarkHash,
       });
@@ -495,7 +547,7 @@ export class AudioWorkerService {
         productId: product.id,
         masterRef: storageRefToString(downloadMasterRef),
         previewRef: storageRefToString(targetRef),
-        previewVersion: nextVersion,
+        previewVersion: targetVersion,
         outputBytes: outputStat.size,
         durationSec: secondaryRenderResult.durationSec,
         positionsSec: secondaryRenderResult.positionsSec,

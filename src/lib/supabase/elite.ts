@@ -1,15 +1,16 @@
 import { supabase } from './client';
 import type { Database } from './database.types';
 import type { LabelRequest, ProductWithRelations } from './types';
+import { attachProductLicenses } from '../pricing';
 import { fetchPublicProducerProfilesMap } from './publicProfiles';
 import { GENRE_SAFE_COLUMNS, MOOD_SAFE_COLUMNS, PRODUCT_SAFE_COLUMNS } from './selects';
 
-type EliteProductRow = Database['public']['Tables']['products']['Row'] & {
-  genre: Database['public']['Tables']['genres']['Row'] | null;
-  mood: Database['public']['Tables']['moods']['Row'] | null;
-};
+type EliteProductRow = Database['public']['Tables']['products']['Row'];
+type GenreRow = Database['public']['Tables']['genres']['Row'];
+type MoodRow = Database['public']['Tables']['moods']['Row'];
 
 type LabelRequestRow = Database['public']['Tables']['label_requests']['Row'];
+type EliteCatalogRoutePrefix = 'beats' | 'exclusives' | 'kits' | string;
 
 export interface EliteAdminProfileSummary {
   id: string;
@@ -28,17 +29,24 @@ export interface EliteAdminProductSummary {
   producer_id: string;
   title: string;
   slug: string;
+  preview_url: string | null;
+  exclusive_preview_url: string | null;
+  watermarked_path: string | null;
+  watermarked_bucket: string | null;
+  cover_image_url: string | null;
+  product_type: string;
+  is_exclusive: boolean;
   is_elite: boolean;
   is_published: boolean;
   status: string;
   created_at: string;
 }
 
+export type EliteAdminProductProducer = EliteAdminProfileSummary;
+
 const ELITE_PRODUCT_COLUMNS = [
   PRODUCT_SAFE_COLUMNS,
   'is_elite',
-  `genre:genres(${GENRE_SAFE_COLUMNS})`,
-  `mood:moods(${MOOD_SAFE_COLUMNS})`,
 ].join(', ');
 
 const ADMIN_PROFILE_COLUMNS = [
@@ -58,37 +66,58 @@ const ADMIN_PRODUCT_COLUMNS = [
   'producer_id',
   'title',
   'slug',
+  'preview_url',
+  'exclusive_preview_url',
+  'watermarked_path',
+  'watermarked_bucket',
+  'cover_image_url',
+  'product_type',
+  'is_exclusive',
   'is_elite',
   'is_published',
   'status',
   'created_at',
 ].join(', ');
 
-export async function fetchEliteProducts(): Promise<ProductWithRelations[]> {
-  const { data, error } = await supabase
-    .from('products')
-    .select(ELITE_PRODUCT_COLUMNS as any)
-    .eq('product_type', 'beat')
-    .eq('is_published', true)
-    .eq('status', 'active')
-    .eq('is_elite', true)
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    throw error;
+const matchesEliteRoutePrefix = (
+  row: Pick<EliteProductRow, 'product_type' | 'is_exclusive'>,
+  routePrefix: EliteCatalogRoutePrefix,
+) => {
+  if (routePrefix === 'exclusives') {
+    return row.product_type === 'exclusive' || row.is_exclusive === true;
   }
 
-  const rows = (data as unknown as EliteProductRow[] | null) ?? [];
-  const producerProfiles = await fetchPublicProducerProfilesMap(rows.map((row) => row.producer_id));
+  if (routePrefix === 'kits') {
+    return row.product_type === 'kit';
+  }
 
-  return rows.map((row) => {
+  return row.product_type === 'beat' && row.is_exclusive === false;
+};
+
+async function hydrateEliteProducts(
+  rows: EliteProductRow[],
+  options?: { withLicenses?: boolean },
+): Promise<ProductWithRelations[]> {
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const genreIds = Array.from(new Set(rows.map((row) => row.genre_id).filter((id): id is string => Boolean(id))));
+  const moodIds = Array.from(new Set(rows.map((row) => row.mood_id).filter((id): id is string => Boolean(id))));
+
+  const [producerProfiles, genresById, moodsById] = await Promise.all([
+    fetchPublicProducerProfilesMap(rows.map((row) => row.producer_id)),
+    fetchGenresMap(genreIds),
+    fetchMoodsMap(moodIds),
+  ]);
+
+  const hydratedProducts = rows.map((row) => {
     const producerProfile = producerProfiles.get(row.producer_id);
 
     return {
       ...(row as ProductWithRelations),
-      genre: row.genre ?? undefined,
-      mood: row.mood ?? undefined,
+      genre: row.genre_id ? genresById.get(row.genre_id) : undefined,
+      mood: row.mood_id ? moodsById.get(row.mood_id) : undefined,
       producer: row.producer_id
         ? {
             id: row.producer_id,
@@ -98,6 +127,87 @@ export async function fetchEliteProducts(): Promise<ProductWithRelations[]> {
         : undefined,
     } as ProductWithRelations;
   });
+
+  if (options?.withLicenses) {
+    return attachProductLicenses(hydratedProducts);
+  }
+
+  return hydratedProducts;
+}
+
+export async function fetchEliteProducts(): Promise<ProductWithRelations[]> {
+  const { data, error } = await supabase
+    .from('elite_catalog_products' as never)
+    .select(ELITE_PRODUCT_COLUMNS)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  const rows = (data as unknown as EliteProductRow[] | null) ?? [];
+  return hydrateEliteProducts(rows);
+}
+
+export async function fetchEliteProductBySlug(options: {
+  slug: string;
+  routePrefix: EliteCatalogRoutePrefix;
+}): Promise<ProductWithRelations | null> {
+  const { data, error } = await supabase
+    .from('elite_catalog_products' as never)
+    .select(ELITE_PRODUCT_COLUMNS)
+    .eq('slug', options.slug)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  const row = (data as unknown as EliteProductRow | null) ?? null;
+  if (!row) {
+    return null;
+  }
+
+  if (!matchesEliteRoutePrefix(row, options.routePrefix)) {
+    return null;
+  }
+
+  const [product] = await hydrateEliteProducts([row], { withLicenses: true });
+  return product ?? null;
+}
+
+async function fetchGenresMap(ids: string[]): Promise<Map<string, GenreRow>> {
+  if (ids.length === 0) {
+    return new Map();
+  }
+
+  const { data, error } = await supabase
+    .from('genres')
+    .select(GENRE_SAFE_COLUMNS)
+    .in('id', ids);
+
+  if (error) {
+    throw error;
+  }
+
+  return new Map((((data as unknown as GenreRow[] | null) ?? []).map((genre) => [genre.id, genre])));
+}
+
+async function fetchMoodsMap(ids: string[]): Promise<Map<string, MoodRow>> {
+  if (ids.length === 0) {
+    return new Map();
+  }
+
+  const { data, error } = await supabase
+    .from('moods')
+    .select(MOOD_SAFE_COLUMNS)
+    .in('id', ids);
+
+  if (error) {
+    throw error;
+  }
+
+  return new Map((((data as unknown as MoodRow[] | null) ?? []).map((mood) => [mood.id, mood])));
 }
 
 export async function fetchOwnLabelRequests(userId: string): Promise<LabelRequest[]> {
@@ -157,7 +267,8 @@ export async function listEliteProfilesAdmin(): Promise<EliteAdminProfileSummary
   const { data, error } = await supabase
     .from('user_profiles')
     .select(ADMIN_PROFILE_COLUMNS)
-    .or('role.eq.producer,is_producer_active.eq.true,account_type.eq.producer,account_type.eq.elite_producer,account_type.eq.label')
+    .neq('account_type', 'label')
+    .or('role.eq.producer,is_producer_active.eq.true,account_type.eq.producer,account_type.eq.elite_producer')
     .order('updated_at', { ascending: false })
     .limit(50);
 
@@ -168,12 +279,36 @@ export async function listEliteProfilesAdmin(): Promise<EliteAdminProfileSummary
   return ((data as unknown as EliteAdminProfileSummary[] | null) ?? []);
 }
 
-export async function listEliteProductsAdmin(): Promise<EliteAdminProductSummary[]> {
+export async function listEliteProductProducersAdmin(): Promise<EliteAdminProductProducer[]> {
   const { data, error } = await supabase
+    .from('user_profiles')
+    .select(ADMIN_PROFILE_COLUMNS)
+    .eq('account_type', 'elite_producer')
+    .order('username', { ascending: true, nullsFirst: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return ((data as unknown as EliteAdminProductProducer[] | null) ?? []);
+}
+
+export async function listEliteProductsAdmin(options: { producerIds?: string[] } = {}): Promise<EliteAdminProductSummary[]> {
+  if (options.producerIds && options.producerIds.length === 0) {
+    return [];
+  }
+
+  let query = supabase
     .from('products')
     .select(ADMIN_PRODUCT_COLUMNS)
-    .eq('product_type', 'beat')
-    .is('deleted_at', null)
+    .in('product_type', ['beat', 'exclusive'])
+    .is('deleted_at', null);
+
+  if (options.producerIds) {
+    query = query.in('producer_id', options.producerIds);
+  }
+
+  const { data, error } = await query
     .order('created_at', { ascending: false })
     .limit(50);
 
@@ -187,43 +322,46 @@ export async function listEliteProductsAdmin(): Promise<EliteAdminProductSummary
 export async function approveLabelRequest(options: {
   requestId: string;
   userId: string;
-  reviewerId: string;
 }): Promise<void> {
-  const reviewedAt = new Date().toISOString();
+  const { error } = await supabase.rpc('admin_approve_label_request', {
+    p_request_id: options.requestId,
+    p_user_id: options.userId,
+  });
 
-  const { error: profileError } = await supabase
-    .from('user_profiles')
-    .update({
-      account_type: 'label',
-      is_verified: true,
-    })
-    .eq('id', options.userId);
-
-  if (profileError) {
-    throw profileError;
-  }
-
-  const { error: requestError } = await supabase
-    .from('label_requests')
-    .update({
-      status: 'approved',
-      reviewed_at: reviewedAt,
-      reviewed_by: options.reviewerId,
-    })
-    .eq('id', options.requestId);
-
-  if (requestError) {
-    throw requestError;
+  if (error) {
+    throw error;
   }
 }
 
-export async function promoteEliteProducer(userId: string): Promise<void> {
-  const { error } = await supabase
-    .from('user_profiles')
-    .update({
-      account_type: 'elite_producer',
-    })
-    .eq('id', userId);
+export async function revokeLabelRequest(options: {
+  requestId: string;
+  userId: string;
+}): Promise<void> {
+  const { error } = await supabase.rpc('admin_revoke_label_request', {
+    p_request_id: options.requestId,
+    p_user_id: options.userId,
+  });
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function deleteRejectedLabelRequest(requestId: string): Promise<void> {
+  const { error } = await supabase.rpc('admin_delete_rejected_label_request', {
+    p_request_id: requestId,
+  });
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function setEliteProducerStatus(userId: string, isElite: boolean): Promise<void> {
+  const { error } = await supabase.rpc('admin_set_private_access_profile', {
+    p_user_id: userId,
+    p_account_type: isElite ? 'elite_producer' : 'producer',
+  });
 
   if (error) {
     throw error;
@@ -231,12 +369,10 @@ export async function promoteEliteProducer(userId: string): Promise<void> {
 }
 
 export async function toggleEliteProduct(productId: string, isElite: boolean): Promise<void> {
-  const { error } = await supabase
-    .from('products')
-    .update({
-      is_elite: isElite,
-    })
-    .eq('id', productId);
+  const { error } = await supabase.rpc('admin_set_product_elite_status', {
+    p_product_id: productId,
+    p_is_elite: isElite,
+  });
 
   if (error) {
     throw error;

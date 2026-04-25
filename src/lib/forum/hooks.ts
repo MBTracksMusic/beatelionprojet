@@ -1,18 +1,33 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
-import type { ForumAuthor, ForumCategory, ForumPost, ForumTopic, LatestForumTopic, UserProfile } from '../supabase/types';
+import type { ForumAuthor, ForumCategory, ForumPost, ForumPostAttachment, ForumTopic, LatestForumTopic, UserProfile } from '../supabase/types';
 import { fetchForumPublicProfilesMap } from '../supabase/forumProfiles';
 import { useAuth } from '../auth/hooks';
-import { useTranslation } from '../i18n';
+import { useTranslation, type TranslateFn } from '../i18n';
 
-const FORUM_CATEGORIES_TABLE = 'forum_categories' as any;
-const FORUM_TOPICS_TABLE = 'forum_topics' as any;
-const FORUM_POSTS_TABLE = 'forum_posts' as any;
+const FORUM_CATEGORIES_TABLE = 'forum_categories';
+const FORUM_TOPICS_TABLE = 'forum_topics';
+const FORUM_POSTS_TABLE = 'forum_posts';
+const FORUM_POST_ATTACHMENTS_TABLE = 'forum_post_attachments';
+const FORUM_MEDIA_BUCKET = 'forum-media';
+const FORUM_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const FORUM_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
+const FORUM_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const FORUM_VIDEO_MIME_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
 
 type ForumCategoryRow = Omit<ForumCategory, 'topic_count' | 'post_count'>;
 type ForumTopicRow = Omit<ForumTopic, 'author'>;
 type ForumPostRow = Omit<ForumPost, 'author'>;
+type ForumPostAttachmentRow = Omit<ForumPostAttachment, 'signed_url'>;
 type ForumMutationStatus = 'allowed' | 'review';
+
+type PendingForumMediaPayload = {
+  path: string;
+  media_type: 'image' | 'video';
+  mime_type: string;
+  file_size: number;
+  original_filename: string;
+};
 
 type ForumCreateTopicResult = {
   ok: boolean;
@@ -21,6 +36,7 @@ type ForumCreateTopicResult = {
   topic_slug: string;
   category_slug: string;
   post_id: string;
+  attachment?: ForumPostAttachmentRow | null;
   moderation_score?: number | null;
   moderation_reason?: string | null;
 };
@@ -32,6 +48,7 @@ type ForumCreatePostResult = {
   topic_id: string;
   topic_slug?: string | null;
   category_slug?: string | null;
+  attachment?: ForumPostAttachmentRow | null;
   moderation_score?: number | null;
   moderation_reason?: string | null;
 };
@@ -186,6 +203,116 @@ const attachAuthorsToPosts = async (
   });
 };
 
+const getForumMediaType = (file: File): 'image' | 'video' | null => {
+  if (file.type.startsWith('image/')) return 'image';
+  if (file.type.startsWith('video/')) return 'video';
+  return null;
+};
+
+const sanitizeForumFilename = (name: string) => {
+  const cleaned = name
+    .normalize('NFKD')
+    .replace(/[^\w.-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 100);
+
+  return cleaned || 'forum-media';
+};
+
+const uploadPendingForumMedia = async (
+  file: File,
+  userId: string,
+  t: TranslateFn,
+): Promise<PendingForumMediaPayload> => {
+  const mediaType = getForumMediaType(file);
+  if (!mediaType) {
+    throw new Error(t('forum.mediaInvalidType'));
+  }
+
+  const allowedMime = mediaType === 'image'
+    ? FORUM_IMAGE_MIME_TYPES.has(file.type)
+    : FORUM_VIDEO_MIME_TYPES.has(file.type);
+
+  if (!allowedMime) {
+    throw new Error(t('forum.mediaInvalidType'));
+  }
+
+  const maxBytes = mediaType === 'image' ? FORUM_IMAGE_MAX_BYTES : FORUM_VIDEO_MAX_BYTES;
+  if (file.size <= 0 || file.size > maxBytes) {
+    throw new Error(t('forum.mediaTooLarge', {
+      size: mediaType === 'image' ? '5 MB' : '50 MB',
+    }));
+  }
+
+  const safeName = sanitizeForumFilename(file.name);
+  const path = `pending/${userId}/${crypto.randomUUID()}-${safeName}`;
+  const { error } = await supabase.storage.from(FORUM_MEDIA_BUCKET).upload(path, file, {
+    cacheControl: '3600',
+    contentType: file.type,
+    upsert: false,
+  });
+
+  if (error) {
+    throw new Error(t('forum.mediaUploadError'));
+  }
+
+  return {
+    path,
+    media_type: mediaType,
+    mime_type: file.type,
+    file_size: file.size,
+    original_filename: safeName,
+  };
+};
+
+const removePendingForumMedia = async (path: string | null) => {
+  if (!path) return;
+  await supabase.storage.from(FORUM_MEDIA_BUCKET).remove([path]);
+};
+
+const attachMediaToPosts = async (posts: ForumPost[]): Promise<ForumPost[]> => {
+  const postIds = posts.map((post) => post.id);
+  if (postIds.length === 0) return posts;
+
+  const { data, error } = await supabase
+    .from(FORUM_POST_ATTACHMENTS_TABLE)
+    .select('*')
+    .in('post_id', postIds)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.warn('Failed to load forum post attachments', error);
+    return posts;
+  }
+
+  const rows = ((data as unknown as ForumPostAttachmentRow[] | null) ?? []);
+  const signedRows = await Promise.all(rows.map(async (attachment) => {
+    const { data: signedData, error: signedError } = await supabase.storage
+      .from(attachment.bucket || FORUM_MEDIA_BUCKET)
+      .createSignedUrl(attachment.storage_path, 60 * 60);
+
+    if (signedError) {
+      console.warn('Failed to sign forum media URL', signedError);
+      return { ...attachment, signed_url: null };
+    }
+
+    return { ...attachment, signed_url: signedData?.signedUrl ?? null };
+  }));
+
+  const attachmentsByPost = new Map<string, ForumPostAttachment[]>();
+  for (const attachment of signedRows) {
+    const bucket = attachmentsByPost.get(attachment.post_id) ?? [];
+    bucket.push(attachment);
+    attachmentsByPost.set(attachment.post_id, bucket);
+  }
+
+  return posts.map((post) => ({
+    ...post,
+    attachments: attachmentsByPost.get(post.id) ?? [],
+  }));
+};
+
 export function useForumCategories() {
   const { t } = useTranslation();
   const [categories, setCategories] = useState<ForumCategory[]>([]);
@@ -197,7 +324,7 @@ export function useForumCategories() {
     setError(null);
 
     try {
-      const { data, error: rpcError } = await supabase.rpc('get_forum_categories_with_stats' as any);
+      const { data, error: rpcError } = await supabase.rpc('get_forum_categories_with_stats');
 
       if (rpcError) throw rpcError;
 
@@ -451,7 +578,8 @@ export function useForumPosts({ categorySlug, topicSlug, page, pageSize = 20 }: 
       if (postError) throw postError;
 
       const postRows = ((postData as unknown as ForumPostRow[] | null) ?? []);
-      setPosts(await attachAuthorsToPosts(postRows, profile));
+      const postsWithAuthors = await attachAuthorsToPosts(postRows, profile);
+      setPosts(await attachMediaToPosts(postsWithAuthors));
       setTotalCount(count ?? 0);
     } catch (loadError) {
       console.error('Failed to load forum topic', loadError);
@@ -477,46 +605,66 @@ export function useForumActions() {
   const { t } = useTranslation();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const createTopic = useCallback(async (input: { categorySlug: string; title: string; content: string }) => {
+  const createTopic = useCallback(async (input: { categorySlug: string; title: string; content: string; mediaFile?: File | null }) => {
     if (!user) {
       throw new Error(t('forum.loginRequiredCreateTopic'));
     }
 
     setIsSubmitting(true);
+    let pendingMediaPath: string | null = null;
 
     try {
+      const media = input.mediaFile
+        ? await uploadPendingForumMedia(input.mediaFile, user.id, t)
+        : null;
+      pendingMediaPath = media?.path ?? null;
+
       return await invokeForumFunction<ForumCreateTopicResult>(
         'forum-create-topic',
         {
           category_slug: input.categorySlug,
           title: input.title.trim(),
           content: input.content.trim(),
+          media,
         },
         t('forum.createTopicError'),
         t('forum.sessionExpired'),
       );
+    } catch (error) {
+      await removePendingForumMedia(pendingMediaPath);
+      throw error;
     } finally {
       setIsSubmitting(false);
     }
   }, [t, user]);
 
-  const createReply = useCallback(async (input: { topicId: string; content: string }) => {
+  const createReply = useCallback(async (input: { topicId: string; content: string; mediaFile?: File | null }) => {
     if (!user) {
       throw new Error(t('forum.loginRequiredReply'));
     }
 
     setIsSubmitting(true);
+    let pendingMediaPath: string | null = null;
 
     try {
+      const media = input.mediaFile
+        ? await uploadPendingForumMedia(input.mediaFile, user.id, t)
+        : null;
+      pendingMediaPath = media?.path ?? null;
+
       return await invokeForumFunction<ForumCreatePostResult>(
         'forum-create-post',
         {
           topic_id: input.topicId,
           content: input.content.trim(),
+          media,
         },
         t('forum.publishReplyError'),
         t('forum.sessionExpired'),
       );
+    } catch (error) {
+      await removePendingForumMedia(pendingMediaPath);
+      throw error;
     } finally {
       setIsSubmitting(false);
     }
@@ -532,7 +680,7 @@ export function useForumActions() {
       throw new Error('post_id_required');
     }
 
-    const { error } = await supabase.rpc('rpc_like_forum_post' as any, {
+    const { error } = await supabase.rpc('rpc_like_forum_post', {
       p_post_id: postId,
     });
 

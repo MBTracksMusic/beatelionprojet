@@ -8,6 +8,12 @@ const asIntervalSignatureComponent = (value, fallback) => {
     const normalized = Number.isFinite(value) ? Number(value) : fallback;
     return String(Math.max(0, Math.round(normalized)));
 };
+const asTimestampSignatureComponent = (value) => {
+    if (!value)
+        return "";
+    const timestamp = new Date(value);
+    return Number.isNaN(timestamp.getTime()) ? value : timestamp.toISOString();
+};
 export const asFfmpegGainDb = (value) => `${value.toFixed(2)}dB`;
 export const computeWatermarkHash = (settings) => {
     const source = [
@@ -15,7 +21,7 @@ export const computeWatermarkHash = (settings) => {
         asGainSignatureComponent(settings.gain_db),
         asIntervalSignatureComponent(settings.min_interval_sec, 20),
         asIntervalSignatureComponent(settings.max_interval_sec, 45),
-        settings.updated_at ?? "",
+        asTimestampSignatureComponent(settings.updated_at),
     ].join("|");
     return createHash("sha256").update(source).digest("hex");
 };

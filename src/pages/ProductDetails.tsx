@@ -9,6 +9,8 @@ import { hasPlayableTrackSource, toTrack } from '../lib/audio/track';
 import { useTranslation, type TranslateFn } from '../lib/i18n';
 import { getLocalizedName } from '../lib/i18n/localized';
 import { fetchCatalogProductBySlug } from '../lib/supabase/catalog';
+import { canAccessEliteHub } from '../lib/auth/elite';
+import { fetchEliteProductBySlug } from '../lib/supabase/elite';
 import type { ProductWithRelations } from '../lib/supabase/types';
 import { formatPrice } from '../lib/utils/format';
 import { useCartStore } from '../lib/stores/cart';
@@ -61,7 +63,7 @@ const mapCreditPurchaseError = (message: string, t: TranslateFn) => {
 
 export function ProductDetailsPage() {
   const { t, language } = useTranslation();
-  const { user, isAuthenticated } = useAuth();
+  const { user, profile, isAuthenticated } = useAuth();
   const { isActive: hasPremiumAccess, subscription: userSubStatus } = useUserSubscriptionStatus(user?.id);
   const isUserPremium = hasPremiumAccess && userSubStatus?.plan_code === 'user_monthly';
   const navigate = useNavigate();
@@ -83,6 +85,8 @@ export function ProductDetailsPage() {
     useCreditBalance(user?.id);
 
   const routePrefix = useMemo(() => location.pathname.split('/')[1] || 'beats', [location.pathname]);
+  const catalogPath = routePrefix === 'exclusives' ? '/exclusives' : routePrefix === 'kits' ? '/kits' : '/beats';
+  const canSeeEliteHub = useMemo(() => canAccessEliteHub(profile), [profile]);
   useEffect(() => {
     let isCancelled = false;
 
@@ -98,10 +102,17 @@ export function ProductDetailsPage() {
 
       try {
         if (!isCancelled) {
-          const row = await fetchCatalogProductBySlug({
+          let row = await fetchCatalogProductBySlug({
             slug,
             routePrefix,
           });
+
+          if (row === null && canSeeEliteHub) {
+            row = await fetchEliteProductBySlug({
+              slug,
+              routePrefix,
+            });
+          }
 
           if (isCancelled) return;
 
@@ -128,7 +139,7 @@ export function ProductDetailsPage() {
     return () => {
       isCancelled = true;
     };
-  }, [slug, routePrefix, t]);
+  }, [slug, routePrefix, canSeeEliteHub, t]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -481,7 +492,7 @@ export function ProductDetailsPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center py-20">
           <h1 className="text-3xl font-bold text-white mb-3">{t('productDetails.notFoundTitle')}</h1>
           <p className="text-zinc-400 mb-6">{error || t('productDetails.notFoundDescription')}</p>
-          <Link to="/beats" className="inline-flex items-center gap-2 text-rose-400 hover:text-rose-300">
+          <Link to={catalogPath} className="inline-flex items-center gap-2 text-rose-400 hover:text-rose-300">
             <ArrowLeft className="w-4 h-4" />
             {t('productDetails.backToBeats')}
           </Link>
@@ -498,7 +509,7 @@ export function ProductDetailsPage() {
     <div className="min-h-screen bg-zinc-950 pt-8 pb-32">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <Link
-          to={routePrefix === 'exclusives' ? '/exclusives' : routePrefix === 'kits' ? '/kits' : '/beats'}
+          to={catalogPath}
           className="inline-flex items-center gap-2 text-zinc-400 hover:text-white mb-6"
         >
           <ArrowLeft className="w-4 h-4" />
