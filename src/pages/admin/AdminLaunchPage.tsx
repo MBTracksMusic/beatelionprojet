@@ -248,7 +248,7 @@ function LaunchOverview() {
               <Radio className="h-3.5 w-3.5 text-rose-300" />
               Console lancement
             </div>
-            <h1 className="mt-4 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+            <h1 className="mt-4 text-2xl font-semibold text-white sm:text-3xl">
               Pilotage de la page d&apos;accès
             </h1>
             <p className="mt-2 text-sm leading-relaxed text-zinc-400">
@@ -1067,7 +1067,7 @@ function WhitelistCard() {
                     )}
                   </td>
                   <td className="max-w-[180px] truncate px-5 py-3 text-zinc-500">
-                    {row.note ?? '—'}
+                    {row.note ?? '-'}
                   </td>
                   <td className="px-5 py-3 text-zinc-500">
                     {new Date(row.granted_at).toLocaleDateString('fr-FR')}
