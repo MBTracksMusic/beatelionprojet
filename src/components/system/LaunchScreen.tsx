@@ -1,5 +1,20 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import HCaptcha from '@hcaptcha/react-hcaptcha';
+import {
+  ArrowRight,
+  BarChart3,
+  CheckCircle2,
+  Clock3,
+  Crown,
+  LockKeyhole,
+  Play,
+  Radio,
+  ShieldCheck,
+  Sparkles,
+  Swords,
+  Trophy,
+  UserCheck,
+} from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { useMaintenanceModeContext } from '@/lib/supabase/MaintenanceModeContext';
 import toast from 'react-hot-toast';
@@ -172,7 +187,7 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
       }
 
       // success
-      toast.success('Candidature reçue. Les meilleurs passent en premier — on te contacte dès que c\'est ton tour.');
+      toast.success('Candidature reçue. Les meilleurs passent en premier - on te contacte dès que c\'est ton tour.');
       setEmail('');
       resetCaptcha();
       setFeedback(null);
@@ -181,246 +196,297 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
     }
   };
 
-  // Fallbacks ultra-robustes — .trim() élimine les chaînes vides venant de la DB
+  // Fallbacks ultra-robustes: .trim() elimine les chaines vides venant de la DB.
   const headline = messages?.headline?.trim() || 'Beatelion est en accès privé';
   const subline =
     messages?.subline?.trim() ||
     "Une sélection de producteurs est déjà à l'intérieur. Les prochains accès arrivent progressivement.";
 
-  // Découpage automatique du titre en lignes visuelles
-  // — respecte les \n si l'admin en met, sinon coupe aux fins de phrases
-  const headlineLines = useMemo(() => {
-    const raw = headline;
-    const lines = raw.includes('\n')
-      ? raw.split('\n')
-      : raw.split(/(?<=[.!?])\s+/);
-    return lines.map((s) => s.trim()).filter(Boolean);
-  }, [headline]);
-
+  const accessHighlights = [
+    {
+      icon: Trophy,
+      title: 'Classement réel',
+      text: 'Des confrontations et retours qui montrent ton niveau autrement.',
+    },
+    {
+      icon: Swords,
+      title: 'Battles sélectives',
+      text: 'Les producteurs actifs passent devant les profils dormants.',
+    },
+    {
+      icon: ShieldCheck,
+      title: 'Accès contrôlé',
+      text: 'Les invitations sont ouvertes par vagues pour garder la qualité.',
+    },
+  ];
 
   return (
-    <div className="relative min-h-screen bg-zinc-950 overflow-hidden">
+    <div className="min-h-screen overflow-hidden bg-[#08080b] text-white">
+      <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(to_right,rgba(255,255,255,0.045)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:76px_76px] opacity-30" />
+      <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(180deg,rgba(8,8,11,0.35),rgba(8,8,11,0.92)_72%,#08080b)]" />
 
-      {/* Ambient glow — palette unifiée amber */}
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-40 left-1/2 -translate-x-1/2 h-[700px] w-[700px] rounded-full bg-amber-500/8 blur-[160px]" />
-        <div className="absolute top-1/3 -right-20 h-[300px] w-[300px] rounded-full bg-yellow-400/4 blur-[120px]" />
-        <div className="absolute bottom-0 left-1/4 h-[250px] w-[250px] rounded-full bg-amber-400/3 blur-[100px]" />
-      </div>
-
-      {/* Preview produit en fond — /preview.png à placer dans /public */}
-      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
-        <img
-          src="/preview.png"
-          alt=""
-          aria-hidden="true"
-          className="h-full w-full object-cover opacity-[0.06] blur-2xl scale-110"
-        />
-      </div>
-
-      <div className="relative z-10 mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center px-6 py-24 text-center">
-
-        {/* Badge "Accès privé" — amber unifié + pulse */}
-        <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-1.5">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-          <span className="text-xs font-semibold uppercase tracking-widest text-amber-400">
-            Accès privé
-          </span>
-        </div>
-
-        {/* Logo — amber gradient + halo */}
-        <div className="mb-10 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500/25 to-yellow-500/20 ring-1 ring-amber-500/20 shadow-[0_0_32px_rgba(245,158,11,0.18)]">
-          <span className="text-3xl">🎧</span>
-        </div>
-
-        {/* Headline — hiérarchie automatique : court = gros blanc, long = petit grisé */}
-        <h1 className="flex w-full flex-col items-center gap-2">
-          {headlineLines.map((line, i) => {
-            const isFirst = i === 0;
-            const isLast = i === headlineLines.length - 1;
-            const isShort = line.length <= 20;
-            return (
-              <span
-                key={i}
-                className={[
-                  'block text-balance text-center font-black tracking-tight',
-                  // Première ligne : accroche, toujours proéminente
-                  isFirst
-                    ? 'text-3xl leading-tight text-white sm:text-4xl mb-1'
-                  // Lignes courtes et percutantes (ex: "On va voir.", "Niveau réel.")
-                  : isShort
-                    ? 'text-3xl leading-tight text-white sm:text-4xl'
-                  // Dernière ligne : scarcité, plus douce
-                  : isLast
-                    ? 'text-base leading-snug text-zinc-500 mt-1 font-semibold'
-                  // Lignes longues : contexte, plus petites
-                    : 'text-lg leading-snug text-zinc-300 sm:text-xl',
-                ].join(' ')}
-              >
-                {line}
-              </span>
-            );
-          })}
-        </h1>
-
-        {/* Subline */}
-        <p className="mt-8 max-w-sm text-base leading-relaxed text-zinc-400 sm:text-lg text-pretty">
-          {subline}
-        </p>
-
-        {/* Micro texte UX */}
-        <p className="mt-3 text-sm text-zinc-600">· Accès ouverts par vagues ·</p>
-
-        {/* Divider visuel hero → conversion */}
-        <div className="mt-12 flex w-full items-center gap-3">
-          <div className="h-px flex-1 bg-gradient-to-r from-transparent to-zinc-700" />
-          <div className="h-1.5 w-1.5 rounded-full bg-zinc-600" />
-          <div className="h-px flex-1 bg-gradient-to-l from-transparent to-zinc-700" />
-        </div>
-
-        {/* Date de lancement — texte inline, accent amber */}
-        {formattedDate && (
-          <p className="mt-6 text-xs uppercase tracking-widest text-zinc-500">
-            Lancement prévu le{' '}
-            <span className="font-semibold text-amber-400/80">{formattedDate}</span>
-          </p>
-        )}
-
-        {/* Countdown — plus large, digits plus impactants */}
-        {targetTime && (
-          <div className="mt-5 grid grid-cols-4 gap-3 w-full max-w-sm">
-            {[
-              { label: 'Jours', value: countdown.days },
-              { label: 'Heures', value: countdown.hours },
-              { label: 'Min', value: countdown.minutes },
-              { label: 'Sec', value: countdown.seconds },
-            ].map((item) => (
-              <div
-                key={item.label}
-                className="flex flex-col items-center rounded-2xl border border-zinc-800 border-t-amber-500/20 bg-zinc-900/80 px-2 py-5 transition-colors hover:border-amber-500/20"
-              >
-                {/* key sur le span = remount à chaque changement → animation flip-in */}
-                <span
-                  key={pad(item.value)}
-                  className="animate-flip-in text-4xl font-black tabular-nums text-white sm:text-5xl"
-                >
-                  {pad(item.value)}
-                </span>
-                <span className="mt-1.5 text-[9px] font-semibold uppercase tracking-[0.15em] text-zinc-500">
-                  {item.label}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Preuve sociale — juste au-dessus du form pour impact maximal */}
-        {waitlistCountDisplay > 0 && (
-          <div className="mt-10 inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900/60 px-4 py-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            <p className="text-sm text-zinc-400">
-              <span className="font-semibold text-white">+{waitlistCountDisplay}</span>
-              {' '}producteurs déjà inscrits
-            </p>
-          </div>
-        )}
-
-        {/* Formulaire waitlist — carte premium */}
-        <div className="mt-14 w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900/70 p-6 shadow-2xl shadow-black/60 backdrop-blur ring-1 ring-white/[0.03]">
-
-          {/* En-tête carte */}
-          <p className="text-base font-bold text-white">
-            Demande ton accès
-          </p>
-          <p className="mt-1 text-xs text-zinc-500">
-            Les accès sont accordés progressivement.
-          </p>
-
-          {/* ── Logique intacte à partir d'ici ── */}
-          <form onSubmit={handleSubmit} className="mt-5 space-y-3">
-            <input
-              type="email"
-              inputMode="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="ton@email.com"
-              disabled={isSubmitting}
-              required
-              className="h-12 w-full rounded-xl border border-zinc-700 bg-zinc-950/80 px-4 text-sm text-white placeholder:text-zinc-600 transition-all focus:border-amber-500/60 focus:outline-none focus:ring-2 focus:ring-amber-500/10 disabled:opacity-60"
-            />
-
-            {isCaptchaConfigured && (
-              <div className="flex justify-center overflow-hidden rounded-lg">
-                <HCaptcha
-                  key={captchaKey}
-                  sitekey={captchaSiteKey}
-                  onVerify={(token) => { captchaTokenRef.current = token; }}
-                  onExpire={() => { captchaTokenRef.current = null; }}
-                  onError={() => {
-                    captchaTokenRef.current = null;
-                    toast.error('Captcha indisponible. Réessayez dans quelques instants.');
-                  }}
-                />
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="h-12 w-full rounded-xl bg-amber-400 text-sm font-bold text-zinc-950 shadow-[0_4px_20px_rgba(251,191,36,0.25)] transition-all hover:bg-amber-300 hover:shadow-[0_4px_30px_rgba(251,191,36,0.35)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {isSubmitting ? 'Envoi en cours...' : 'Rejoindre la liste →'}
-            </button>
-
-            <div className="min-h-[20px] text-sm">
-              {feedback && (
-                <p className={feedback.tone === 'success' ? 'text-emerald-400' : 'text-red-400'}>
-                  {feedback.message}
-                </p>
-              )}
+      <main className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-5 py-6 sm:px-8 lg:px-10">
+        <header className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <img src="/beatelion-icon.svg" alt="Beatelion" className="h-12 w-12 rounded-2xl shadow-lg shadow-orange-500/10" />
+            <div>
+              <p className="text-xl font-black leading-none text-white">Beatelion</p>
+              <p className="mt-1 text-sm text-zinc-500">Battles producteurs & accès privé</p>
             </div>
-          </form>
-        </div>
-
-        {/* Micro texte UX — rassurance post-formulaire */}
-        <p className="mt-3 text-center text-xs text-zinc-600">
-          Tu recevras un email dès que ton accès est disponible.
-        </p>
-
-        {/* YouTube embed — avec label d'intro */}
-        {embedUrl && (
-          <div className="mt-12 w-full max-w-2xl">
-            <p className="mb-3 text-xs uppercase tracking-widest text-zinc-600">Aperçu</p>
-            <iframe
-              src={embedUrl}
-              sandbox="allow-scripts allow-same-origin allow-presentation"
-              referrerPolicy="strict-origin-when-cross-origin"
-              allow="autoplay; encrypted-media"
-              allowFullScreen
-              className="aspect-video w-full rounded-2xl border border-zinc-800"
-              title="Beatelion Launch Video"
-            />
           </div>
-        )}
+        </header>
 
-        {/* Accès VIP */}
-        <div className="mt-10 flex flex-col items-center gap-2">
-          <p className="text-xs text-zinc-600">Tu as déjà un accès ?</p>
-          <a
-            href="/login"
-            className="inline-flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900/60 px-4 py-1.5 text-xs font-medium text-zinc-500 transition hover:border-zinc-600 hover:text-zinc-300"
-          >
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-            Accès VIP — Se connecter
-          </a>
-        </div>
+        <section className="grid flex-1 items-center gap-10 py-12 lg:grid-cols-[minmax(0,1.05fr)_minmax(390px,0.95fr)] lg:py-16">
+          <div className="max-w-3xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-300" />
+              Accès privé par sélection
+            </div>
 
-        {/* Footer */}
-        <p className="mt-8 text-xs text-zinc-800">
-          © {new Date().getFullYear()} Beatelion — Plateforme réservée aux producteurs.
-        </p>
-      </div>
+            <h1 className="mt-6 max-w-3xl text-4xl font-black leading-[0.98] text-white sm:text-5xl lg:text-6xl">
+              <span className="block text-zinc-100">Entre dans le cercle</span>
+              <span className="mt-1 block text-zinc-100">des producteurs</span>
+              <span className="mt-2 block bg-gradient-to-r from-amber-200 via-orange-300 to-rose-400 bg-clip-text text-transparent">
+                qui veulent connaître leur vrai niveau.
+              </span>
+            </h1>
+
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/70 px-3 py-1.5 text-xs font-semibold text-zinc-300">
+                <Trophy className="h-3.5 w-3.5 text-amber-300" />
+                Niveau réel
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/70 px-3 py-1.5 text-xs font-semibold text-zinc-300">
+                <Swords className="h-3.5 w-3.5 text-rose-300" />
+                Battles privées
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/70 px-3 py-1.5 text-xs font-semibold text-zinc-300">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-300" />
+                Sélection active
+              </span>
+            </div>
+
+            <p className="mt-6 max-w-2xl whitespace-pre-line text-lg font-semibold leading-relaxed text-zinc-200 sm:text-xl">
+              {headline}
+            </p>
+            <p className="mt-4 max-w-xl text-base leading-7 text-zinc-400">
+              {subline}
+            </p>
+
+            <div className="mt-8 grid gap-3 sm:grid-cols-3">
+              {accessHighlights.map(({ icon: Icon, title, text }) => (
+                <div key={title} className="rounded-xl border border-zinc-800 bg-zinc-950/55 p-4">
+                  <Icon className="h-5 w-5 text-amber-300" />
+                  <p className="mt-3 text-sm font-semibold text-white">{title}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-zinc-500">{text}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              {waitlistCountDisplay > 0 && (
+                <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100">
+                  <UserCheck className="h-4 w-4 text-emerald-300" />
+                  <span className="font-semibold">+{waitlistCountDisplay}</span>
+                  <span className="text-emerald-200/70">producteurs déjà inscrits</span>
+                </div>
+              )}
+              <div className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/60 px-4 py-2 text-sm text-zinc-400">
+                <Radio className="h-4 w-4 text-rose-300" />
+                Accès ouverts par vagues
+              </div>
+            </div>
+          </div>
+
+          <div className="mx-auto w-full max-w-md lg:max-w-none">
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 shadow-2xl shadow-black/60">
+              <div className="border-b border-zinc-800 p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-300">Nouvelle demande</p>
+                    <p className="mt-1 text-lg font-bold text-white">Demande ton invitation</p>
+                    <p className="mt-1 text-sm text-zinc-500">Les premiers profils actifs sont traités en priorité.</p>
+                  </div>
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-amber-400/20 bg-amber-400/10">
+                    <Crown className="h-5 w-5 text-amber-300" />
+                  </div>
+                </div>
+              </div>
+
+              {targetTime && (
+                <div className="border-b border-zinc-800 p-5">
+                  {formattedDate && (
+                    <p className="mb-3 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-zinc-500">
+                      <Clock3 className="h-3.5 w-3.5 text-amber-300" />
+                      Lancement: <span className="text-amber-200">{formattedDate}</span>
+                    </p>
+                  )}
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { label: 'Jours', value: countdown.days },
+                      { label: 'Heures', value: countdown.hours },
+                      { label: 'Min', value: countdown.minutes },
+                      { label: 'Sec', value: countdown.seconds },
+                    ].map((item) => (
+                      <div key={item.label} className="rounded-xl border border-zinc-800 bg-zinc-900/70 px-2 py-3 text-center">
+                        <span key={pad(item.value)} className="block text-2xl font-black tabular-nums text-white">
+                          {pad(item.value)}
+                        </span>
+                        <span className="mt-1 block text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                          {item.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit} className="space-y-4 p-5">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-zinc-300">Email professionnel ou principal</span>
+                  <input
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="ton@email.com"
+                    disabled={isSubmitting}
+                    required
+                    className="h-12 w-full rounded-xl border border-zinc-700 bg-[#0b0b0f] px-4 text-sm text-white placeholder:text-zinc-600 transition-all focus:border-amber-400/70 focus:outline-none focus:ring-2 focus:ring-amber-400/10 disabled:opacity-60"
+                  />
+                </label>
+
+                {isCaptchaConfigured && (
+                  <div className="flex justify-center overflow-hidden rounded-xl border border-zinc-800 bg-white p-2">
+                    <HCaptcha
+                      key={captchaKey}
+                      sitekey={captchaSiteKey}
+                      onVerify={(token) => { captchaTokenRef.current = token; }}
+                      onExpire={() => { captchaTokenRef.current = null; }}
+                      onError={() => {
+                        captchaTokenRef.current = null;
+                        toast.error('Captcha indisponible. Réessayez dans quelques instants.');
+                      }}
+                    />
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-300 via-orange-400 to-rose-500 text-sm font-black text-zinc-950 shadow-[0_18px_45px_rgba(251,146,60,0.2)] transition hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {isSubmitting ? 'Envoi en cours...' : 'Demander mon accès'}
+                  {!isSubmitting && <ArrowRight className="h-4 w-4" />}
+                </button>
+
+                <div className="min-h-[20px] text-sm">
+                  {feedback && (
+                    <p className={feedback.tone === 'success' ? 'text-emerald-400' : 'text-red-400'}>
+                      {feedback.message}
+                    </p>
+                  )}
+                </div>
+
+                <p className="text-xs leading-relaxed text-zinc-600">
+                  Tu recevras un email quand ton accès est disponible. Les profils producteurs actifs sont validés en premier.
+                </p>
+              </form>
+
+              <div className="border-t border-zinc-800 bg-zinc-900/35 p-5">
+                <div className="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-white">Accès déjà validé ?</p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Connecte-toi directement avec le compte autorisé.
+                    </p>
+                  </div>
+                  <a
+                    href="/login"
+                    className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm font-medium text-zinc-200 transition hover:border-amber-400/50 hover:text-white"
+                  >
+                    <LockKeyhole className="h-4 w-4 text-amber-300" />
+                    Se connecter
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-6 pb-12 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-zinc-500">Aperçu plateforme</p>
+                <h2 className="mt-2 text-xl font-bold text-white">Ce que l'accès débloque</h2>
+              </div>
+              <Sparkles className="h-5 w-5 text-amber-300" />
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {[
+                { icon: BarChart3, label: 'Classements et signaux de niveau', value: 'avis, votes, progression' },
+                { icon: Swords, label: 'Battles entre producteurs', value: 'comparaison directe' },
+                { icon: CheckCircle2, label: 'Profil producteur sélectionné', value: 'accès par validation' },
+              ].map(({ icon: Icon, label, value }) => (
+                <div key={label} className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-950 text-amber-300">
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">{label}</p>
+                    <p className="text-xs text-zinc-500">{value}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {embedUrl ? (
+            <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/70">
+              <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-5 py-4">
+                <div>
+                  <p className="text-sm font-semibold text-white">Regarder l'annonce</p>
+                  <p className="text-xs text-zinc-500">Comprendre le lancement Beatelion.</p>
+                </div>
+                <Play className="h-5 w-5 text-rose-300" />
+              </div>
+              <iframe
+                src={embedUrl}
+                sandbox="allow-scripts allow-same-origin allow-presentation"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allow="autoplay; encrypted-media"
+                allowFullScreen
+                className="aspect-video w-full"
+                title="Beatelion Launch Video"
+              />
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
+              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-zinc-500">Process</p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                {[
+                  { step: '01', title: 'Candidature', text: 'Tu demandes ton accès.' },
+                  { step: '02', title: 'Validation', text: 'Le profil producteur est vérifié.' },
+                  { step: '03', title: 'Entrée', text: 'Tu rejoins la plateforme.' },
+                ].map((item) => (
+                  <div key={item.step} className="rounded-xl border border-zinc-800 bg-zinc-900/55 p-4">
+                    <p className="text-xs font-black text-amber-300">{item.step}</p>
+                    <p className="mt-3 text-sm font-semibold text-white">{item.title}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-zinc-500">{item.text}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <footer className="border-t border-zinc-900 py-6 text-xs text-zinc-700">
+          © {new Date().getFullYear()} Beatelion. Plateforme réservée aux producteurs.
+        </footer>
+      </main>
     </div>
   );
 }
