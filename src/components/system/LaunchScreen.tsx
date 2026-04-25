@@ -294,19 +294,6 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
               ))}
             </div>
 
-            <div className="mt-8 flex flex-wrap items-center gap-3">
-              {waitlistCountDisplay > 0 && (
-                <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100">
-                  <UserCheck className="h-4 w-4 text-emerald-300" />
-                  <span className="font-semibold">+{waitlistCountDisplay}</span>
-                  <span className="text-emerald-200/70">{content.waitlistCountLabel}</span>
-                </div>
-              )}
-              <div className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/60 px-4 py-2 text-sm text-zinc-400">
-                <Radio className="h-4 w-4 text-rose-300" />
-                {content.wavesLabel}
-              </div>
-            </div>
           </div>
 
           <div className="mx-auto w-full max-w-md lg:max-w-none">
@@ -396,6 +383,20 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
                   <span>{content.trustText}</span>
                   <span className="hidden text-zinc-700 sm:inline">•</span>
                   <span>{content.socialProofText}</span>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  {waitlistCountDisplay > 0 && (
+                    <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100">
+                      <UserCheck className="h-4 w-4 text-emerald-300" />
+                      <span className="font-semibold">+{waitlistCountDisplay}</span>
+                      <span className="text-emerald-200/70">{content.waitlistCountLabel}</span>
+                    </div>
+                  )}
+                  <div className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/60 px-4 py-2 text-sm text-zinc-400">
+                    <Radio className="h-4 w-4 text-rose-300" />
+                    {content.wavesLabel}
+                  </div>
                 </div>
 
                 <div className="min-h-[20px] text-sm">
