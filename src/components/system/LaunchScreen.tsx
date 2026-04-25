@@ -74,7 +74,12 @@ function getEmbedUrl(url: string): string | null {
 }
 
 export function LaunchScreen({ messages }: LaunchScreenProps) {
-  const { launchDate, launchVideoUrl, waitlistCountDisplay } = useMaintenanceModeContext();
+  const {
+    launchDate,
+    launchVideoUrl,
+    launchMessagePublic,
+    waitlistCountDisplay,
+  } = useMaintenanceModeContext();
 
   const targetTime = useMemo(() => {
     if (!launchDate) return null;
@@ -198,7 +203,7 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
   };
 
   // Fallbacks ultra-robustes: .trim() elimine les chaines vides venant de la DB.
-  const content = parseLaunchPageContent(messages?.headline, messages?.subline);
+  const content = parseLaunchPageContent(launchMessagePublic ?? messages?.headline, messages?.subline);
 
   const accessHighlights = [
     {
