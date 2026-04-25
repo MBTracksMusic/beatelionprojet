@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Eye } from 'lucide-react';
+import { Eye, Pause, Play } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
@@ -7,6 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../..
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
 import { Select } from '../../components/ui/Select';
+import { useAudioPlayer } from '../../context/AudioPlayerContext';
+import { hasPlayableTrackSource, toTrack } from '../../lib/audio/track';
 import {
   approveLabelRequest,
   deleteRejectedLabelRequest,
@@ -38,6 +40,10 @@ function getProducerDisplayName(profile: Pick<EliteAdminProductProducer, 'email'
   return profile?.username || profile?.full_name || profile?.email || 'Producteur inconnu';
 }
 
+function getAdminPreviewTrackId(productId: string) {
+  return `admin-elite-preview-${productId}`;
+}
+
 function RequestDetailItem({ label, value }: { label: string; value: string | null }) {
   const displayValue = value && value.trim() ? value : '-';
 
@@ -60,6 +66,7 @@ export function AdminEliteAccessPage() {
   const [profileSearch, setProfileSearch] = useState('');
   const [productSearch, setProductSearch] = useState('');
   const [productProducerFilter, setProductProducerFilter] = useState('');
+  const { currentTrack, isPlaying, playTrack } = useAudioPlayer();
 
   const loadAdminData = async () => {
     setIsLoading(true);
@@ -238,6 +245,27 @@ export function AdminEliteAccessPage() {
     } finally {
       setActionKey(null);
     }
+  };
+
+  const handlePlayProductPreview = (product: EliteAdminProductSummary) => {
+    const track = toTrack({
+      id: getAdminPreviewTrackId(product.id),
+      title: product.title,
+      audioUrl: product.preview_url,
+      cover_image_url: product.cover_image_url,
+      producerId: product.producer_id,
+      preview_url: product.preview_url,
+      watermarked_path: product.watermarked_path,
+      exclusive_preview_url: product.exclusive_preview_url,
+      watermarked_bucket: product.watermarked_bucket,
+    });
+
+    if (!track) {
+      toast.error('Preview indisponible pour ce titre.');
+      return;
+    }
+
+    playTrack(track);
   };
 
   const renderLabelRequestActions = (request: LabelRequest, options?: { showViewButton?: boolean }) => (
@@ -499,12 +527,21 @@ export function AdminEliteAccessPage() {
                   <th className="py-2 text-left">Exclusif</th>
                   <th className="py-2 text-left">Publie</th>
                   <th className="py-2 text-left">Prive</th>
+                  <th className="py-2 text-left">Preview</th>
                   <th className="py-2 text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredProducts.map((product) => {
                   const productProducer = productProducersById.get(product.producer_id);
+                  const hasPreview = hasPlayableTrackSource({
+                    preview_url: product.preview_url,
+                    watermarked_path: product.watermarked_path,
+                    exclusive_preview_url: product.exclusive_preview_url,
+                    watermarked_bucket: product.watermarked_bucket,
+                  });
+                  const isPlayingCurrent =
+                    hasPreview && currentTrack?.id === getAdminPreviewTrackId(product.id) && isPlaying;
 
                   return (
                     <tr key={product.id} className="border-b border-zinc-900">
@@ -521,6 +558,29 @@ export function AdminEliteAccessPage() {
                       <td className="py-3 pr-4 text-zinc-300">{product.is_exclusive ? 'yes' : 'no'}</td>
                       <td className="py-3 pr-4 text-zinc-300">{product.is_published ? 'yes' : 'no'}</td>
                       <td className="py-3 pr-4 text-zinc-300">{product.is_elite ? 'yes' : 'no'}</td>
+                      <td className="py-3 pr-4">
+                        <Button
+                          size="sm"
+                          variant={isPlayingCurrent ? 'secondary' : 'ghost'}
+                          className="h-9 w-9 p-0"
+                          onClick={() => handlePlayProductPreview(product)}
+                          disabled={!hasPreview}
+                          aria-label={isPlayingCurrent ? 'Mettre la preview en pause' : 'Lire la preview'}
+                          title={
+                            !hasPreview
+                              ? 'Preview indisponible'
+                              : isPlayingCurrent
+                                ? 'Mettre la preview en pause'
+                                : 'Lire la preview'
+                          }
+                        >
+                          {isPlayingCurrent ? (
+                            <Pause className="h-4 w-4" fill="currentColor" />
+                          ) : (
+                            <Play className="h-4 w-4" fill="currentColor" />
+                          )}
+                        </Button>
+                      </td>
                       <td className="py-3 text-right">
                         <Button
                           size="sm"

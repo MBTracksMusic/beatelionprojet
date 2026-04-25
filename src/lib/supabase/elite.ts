@@ -29,6 +29,11 @@ export interface EliteAdminProductSummary {
   producer_id: string;
   title: string;
   slug: string;
+  preview_url: string | null;
+  exclusive_preview_url: string | null;
+  watermarked_path: string | null;
+  watermarked_bucket: string | null;
+  cover_image_url: string | null;
   product_type: string;
   is_exclusive: boolean;
   is_elite: boolean;
@@ -61,6 +66,11 @@ const ADMIN_PRODUCT_COLUMNS = [
   'producer_id',
   'title',
   'slug',
+  'preview_url',
+  'exclusive_preview_url',
+  'watermarked_path',
+  'watermarked_bucket',
+  'cover_image_url',
   'product_type',
   'is_exclusive',
   'is_elite',
