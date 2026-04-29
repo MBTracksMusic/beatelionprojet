@@ -52,11 +52,9 @@ const LEGACY_PUBLIC_PROFILES_SELECT = [
   'updated_at',
 ].join(', ');
 
-const PUBLIC_PROFILES_RPC_FALLBACKS = [
-  'get_public_visible_producer_profiles',
-  'get_public_producer_profiles_soft',
-  'get_public_producer_profiles',
-  'get_public_producer_profiles_v2',
+const PUBLIC_PROFILES_VIEW_FALLBACKS = [
+  { name: 'public_visible_producer_profiles', select: PUBLIC_PROFILES_SELECT },
+  { name: 'public_producer_profiles_v2', select: LEGACY_PUBLIC_PROFILES_SELECT },
 ] as const;
 
 const toNonEmptyString = (value: unknown): string | null => {
@@ -182,10 +180,13 @@ export async function fetchPublicProducerProfilesMap(
   }
 
   if (profilesById.size < idSet.size) {
-    for (const rpcName of PUBLIC_PROFILES_RPC_FALLBACKS) {
-      const rpcRes = await supabase.rpc(rpcName as any);
-      if (!rpcRes.error && Array.isArray(rpcRes.data)) {
-        addRowsToMap(profilesById, idSet, rpcRes.data as unknown[]);
+    for (const fallback of PUBLIC_PROFILES_VIEW_FALLBACKS) {
+      const viewRes = await supabase
+        .from(fallback.name as any)
+        .select(fallback.select)
+        .in('user_id', uniqueIds);
+      if (!viewRes.error && Array.isArray(viewRes.data)) {
+        addRowsToMap(profilesById, idSet, viewRes.data as unknown[]);
       }
       if (profilesById.size >= idSet.size) {
         break;

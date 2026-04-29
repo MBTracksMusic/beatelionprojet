@@ -111,9 +111,12 @@ export function HomeBattlesPreview() {
           if (rpcRes.error) {
             console.error('Error fetching home battles preview RPC:', rpcRes.error);
           }
-          const { data: spotlightRows, error: spotlightError } = await supabase.rpc('get_public_battle_of_the_day' as any);
-          if (!spotlightError && Array.isArray(spotlightRows) && spotlightRows.length > 0) {
-            const spotlight = spotlightRows[0] as Record<string, unknown>;
+          const { data: spotlightRow, error: spotlightError } = await supabase
+            .from('battle_of_the_day' as any)
+            .select('battle_id, slug, title, status, producer1_id, producer1_username, producer2_id, producer2_username')
+            .maybeSingle();
+          if (!spotlightError && spotlightRow) {
+            const spotlight = spotlightRow as unknown as Record<string, unknown>;
             previewBattles = [
               {
                 id: String(spotlight.battle_id),
