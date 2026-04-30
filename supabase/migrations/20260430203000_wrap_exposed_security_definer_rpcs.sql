@@ -8,11 +8,14 @@
   producer workflows, purchase flows, account deletion, quota checks, and RLS
   helpers. Revoking them outright would break the app. Instead, this migration:
 
-  1. Captures every remaining public SECURITY DEFINER function executable by
-     authenticated.
+  1. Captures every remaining non-trigger public SECURITY DEFINER function
+     executable by authenticated.
   2. Moves the privileged implementation to private.<function>.
   3. Recreates public.<function> as a SECURITY INVOKER wrapper with the same
      signature, return type, volatility, and execute grants.
+  4. Locks down SECURITY DEFINER trigger functions separately because trigger
+     functions cannot be recreated as SQL RPC wrappers and should not be
+     executable directly by API roles.
 
   The REST API keeps the same RPC names, but no signed-in user directly
   executes a SECURITY DEFINER function in the exposed public schema anymore.
@@ -51,6 +54,19 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'public'
   AND p.prosecdef = true
+  AND p.prorettype <> 'trigger'::regtype
+  AND has_function_privilege('authenticated', p.oid, 'EXECUTE');
+
+CREATE TEMP TABLE _security_definer_trigger_lockdown_targets ON COMMIT DROP AS
+SELECT
+  p.oid,
+  format('%I.%I(%s)', n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)) AS public_signature,
+  has_function_privilege('service_role', p.oid, 'EXECUTE') AS grant_service_role
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public'
+  AND p.prosecdef = true
+  AND p.prorettype = 'trigger'::regtype
   AND has_function_privilege('authenticated', p.oid, 'EXECUTE');
 
 DO $$
@@ -165,6 +181,29 @@ BEGIN
 
     RAISE NOTICE 'Moved SECURITY DEFINER implementation to %, recreated invoker wrapper %',
       fn.private_signature,
+      fn.public_signature;
+  END LOOP;
+END
+$$;
+
+DO $$
+DECLARE
+  fn record;
+BEGIN
+  FOR fn IN
+    SELECT *
+    FROM _security_definer_trigger_lockdown_targets
+    ORDER BY public_signature
+  LOOP
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC', fn.public_signature);
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM anon', fn.public_signature);
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM authenticated', fn.public_signature);
+
+    IF fn.grant_service_role THEN
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', fn.public_signature);
+    END IF;
+
+    RAISE NOTICE 'Revoked direct API-role EXECUTE on SECURITY DEFINER trigger function %',
       fn.public_signature;
   END LOOP;
 END
