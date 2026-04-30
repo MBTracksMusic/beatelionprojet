@@ -46,24 +46,15 @@ export function ProducersPage() {
     const fetchProducers = async () => {
       setIsLoading(true);
       try {
-        const rpcRes = await supabase.rpc('get_public_visible_producer_profiles' as any);
-        if (!rpcRes.error && Array.isArray(rpcRes.data)) {
-          if (!isCancelled) setAllProducers(rpcRes.data as unknown as ProducerListItem[]);
-          return;
-        }
-
         const { data, error } = await supabase
-          .from('public_producer_profiles')
+          .from('public_visible_producer_profiles' as any)
           .select('user_id, raw_username, username, avatar_url, producer_tier, bio, social_links, is_deleted, is_producer_active, created_at, updated_at')
           .eq('is_deleted', false)
           .order('updated_at', { ascending: false });
 
         if (error) throw error;
 
-        const visible = ((data ?? []) as unknown as ProducerListItem[]).filter(
-          (r) => r.is_producer_active === true
-        );
-        if (!isCancelled) setAllProducers(visible);
+        if (!isCancelled) setAllProducers((data ?? []) as unknown as ProducerListItem[]);
       } catch (error) {
         console.error('Error fetching producers:', error);
         if (!isCancelled) setAllProducers([]);

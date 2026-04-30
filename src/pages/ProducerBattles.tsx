@@ -622,14 +622,6 @@ export function ProducerBattlesPage() {
         }
       }
 
-      if (!producerError && (!producerData || producerData.length === 0)) {
-        const rpcProducersRes = await supabase.rpc('get_public_producer_profiles_v2');
-        if (!rpcProducersRes.error) {
-          producerData = ((rpcProducersRes.data as Array<{ user_id: string; username: string | null }> | null) ?? [])
-            .filter((row) => row.user_id !== profile.id);
-        }
-      }
-
       if (!isCancelled) {
         if (producerError) {
           console.error('Error loading producers for battle creation:', producerError);

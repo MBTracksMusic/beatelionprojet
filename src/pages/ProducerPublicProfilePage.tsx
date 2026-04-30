@@ -160,18 +160,22 @@ export function ProducerPublicProfilePage() {
 
         let producerRecord: Record<string, unknown> | null = null;
 
-        const visibleRpcRes = await supabase.rpc('get_public_visible_producer_profiles' as any);
-        if (!visibleRpcRes.error && Array.isArray(visibleRpcRes.data)) {
-          const row = (visibleRpcRes.data as Array<Record<string, unknown>>).find(matchesLookup);
+        const visibleProfilesRes = await supabase
+          .from('public_visible_producer_profiles' as any)
+          .select('user_id, raw_username, username, avatar_url, bio, social_links, producer_tier, xp, level, rank_tier, reputation_score, is_deleted, created_at');
+        if (!visibleProfilesRes.error && Array.isArray(visibleProfilesRes.data)) {
+          const row = (visibleProfilesRes.data as unknown as Array<Record<string, unknown>>).find(matchesLookup);
           if (row) {
             producerRecord = row;
           }
         }
 
         if (!producerRecord) {
-          const softRpcRes = await supabase.rpc('get_public_producer_profiles_soft' as any);
-          if (!softRpcRes.error && Array.isArray(softRpcRes.data)) {
-            const row = (softRpcRes.data as Array<Record<string, unknown>>).find(matchesLookup);
+          const softProfilesRes = await supabase
+            .from('public_producer_profiles')
+            .select('user_id, raw_username, username, avatar_url, bio, social_links, producer_tier, xp, level, rank_tier, reputation_score, is_deleted, created_at');
+          if (!softProfilesRes.error && Array.isArray(softProfilesRes.data)) {
+            const row = (softProfilesRes.data as Array<Record<string, unknown>>).find(matchesLookup);
             if (row) {
               producerRecord = row;
             }
@@ -179,9 +183,11 @@ export function ProducerPublicProfilePage() {
         }
 
         if (!producerRecord) {
-          const v2RpcRes = await supabase.rpc('get_public_producer_profiles_v2');
-          if (!v2RpcRes.error && Array.isArray(v2RpcRes.data)) {
-            const row = (v2RpcRes.data as Array<Record<string, unknown>>).find(matchesLookup);
+          const v2ProfilesRes = await supabase
+            .from('public_producer_profiles_v2')
+            .select('user_id, username, avatar_url, bio, social_links, producer_tier, created_at');
+          if (!v2ProfilesRes.error && Array.isArray(v2ProfilesRes.data)) {
+            const row = (v2ProfilesRes.data as Array<Record<string, unknown>>).find(matchesLookup);
             if (row) {
               producerRecord = {
                 ...row,
