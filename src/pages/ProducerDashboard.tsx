@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Music, BarChart3, ShoppingBag, UploadCloud, Trash2 } from 'lucide-react';
+import { Music, BarChart3, ShoppingBag, UploadCloud, Trash2, AlertTriangle } from 'lucide-react';
 import { useTranslation, type TranslateFn } from '../lib/i18n';
 import { useAuth } from '../lib/auth/hooks';
 import { supabase } from '@/lib/supabase/client';
@@ -11,6 +11,7 @@ import { formatDate, formatPrice } from '../lib/utils/format';
 import { extractStoragePathFromCandidate } from '../lib/utils/storage';
 import { isProducerSafe, isStripeReady } from '../lib/auth/producer';
 import { PrivateAccessCard } from '../components/account/PrivateAccessCard';
+import { useTrialStatus } from '@/hooks/useTrialStatus';
 
 interface ProducerStatsRow {
   total_revenue: number | null;
@@ -182,6 +183,7 @@ export function ProducerDashboardPage() {
   const [stripeConnectError, setStripeConnectError] = useState<string | null>(null);
   const [uncategorizedCount, setUncategorizedCount] = useState(0);
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
+  const trialStatus = useTrialStatus();
 
   useEffect(() => {
     // Scroll to top when arriving on dashboard
@@ -763,6 +765,38 @@ export function ProducerDashboardPage() {
         </header>
 
         <PrivateAccessCard profile={profile} />
+
+        {(trialStatus.status === 'expiring_soon' || trialStatus.status === 'expired') && (
+          <div className={`rounded-xl border p-4 flex items-start gap-3 ${
+            trialStatus.status === 'expired'
+              ? 'border-red-800 bg-red-950/40'
+              : 'border-yellow-700 bg-yellow-950/40'
+          }`}>
+            <AlertTriangle className={`mt-0.5 h-5 w-5 shrink-0 ${
+              trialStatus.status === 'expired' ? 'text-red-400' : 'text-yellow-400'
+            }`} />
+            <div className="flex-1">
+              <p className={`font-semibold text-sm ${
+                trialStatus.status === 'expired' ? 'text-red-300' : 'text-yellow-300'
+              }`}>
+                {trialStatus.status === 'expired'
+                  ? 'Ton accès Founding Producer est terminé'
+                  : `Ton accès expire dans ${trialStatus.days_remaining} jour${trialStatus.days_remaining > 1 ? 's' : ''}`}
+              </p>
+              <p className="text-xs text-zinc-400 mt-1">
+                {trialStatus.status === 'expired'
+                  ? 'Tu ne peux plus uploader de nouveaux beats ni apparaître dans le catalogue. Souscris pour reprendre.'
+                  : 'Souscris maintenant pour maintenir ton accès producteur.'}
+              </p>
+            </div>
+            <Link
+              to="/tarifs"
+              className="shrink-0 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-black hover:bg-zinc-100 transition"
+            >
+              Souscrire →
+            </Link>
+          </div>
+        )}
 
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard icon={Music} label={t('producer.products')} value={productCount} />
