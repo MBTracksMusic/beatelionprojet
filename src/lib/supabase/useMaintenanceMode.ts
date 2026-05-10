@@ -179,7 +179,7 @@ export function useMaintenanceMode() {
   useEffect(() => {
     void refresh();
 
-    const channelName = `${SETTINGS_CHANNEL}:${Math.random().toString(36).slice(2)}`;
+    const channelName = SETTINGS_CHANNEL;
     const channel = supabase
       .channel(channelName)
       .on(
