@@ -18,6 +18,8 @@ export interface PricingProducerPromo {
   message: string;
   button_label: string;
   campaign_type: string;
+  benefits?: string[];
+  footnote?: string;
 }
 
 export type SiteAccessMode = 'private' | 'controlled' | 'public';
@@ -109,12 +111,29 @@ function isSettingsRow(value: unknown): value is SettingsRowShape {
 function parsePricingProducerPromo(raw: unknown): PricingProducerPromo | null {
   if (!raw || typeof raw !== 'object') return null;
   const obj = raw as Record<string, unknown>;
+
+  const rawBenefits = obj.benefits;
+  const parsedBenefits = Array.isArray(rawBenefits)
+    ? rawBenefits
+        .filter((item): item is string => typeof item === 'string')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+    : undefined;
+
+  const rawFootnote = obj.footnote;
+  const parsedFootnote =
+    typeof rawFootnote === 'string' && rawFootnote.trim().length > 0
+      ? rawFootnote.trim()
+      : undefined;
+
   return {
     enabled: obj.enabled === true,
     title: typeof obj.title === 'string' ? obj.title : '',
     message: typeof obj.message === 'string' ? obj.message : '',
     button_label: typeof obj.button_label === 'string' ? obj.button_label : 'M\'inscrire',
     campaign_type: typeof obj.campaign_type === 'string' ? obj.campaign_type : '',
+    benefits: parsedBenefits && parsedBenefits.length > 0 ? parsedBenefits : undefined,
+    footnote: parsedFootnote,
   };
 }
 

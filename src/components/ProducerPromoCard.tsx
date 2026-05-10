@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import HCaptcha from '@hcaptcha/react-hcaptcha';
-import { Sparkles } from 'lucide-react';
+import { Check, Crown, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase/client';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
@@ -12,6 +12,15 @@ import type { PricingProducerPromo } from '../lib/supabase/useMaintenanceMode';
 
 const CAPTCHA_SITE_KEY =
   (import.meta.env.VITE_HCAPTCHA_SITE_KEY as string | undefined)?.trim() ?? '';
+
+const DEFAULT_BENEFITS = [
+  "Demande d'accès producteur",
+  'Profil étudié manuellement',
+  'Phase privée limitée',
+  'Sélection progressive',
+];
+
+const DEFAULT_FOOTNOTE = 'Demande gratuite · Validation manuelle';
 
 interface ProducerPromoCardProps {
   promo: PricingProducerPromo;
@@ -97,20 +106,62 @@ export function ProducerPromoCard({ promo, isActiveProducer, userEmail = '' }: P
 
   return (
     <>
-      <Card className="border border-amber-500/40 bg-gradient-to-br from-amber-950/20 to-zinc-900 p-8">
-        <div className="flex flex-col items-center gap-4 text-center sm:flex-row sm:gap-8 sm:text-left">
-          <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/15">
-            <Sparkles className="h-7 w-7 text-amber-400" />
+      <Card className="flex h-full flex-col justify-between border border-amber-500/70 bg-zinc-900 p-6 shadow-[0_0_30px_rgba(245,158,11,0.10)] transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_0_40px_rgba(245,158,11,0.18)]">
+        <div>
+          <div className="mb-4 flex justify-center">
+            <span className="rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1 text-xs font-semibold text-white shadow-md">
+              Phase privée · Sélection
+            </span>
           </div>
-          <div className="min-w-0 flex-1">
-            <h3 className="mb-2 text-xl font-bold text-white">{promo.title}</h3>
-            <p className="text-sm leading-relaxed text-zinc-400">{promo.message}</p>
+
+          <div className="mb-6">
+            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10">
+              <Crown className="h-6 w-6 text-amber-400" />
+            </div>
+            <h3 className="mb-1 text-2xl font-bold text-white">{promo.title}</h3>
+            <p className="font-semibold text-zinc-200">Accès privé · Sélection manuelle</p>
+            <p className="mt-1 flex items-center gap-2 text-sm text-zinc-400">
+              <Sparkles className="h-4 w-4 flex-shrink-0 text-amber-400" />
+              20 places disponibles
+            </p>
           </div>
-          <div className="flex-shrink-0">
-            <Button variant="primary" size="lg" onClick={handleOpen}>
-              {promo.button_label}
-            </Button>
+
+          <div className="mb-6">
+            <span className="text-4xl font-bold text-white">Gratuit</span>
+            <span className="text-zinc-400"> · Candidature</span>
           </div>
+
+          <div className="mb-6 rounded-xl border border-amber-400/20 bg-amber-500/10 p-4">
+            <p className="text-sm leading-relaxed text-amber-100/90">{promo.message}</p>
+          </div>
+
+          <div className="mb-3 flex items-center gap-2">
+            <Check className="h-5 w-5 text-amber-400" />
+            <p className="text-xl font-bold text-white">Inclus</p>
+          </div>
+          <ul className="mb-6 space-y-2">
+            {(promo.benefits?.length ? promo.benefits : DEFAULT_BENEFITS).map((benefit) => (
+              <li key={benefit} className="flex items-start gap-3">
+                <Check className="mt-1 h-4 w-4 flex-shrink-0 text-amber-400" />
+                <span className="text-sm text-zinc-200/95">{benefit}</span>
+              </li>
+            ))}
+          </ul>
+
+          <p className="mb-2 text-center text-xs text-zinc-500">
+            {promo.footnote ?? DEFAULT_FOOTNOTE}
+          </p>
+        </div>
+
+        <div className="pt-6">
+          <Button
+            className="mt-auto w-full"
+            variant="primary"
+            size="lg"
+            onClick={handleOpen}
+          >
+            {promo.button_label}
+          </Button>
         </div>
       </Card>
 

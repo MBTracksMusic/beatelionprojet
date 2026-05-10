@@ -1535,6 +1535,9 @@ function WhitelistCard() {
 
 // ─── ProducerPromoCardSettings ────────────────────────────────────────────────
 
+const DEFAULT_PROMO_BENEFITS_TEXT =
+  "Demande d'accès producteur\nProfil étudié manuellement\nPhase privée limitée\nSélection progressive";
+
 function ProducerPromoCardSettings() {
   const { pricingProducerPromo, updateSettings, isLoading: isSettingsLoading } = useMaintenanceModeContext();
 
@@ -1543,6 +1546,8 @@ function ProducerPromoCardSettings() {
   const [message, setMessage] = useState('');
   const [buttonLabel, setButtonLabel] = useState('');
   const [campaignType, setCampaignType] = useState('');
+  const [benefitsText, setBenefitsText] = useState(DEFAULT_PROMO_BENEFITS_TEXT);
+  const [footnote, setFootnote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -1552,6 +1557,8 @@ function ProducerPromoCardSettings() {
       setMessage(pricingProducerPromo.message);
       setButtonLabel(pricingProducerPromo.button_label);
       setCampaignType(pricingProducerPromo.campaign_type);
+      setBenefitsText(pricingProducerPromo.benefits?.join('\n') ?? DEFAULT_PROMO_BENEFITS_TEXT);
+      setFootnote(pricingProducerPromo.footnote ?? '');
     }
   }, [pricingProducerPromo]);
 
@@ -1560,6 +1567,10 @@ function ProducerPromoCardSettings() {
     if (isSaving) return;
     setIsSaving(true);
     try {
+      const benefits = benefitsText
+        .split('\n')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
       await updateSettings({
         pricing_producer_promo: {
           enabled,
@@ -1567,6 +1578,8 @@ function ProducerPromoCardSettings() {
           message: message.trim(),
           button_label: buttonLabel.trim(),
           campaign_type: campaignType.trim(),
+          benefits,
+          footnote: footnote.trim() || undefined,
         },
       } as Parameters<typeof updateSettings>[0]);
       toast.success('Vignette promotionnelle sauvegardée.');
@@ -1661,6 +1674,30 @@ function ProducerPromoCardSettings() {
               disabled={isSettingsLoading || isSaving}
             />
           </div>
+        </div>
+
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-zinc-300">Liste inclus</label>
+          <p className="mb-2 text-xs text-zinc-500">Une ligne = un avantage. Les lignes vides sont ignorées.</p>
+          <textarea
+            value={benefitsText}
+            onChange={(e) => setBenefitsText(e.target.value)}
+            placeholder={"Demande d'accès producteur\nProfil étudié manuellement\nPhase privée limitée\nSélection progressive"}
+            rows={5}
+            disabled={isSettingsLoading || isSaving}
+            className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-zinc-300">Texte bas de carte</label>
+          <Input
+            type="text"
+            value={footnote}
+            onChange={(e) => setFootnote(e.target.value)}
+            placeholder="Demande gratuite · Validation manuelle"
+            disabled={isSettingsLoading || isSaving}
+          />
         </div>
 
         <div className="flex justify-end pt-1">
