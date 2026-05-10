@@ -542,6 +542,9 @@ export function PricingPage() {
   const isUserCurrent = Boolean(user) && !hasActiveProducerSubscription && !hasActiveUserSubscription;
   const isProCurrent = hasActiveProducerSubscription && currentTier === 'pro';
   const isEliteCurrent = hasActiveProducerSubscription && currentTier === 'elite';
+  const showPromoCard = Boolean(pricingProducerPromo?.enabled) && !hasActiveProducerSubscription;
+  const visibleCardCount = [showFreePlan, showUserPremiumPlan, showProducerPlan, showProducerElitePlan, showPromoCard].filter(Boolean).length;
+  const gridColsClass = visibleCardCount <= 2 ? 'sm:grid-cols-2' : 'md:grid-cols-3';
   const proBattlesLimit = typeof proPlan.max_battles_created_per_month === 'number'
     ? proPlan.max_battles_created_per_month
     : 5;
@@ -674,7 +677,7 @@ export function PricingPage() {
           </p>
         </div>
 
-        <div className="grid items-stretch gap-6 md:grid-cols-3">
+        <div className={`grid items-stretch gap-6 ${gridColsClass}`}>
           {showFreePlan && (
             <Card className="flex h-full flex-col justify-between border border-emerald-700/60 bg-zinc-900 p-6 transition-all duration-300 hover:-translate-y-2 hover:shadow-xl hover:shadow-black/20">
               <div className="flex items-start justify-between gap-3 mb-6">
@@ -899,17 +902,15 @@ export function PricingPage() {
               </div>
             </Card>
           )}
-        </div>
 
-        {pricingProducerPromo?.enabled && (
-          <div className="mt-10">
+          {showPromoCard && pricingProducerPromo && (
             <ProducerPromoCard
               promo={pricingProducerPromo}
               isActiveProducer={hasActiveProducerSubscription}
               userEmail={user?.email ?? ''}
             />
-          </div>
-        )}
+          )}
+        </div>
 
         <div className="mt-16 text-center">
           <p className="text-zinc-400 mb-4">{t('pricing.questions')}</p>
