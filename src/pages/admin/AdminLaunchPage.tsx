@@ -1179,16 +1179,47 @@ function WaitlistCard() {
     if (error) {
       toast.error('Erreur lors de la mise à jour.');
       console.error('[AdminLaunch] waitlist update error', error);
-    } else {
-      setRows((prev) =>
-        prev.map((r) =>
-          r.id === id
-            ? { ...r, ...patch }
-            : r,
-        ),
-      );
-      toast.success(status === 'accepted' ? 'Accès accordé.' : 'Entrée refusée.');
+      setActioningId(null);
+      return;
     }
+
+    setRows((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+    );
+
+    if (status !== 'accepted') {
+      toast.success('Entrée refusée.');
+      setActioningId(null);
+      return;
+    }
+
+    // After waitlist accept: also upsert access_whitelist so private mode works
+    const row = rows.find((r) => r.id === id);
+    if (!row) {
+      toast.success('Accès accordé.');
+      setActioningId(null);
+      return;
+    }
+
+    const normalizedEmail = row.email.toLowerCase().trim();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: wlError } = await (supabase as any)
+      .from('access_whitelist')
+      .upsert(
+        { email: normalizedEmail, is_active: true, granted_at: new Date().toISOString() },
+        { onConflict: 'email' },
+      );
+
+    if (wlError) {
+      console.error('[AdminLaunch] whitelist upsert error', wlError);
+      toast.error(
+        "Demande acceptée, mais l'ajout à la whitelist a échoué. Vérifiez manuellement la whitelist.",
+        { duration: 8000 },
+      );
+    } else {
+      toast.success('Accès accordé et email ajouté à la whitelist.');
+    }
+
     setActioningId(null);
   };
 
