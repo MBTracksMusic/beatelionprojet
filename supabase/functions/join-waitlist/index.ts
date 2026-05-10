@@ -16,6 +16,7 @@ type JoinWaitlistBody = {
   email?: unknown;
   captchaToken?: unknown;
   source?: unknown;
+  campaign_type?: unknown;
 };
 
 type JoinWaitlistResponse =
@@ -118,6 +119,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const email = asNonEmptyString(body?.email)?.toLowerCase() ?? null;
     const captchaToken = asNonEmptyString(body?.captchaToken);
     const source = asNonEmptyString(body?.source) ?? "maintenance_page";
+    const campaignType = asNonEmptyString(body?.campaign_type);
 
     if (!email || !email.includes("@") || !EMAIL_REGEX.test(email)) {
       return jsonResponse({ error: "invalid_email" }, 400, corsHeaders);
@@ -160,7 +162,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const { error: insertError } = await adminClient
       .from("waitlist")
-      .insert({ email, user_id: callerId, source });
+      .insert({ email, user_id: callerId, source, campaign_type: campaignType ?? null });
 
     if (insertError) {
       if (insertError.code === "23505") {
