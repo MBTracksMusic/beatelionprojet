@@ -1647,9 +1647,9 @@ function ProducerPromoCardSettings() {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Rejoins notre programme de producteurs fondateurs..."
-            rows={3}
+            rows={5}
             disabled={isSettingsLoading || isSaving}
-            className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
+            className="w-full resize-y rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
           />
         </div>
 
