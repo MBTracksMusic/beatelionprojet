@@ -545,6 +545,7 @@ export function PricingPage() {
   const showPromoCard = Boolean(pricingProducerPromo?.enabled) && !hasActiveProducerSubscription;
   const visibleCardCount = [showFreePlan, showUserPremiumPlan, showProducerPlan, showProducerElitePlan, showPromoCard].filter(Boolean).length;
   const gridColsClass = visibleCardCount <= 2 ? 'sm:grid-cols-2' : 'md:grid-cols-3';
+  const gridWidthClass = visibleCardCount === 1 ? 'max-w-sm mx-auto' : visibleCardCount === 2 ? 'max-w-[900px] mx-auto' : '';
   const proBattlesLimit = typeof proPlan.max_battles_created_per_month === 'number'
     ? proPlan.max_battles_created_per_month
     : 5;
@@ -677,7 +678,7 @@ export function PricingPage() {
           </p>
         </div>
 
-        <div className={`grid items-stretch gap-6 ${gridColsClass}`}>
+        <div className={`grid items-start gap-6 ${gridColsClass} ${gridWidthClass}`}>
           {showFreePlan && (
             <Card className="flex h-full flex-col justify-between border border-emerald-700/60 bg-zinc-900 p-6 transition-all duration-300 hover:-translate-y-2 hover:shadow-xl hover:shadow-black/20">
               <div className="flex items-start justify-between gap-3 mb-6">
