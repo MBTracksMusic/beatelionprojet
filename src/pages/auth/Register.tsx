@@ -8,6 +8,7 @@ import { useTranslation } from '../../lib/i18n';
 import { getReferrer, trackSignUp } from '../../lib/analytics';
 import { AuthFunctionError, signUp, loginWithGoogle } from '../../lib/auth/service';
 import { useToast, useToastStore } from '../../lib/toast';
+import { supabase } from '../../lib/supabase/client';
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,32}$/;
 type AccountType = 'user' | 'producer';
@@ -125,6 +126,20 @@ export function RegisterPage() {
     setIsLoading(true);
 
     try {
+      // Guard: block signup if site is closed and email not authorized
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: canRegister, error: accessError } = await (supabase as any)
+        .rpc('can_email_register', { p_email: formData.email.trim() });
+
+      if (!accessError && canRegister === false) {
+        toast.error(
+          "Votre accès n'a pas encore été validé. Faites une demande depuis la page d'ouverture ou attendez la validation administrateur.",
+          5000,
+        );
+        return;
+      }
+      // If accessError: fail-open — let signUp handle it; do not block legitimate users
+
       const result = await signUp({
         email: formData.email.trim(),
         password: formData.password,
