@@ -132,7 +132,7 @@ export function ProducerPromoCard({ promo, isActiveProducer, userEmail = '' }: P
           </div>
 
           <div className="mb-6 rounded-xl border border-amber-400/20 bg-amber-500/10 p-4">
-            <p className="text-sm leading-relaxed text-amber-100/90">{promo.message}</p>
+            <p className="whitespace-pre-line text-sm leading-relaxed text-amber-100/90">{promo.message}</p>
           </div>
 
           <div className="mb-3 flex items-center gap-2">
