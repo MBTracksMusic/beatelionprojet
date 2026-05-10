@@ -12,6 +12,14 @@ export interface PricingVisibility {
   producerElite: boolean;
 }
 
+export interface PricingProducerPromo {
+  enabled: boolean;
+  title: string;
+  message: string;
+  button_label: string;
+  campaign_type: string;
+}
+
 export type SiteAccessMode = 'private' | 'controlled' | 'public';
 
 /**
@@ -36,6 +44,7 @@ interface SettingsRowShape {
   show_user_premium_credits: boolean;
   show_producer_plan: boolean;
   show_producer_elite_plan: boolean;
+  pricing_producer_promo?: Record<string, unknown> | null;
   updated_at: string;
 }
 
@@ -63,6 +72,7 @@ const SETTINGS_SELECT = [
   'show_user_premium_credits',
   'show_producer_plan',
   'show_producer_elite_plan',
+  'pricing_producer_promo',
   'updated_at',
 ].join(', ');
 
@@ -96,6 +106,18 @@ function isSettingsRow(value: unknown): value is SettingsRowShape {
   );
 }
 
+function parsePricingProducerPromo(raw: unknown): PricingProducerPromo | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  return {
+    enabled: obj.enabled === true,
+    title: typeof obj.title === 'string' ? obj.title : '',
+    message: typeof obj.message === 'string' ? obj.message : '',
+    button_label: typeof obj.button_label === 'string' ? obj.button_label : 'M\'inscrire',
+    campaign_type: typeof obj.campaign_type === 'string' ? obj.campaign_type : '',
+  };
+}
+
 export function useMaintenanceMode() {
   const [maintenance, setMaintenance] = useState(false);
   const [siteAccessMode, setSiteAccessMode] = useState<SiteAccessMode>('private');
@@ -107,6 +129,7 @@ export function useMaintenanceMode() {
   const [showHomepageBadge, setShowHomepageBadge] = useState(true);
   const [showUserPremiumCredits, setShowUserPremiumCredits] = useState(true);
   const [pricingVisibility, setPricingVisibility] = useState<PricingVisibility>(DEFAULT_PRICING_VISIBILITY);
+  const [pricingProducerPromo, setPricingProducerPromo] = useState<PricingProducerPromo | null>(null);
   const [launchDate, setLaunchDate] = useState<string | null>(null);
   const [launchVideoUrl, setLaunchVideoUrl] = useState<string | null>(null);
   const [settingsId, setSettingsId] = useState<string | null>(null);
@@ -126,6 +149,7 @@ export function useMaintenanceMode() {
       setShowHomepageBadge(true);
       setShowUserPremiumCredits(true);
       setPricingVisibility(DEFAULT_PRICING_VISIBILITY);
+      setPricingProducerPromo(null);
       setLaunchDate(null);
       setLaunchVideoUrl(null);
       setSettingsId(null);
@@ -148,6 +172,7 @@ export function useMaintenanceMode() {
       producer: row.show_producer_plan,
       producerElite: row.show_producer_elite_plan,
     });
+    setPricingProducerPromo(parsePricingProducerPromo(row.pricing_producer_promo ?? null));
     setLaunchDate(row.launch_date);
     setLaunchVideoUrl(row.launch_video_url ?? null);
     setSettingsId(row.id);
@@ -265,6 +290,7 @@ export function useMaintenanceMode() {
     showHomepageBadge,
     showUserPremiumCredits,
     pricingVisibility,
+    pricingProducerPromo,
     showFreePlan,
     showUserPremiumPlan,
     showProducerPlan,

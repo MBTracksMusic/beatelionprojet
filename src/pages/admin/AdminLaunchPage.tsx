@@ -15,6 +15,7 @@ import {
   Radio,
   Send,
   ShieldCheck,
+  Tag,
   Trash2,
   UserPlus,
   Users,
@@ -1532,6 +1533,146 @@ function WhitelistCard() {
   );
 }
 
+// ─── ProducerPromoCardSettings ────────────────────────────────────────────────
+
+function ProducerPromoCardSettings() {
+  const { pricingProducerPromo, updateSettings, isLoading: isSettingsLoading } = useMaintenanceModeContext();
+
+  const [enabled, setEnabled] = useState(false);
+  const [title, setTitle] = useState('');
+  const [message, setMessage] = useState('');
+  const [buttonLabel, setButtonLabel] = useState('');
+  const [campaignType, setCampaignType] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (pricingProducerPromo) {
+      setEnabled(pricingProducerPromo.enabled);
+      setTitle(pricingProducerPromo.title);
+      setMessage(pricingProducerPromo.message);
+      setButtonLabel(pricingProducerPromo.button_label);
+      setCampaignType(pricingProducerPromo.campaign_type);
+    }
+  }, [pricingProducerPromo]);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      await updateSettings({
+        pricing_producer_promo: {
+          enabled,
+          title: title.trim(),
+          message: message.trim(),
+          button_label: buttonLabel.trim(),
+          campaign_type: campaignType.trim(),
+        },
+      } as Parameters<typeof updateSettings>[0]);
+      toast.success('Vignette promotionnelle sauvegardée.');
+    } catch (err) {
+      console.error('[AdminLaunch] promo save error', err);
+      toast.error('Erreur lors de la sauvegarde.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Card padding="none" className="border-zinc-800 bg-zinc-900/80">
+      <div className="border-b border-zinc-800 px-5 py-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Vignette Producteur (page Tarifs)</h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              Carte promotionnelle affichée sous les offres, cachée pour les producteurs actifs.
+            </p>
+          </div>
+          <Tag className="mt-1 h-5 w-5 text-zinc-500" />
+        </div>
+      </div>
+
+      <form onSubmit={handleSave} className="space-y-5 p-5">
+        <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950/40 px-4 py-3">
+          <div>
+            <p className="text-sm font-medium text-zinc-200">Afficher la vignette</p>
+            <p className="mt-0.5 text-xs text-zinc-500">Visible uniquement pour les non-producteurs actifs</p>
+          </div>
+          <button
+            type="button"
+            title={enabled ? 'Désactiver la vignette' : 'Activer la vignette'}
+            disabled={isSettingsLoading || isSaving}
+            onClick={() => setEnabled((v) => !v)}
+            className={[
+              'relative h-6 w-11 rounded-full transition-colors focus-visible:outline-none disabled:opacity-50',
+              enabled ? 'bg-amber-500' : 'bg-zinc-700',
+            ].join(' ')}
+          >
+            <span
+              className={[
+                'absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform',
+                enabled ? 'translate-x-5' : 'translate-x-0',
+              ].join(' ')}
+            />
+          </button>
+        </div>
+
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-zinc-300">Titre</label>
+          <Input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Teste le statut Producteur gratuitement"
+            disabled={isSettingsLoading || isSaving}
+          />
+        </div>
+
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-zinc-300">Message</label>
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Rejoins notre programme de producteurs fondateurs..."
+            rows={3}
+            disabled={isSettingsLoading || isSaving}
+            className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
+          />
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-zinc-300">Label du bouton</label>
+            <Input
+              type="text"
+              value={buttonLabel}
+              onChange={(e) => setButtonLabel(e.target.value)}
+              placeholder="Je veux tester"
+              disabled={isSettingsLoading || isSaving}
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-zinc-300">Type de campagne</label>
+            <Input
+              type="text"
+              value={campaignType}
+              onChange={(e) => setCampaignType(e.target.value)}
+              placeholder="founding_producer_trial"
+              disabled={isSettingsLoading || isSaving}
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end pt-1">
+          <Button type="submit" isLoading={isSaving} disabled={isSettingsLoading || isSaving}>
+            Sauvegarder
+          </Button>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function AdminLaunchPage() {
@@ -1543,6 +1684,7 @@ export function AdminLaunchPage() {
         <LaunchSettingsCard />
       </div>
       <ProducerCampaignManager campaignType="founding" />
+      <ProducerPromoCardSettings />
       <div className="grid gap-6 2xl:grid-cols-2">
         <WaitlistCard />
         <WhitelistCard />

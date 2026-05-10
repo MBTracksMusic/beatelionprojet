@@ -22,6 +22,7 @@ import { Card } from '../components/ui/Card';
 import { Modal } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
 import { useMaintenanceModeContext } from '../lib/supabase/MaintenanceModeContext';
+import { ProducerPromoCard } from '../components/ProducerPromoCard';
 import toast from 'react-hot-toast';
 import { trackSubscriptionStart } from '../lib/analytics';
 import { formatDate, formatPrice } from '../lib/utils/format';
@@ -178,6 +179,7 @@ export function PricingPage() {
   const { user, session, profile } = useAuth();
   const {
     pricingVisibility,
+    pricingProducerPromo,
     isLoading: isPublicSettingsLoading,
   } = useMaintenanceModeContext();
   const navigate = useNavigate();
@@ -898,6 +900,16 @@ export function PricingPage() {
             </Card>
           )}
         </div>
+
+        {pricingProducerPromo?.enabled && (
+          <div className="mt-10">
+            <ProducerPromoCard
+              promo={pricingProducerPromo}
+              isActiveProducer={hasActiveProducerSubscription}
+              userEmail={user?.email ?? ''}
+            />
+          </div>
+        )}
 
         <div className="mt-16 text-center">
           <p className="text-zinc-400 mb-4">{t('pricing.questions')}</p>
