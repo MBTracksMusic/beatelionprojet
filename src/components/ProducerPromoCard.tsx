@@ -13,12 +13,14 @@ import type { PricingProducerPromo } from '../lib/supabase/useMaintenanceMode';
 const CAPTCHA_SITE_KEY =
   (import.meta.env.VITE_HCAPTCHA_SITE_KEY as string | undefined)?.trim() ?? '';
 
-const PROMO_FEATURES = [
-  "Test de l'espace producteur",
-  'Participation au lancement',
-  'Validation prioritaire',
-  'Accès par sélection',
+const DEFAULT_BENEFITS = [
+  "Demande d'accès producteur",
+  'Profil étudié manuellement',
+  'Phase privée limitée',
+  'Sélection progressive',
 ];
+
+const DEFAULT_FOOTNOTE = 'Demande gratuite · Validation manuelle';
 
 interface ProducerPromoCardProps {
   promo: PricingProducerPromo;
@@ -138,16 +140,16 @@ export function ProducerPromoCard({ promo, isActiveProducer, userEmail = '' }: P
             <p className="text-xl font-bold text-white">Inclus</p>
           </div>
           <ul className="mb-6 space-y-2">
-            {PROMO_FEATURES.map((feature) => (
-              <li key={feature} className="flex items-start gap-3">
+            {(promo.benefits?.length ? promo.benefits : DEFAULT_BENEFITS).map((benefit) => (
+              <li key={benefit} className="flex items-start gap-3">
                 <Check className="mt-1 h-4 w-4 flex-shrink-0 text-amber-400" />
-                <span className="text-sm text-zinc-200/95">{feature}</span>
+                <span className="text-sm text-zinc-200/95">{benefit}</span>
               </li>
             ))}
           </ul>
 
           <p className="mb-2 text-center text-xs text-zinc-500">
-            Demande gratuite · Validation manuelle
+            {promo.footnote ?? DEFAULT_FOOTNOTE}
           </p>
         </div>
 
