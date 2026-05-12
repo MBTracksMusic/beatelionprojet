@@ -10,7 +10,7 @@ import { AuthFunctionError, signUp, loginWithGoogle } from '../../lib/auth/servi
 import { useToast, useToastStore } from '../../lib/toast';
 import { supabase } from '../../lib/supabase/client';
 
-const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,32}$/;
+const USERNAME_REGEX = /^[a-zA-Z0-9_][a-zA-Z0-9_ ]{1,30}[a-zA-Z0-9_]$/;
 type AccountType = 'user' | 'producer';
 
 export function RegisterPage() {

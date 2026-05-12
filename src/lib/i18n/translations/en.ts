@@ -118,7 +118,7 @@ export const en: TranslationSchema = {
     emailPlaceholder: 'email@example.com',
     usernamePlaceholder: 'beatelion_user',
     passwordPlaceholder: '••••••••',
-    usernameRules: '3-32 characters, letters/numbers/underscore only',
+    usernameRules: '3-32 characters, letters/numbers/underscores/spaces (not at start or end)',
     registerRateLimited: 'Too many attempts. Try again in 60 seconds.',
     usernameTaken: 'This username is already taken.',
     forgotPasswordSubtitle: 'Enter your email to reset your password',

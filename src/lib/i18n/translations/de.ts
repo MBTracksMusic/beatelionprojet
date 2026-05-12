@@ -118,7 +118,7 @@ export const de: TranslationSchema = {
     emailPlaceholder: 'email@example.com',
     usernamePlaceholder: 'beatelion_user',
     passwordPlaceholder: '••••••••',
-    usernameRules: '3-32 Zeichen, nur Buchstaben/Zahlen/Unterstrich',
+    usernameRules: '3-32 Zeichen, Buchstaben/Zahlen/Unterstrich/Leerzeichen (nicht am Anfang oder Ende)',
     registerRateLimited: 'Zu viele Versuche. Bitte in 60 Sekunden erneut versuchen.',
     usernameTaken: 'Dieser Benutzername ist bereits vergeben.',
     forgotPasswordSubtitle: 'Geben Sie Ihre E-Mail ein, um Ihr Passwort zuruckzusetzen',
