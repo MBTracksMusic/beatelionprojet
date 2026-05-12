@@ -10,7 +10,7 @@ const BASE_CORS_HEADERS = {
 const CREATE_CHECKOUT_RATE_LIMIT_RPC = "create_checkout_user";
 const MAX_CHECKOUT_ITEMS = 5;
 const CART_PLATFORM_COMMISSION_RATE = 0.3;
-const CART_PRODUCER_PAYOUT_RATE = 0.7;
+
 
 interface CheckoutRequest {
   beatId?: string;
@@ -66,6 +66,7 @@ interface ProducerProfileRow {
   deleted_at: string | null;
   stripe_account_id: string | null;
   stripe_account_charges_enabled: boolean | null;
+  commission_rate_override: number | null;
 }
 
 interface CheckoutProductItem {
@@ -930,7 +931,7 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
       const producerIds = [...new Set(productRows.map((product) => product.producer_id))];
       const { data: producerProfiles, error: producerProfilesError } = await supabaseAdmin
         .from("user_profiles")
-        .select("id, is_deleted, deleted_at, stripe_account_id, stripe_account_charges_enabled")
+        .select("id, is_deleted, deleted_at, stripe_account_id, stripe_account_charges_enabled, commission_rate_override")
         .in("id", producerIds);
 
       if (producerProfilesError) {
@@ -1045,8 +1046,9 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
           isExclusiveProduct: productRow.is_exclusive,
         });
         const amount = productRow.price;
-        const applicationFeeAmount = Math.round(amount * CART_PLATFORM_COMMISSION_RATE);
-        const producerPayoutAmount = Math.round(amount * CART_PRODUCER_PAYOUT_RATE);
+        const effectiveCommissionRate = producerProfile.commission_rate_override ?? CART_PLATFORM_COMMISSION_RATE;
+        const applicationFeeAmount = Math.round(amount * effectiveCommissionRate);
+        const producerPayoutAmount = amount - applicationFeeAmount;
         const hasStripeConnect = Boolean(
           producerProfile.stripe_account_id &&
           producerProfile.stripe_account_charges_enabled,
@@ -1462,7 +1464,7 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
 
     const { data: producerProfile, error: producerProfileError } = await supabaseAdmin
       .from("user_profiles")
-      .select("is_deleted, deleted_at, stripe_account_id, stripe_account_charges_enabled")
+      .select("is_deleted, deleted_at, stripe_account_id, stripe_account_charges_enabled, commission_rate_override")
       .eq("id", productRow.producer_id)
       .maybeSingle();
 
@@ -1658,12 +1660,12 @@ serveWithErrorHandling("create-checkout", async (req: Request) => {
     }
     lineItems.append("line_items[0][quantity]", "1");
 
-    // Stripe Connect: Calculate fee split (70% to producer, 30% platform commission)
-    // application_fee_amount is retained by platform; transfer_data.destination receives (checkoutAmount - applicationFeeAmount)
+    // Stripe Connect: Calculate fee split. Default 30% platform / 70% producer.
+    // commission_rate_override = 0 means 0% platform fee (producer receives 100%).
     const PLATFORM_COMMISSION_RATE = 0.3;
-    const PRODUCER_PAYOUT_RATE = 0.7;
-    const applicationFeeAmount = Math.round(checkoutAmount * PLATFORM_COMMISSION_RATE); // Platform commission = 30%, Producer receives 70%
-    const producerPayoutAmount = Math.round(checkoutAmount * PRODUCER_PAYOUT_RATE); // Producer always receives 70%, whether via Connect or fallback
+    const effectiveCommissionRate = (producerProfile as ProducerProfileRow).commission_rate_override ?? PLATFORM_COMMISSION_RATE;
+    const applicationFeeAmount = Math.round(checkoutAmount * effectiveCommissionRate);
+    const producerPayoutAmount = checkoutAmount - applicationFeeAmount;
 
     const sessionParamsData: Record<string, string> = {
       mode: "payment",
