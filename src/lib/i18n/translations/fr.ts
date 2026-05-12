@@ -117,7 +117,7 @@ export const fr = {
     emailPlaceholder: 'email@example.com',
     usernamePlaceholder: 'beatelion_user',
     passwordPlaceholder: '••••••••',
-    usernameRules: '3-32 caracteres, lettres/chiffres/underscore uniquement',
+    usernameRules: '3-32 caractères, lettres/chiffres/underscore/espaces (pas en début ni fin)',
     registerRateLimited: 'Trop de tentatives. Reessaie dans 60 secondes.',
     usernameTaken: 'Ce nom dutilisateur est deja pris.',
     forgotPasswordSubtitle: 'Entrez votre email pour reinitialiser votre mot de passe',
