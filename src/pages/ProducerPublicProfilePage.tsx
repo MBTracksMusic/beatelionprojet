@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ExternalLink, Instagram, Pause, Play, Twitter, Users, Youtube } from 'lucide-react';
+import { Cloud, Disc3, ExternalLink, Instagram, Music2, Pause, Play, Users, Youtube } from 'lucide-react';
 import { PublishedBeatsList } from '../components/producers/PublishedBeatsList';
 import { useAudioPlayer, type Track } from '../context/AudioPlayerContext';
 import { hasPlayableTrackSource, toTrack } from '../lib/audio/track';
@@ -62,11 +62,21 @@ const normalizeSocialUrl = (value: string) => {
   return `https://${trimmed}`;
 };
 
-const toSocialLinks = (raw: unknown): Array<{ key: 'twitter' | 'instagram' | 'youtube'; href: string }> => {
+type SocialKey = 'instagram' | 'youtube' | 'soundcloud' | 'tiktok' | 'spotify';
+
+const SOCIAL_META: Record<SocialKey, { label: string; Icon: React.ElementType }> = {
+  instagram: { label: 'Instagram', Icon: Instagram },
+  youtube:   { label: 'YouTube',   Icon: Youtube },
+  soundcloud: { label: 'SoundCloud', Icon: Cloud },
+  tiktok:    { label: 'TikTok',    Icon: Music2 },
+  spotify:   { label: 'Spotify',   Icon: Disc3 },
+};
+
+const toSocialLinks = (raw: unknown): Array<{ key: SocialKey; href: string }> => {
   if (!raw || typeof raw !== 'object') return [];
 
   const source = raw as Record<string, unknown>;
-  const keys: Array<'twitter' | 'instagram' | 'youtube'> = ['twitter', 'instagram', 'youtube'];
+  const keys: SocialKey[] = ['instagram', 'youtube', 'soundcloud', 'tiktok', 'spotify'];
 
   return keys
     .map((key) => {
@@ -76,7 +86,7 @@ const toSocialLinks = (raw: unknown): Array<{ key: 'twitter' | 'instagram' | 'yo
       if (!href) return null;
       return { key, href };
     })
-    .filter((item): item is { key: 'twitter' | 'instagram' | 'youtube'; href: string } => item !== null);
+    .filter((item): item is { key: SocialKey; href: string } => item !== null);
 };
 
 const getProducerTierLabel = (tier: ProducerTier | null, t: ReturnType<typeof useTranslation>['t']) => {
@@ -508,8 +518,7 @@ export function ProducerPublicProfilePage() {
             <h2 className="text-lg font-semibold text-white mb-4">{t('producerProfile.socialNetworks')}</h2>
             <div className="flex flex-wrap gap-3">
               {socialLinks.map(({ key, href }) => {
-                const Icon = key === 'twitter' ? Twitter : key === 'instagram' ? Instagram : Youtube;
-                const label = key === 'twitter' ? 'Twitter' : key === 'instagram' ? 'Instagram' : 'YouTube';
+                const { Icon, label } = SOCIAL_META[key];
                 return (
                   <a
                     key={key}
