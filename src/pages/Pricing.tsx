@@ -22,7 +22,6 @@ import { Card } from '../components/ui/Card';
 import { Modal } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
 import { useMaintenanceModeContext } from '../lib/supabase/MaintenanceModeContext';
-import { ProducerPromoCard } from '../components/ProducerPromoCard';
 import toast from 'react-hot-toast';
 import { trackSubscriptionStart } from '../lib/analytics';
 import { formatDate, formatPrice } from '../lib/utils/format';
@@ -179,7 +178,6 @@ export function PricingPage() {
   const { user, session, profile } = useAuth();
   const {
     pricingVisibility,
-    pricingProducerPromo,
     isLoading: isPublicSettingsLoading,
   } = useMaintenanceModeContext();
   const navigate = useNavigate();
@@ -542,8 +540,7 @@ export function PricingPage() {
   const isUserCurrent = Boolean(user) && !hasActiveProducerSubscription && !hasActiveUserSubscription;
   const isProCurrent = hasActiveProducerSubscription && currentTier === 'pro';
   const isEliteCurrent = hasActiveProducerSubscription && currentTier === 'elite';
-  const showPromoCard = Boolean(pricingProducerPromo?.enabled) && !hasActiveProducerSubscription;
-  const visibleCardCount = [showFreePlan, showUserPremiumPlan, showProducerPlan, showProducerElitePlan, showPromoCard].filter(Boolean).length;
+  const visibleCardCount = [showFreePlan, showUserPremiumPlan, showProducerPlan, showProducerElitePlan].filter(Boolean).length;
   const gridColsClass = visibleCardCount <= 2 ? 'sm:grid-cols-2' : 'md:grid-cols-3';
   const gridWidthClass = visibleCardCount === 1 ? 'max-w-sm mx-auto' : visibleCardCount === 2 ? 'max-w-[900px] mx-auto' : '';
   const proBattlesLimit = typeof proPlan.max_battles_created_per_month === 'number'
@@ -904,13 +901,6 @@ export function PricingPage() {
             </Card>
           )}
 
-          {showPromoCard && pricingProducerPromo && (
-            <ProducerPromoCard
-              promo={pricingProducerPromo}
-              isActiveProducer={hasActiveProducerSubscription}
-              userEmail={user?.email ?? ''}
-            />
-          )}
         </div>
 
         <div className="mt-16 text-center">
