@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import HCaptcha from '@hcaptcha/react-hcaptcha';
-import { Check, Crown, Sparkles } from 'lucide-react';
+import { ArrowRight, Check, Crown, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase/client';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
@@ -26,11 +26,17 @@ interface ProducerPromoCardProps {
   promo: PricingProducerPromo;
   isActiveProducer: boolean;
   userEmail?: string;
+  variant?: 'vertical' | 'horizontal';
 }
 
 type SubmitState = 'idle' | 'loading' | 'done';
 
-export function ProducerPromoCard({ promo, isActiveProducer, userEmail = '' }: ProducerPromoCardProps) {
+export function ProducerPromoCard({
+  promo,
+  isActiveProducer,
+  userEmail = '',
+  variant = 'vertical',
+}: ProducerPromoCardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [email, setEmail] = useState(userEmail);
   const [submitState, setSubmitState] = useState<SubmitState>('idle');
@@ -104,66 +110,157 @@ export function ProducerPromoCard({ promo, isActiveProducer, userEmail = '' }: P
     }
   };
 
+  const benefits = promo.benefits?.length ? promo.benefits : DEFAULT_BENEFITS;
+  const footnote = promo.footnote ?? DEFAULT_FOOTNOTE;
+
+  const verticalBadge = (
+    <span className="rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1 text-xs font-semibold text-white shadow-md">
+      Phase privée · Sélection
+    </span>
+  );
+
+  const verticalInfoColumn = (
+    <div>
+      <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10">
+        <Crown className="h-6 w-6 text-amber-400" />
+      </div>
+      <h3 className="mb-1 text-2xl font-bold text-white">{promo.title}</h3>
+      <p className="font-semibold text-zinc-200">Accès privé · Sélection manuelle</p>
+      <p className="mt-1 flex items-center gap-2 text-sm text-zinc-400">
+        <Sparkles className="h-4 w-4 flex-shrink-0 text-amber-400" />
+        20 places disponibles
+      </p>
+      <div className="mt-4">
+        <span className="text-3xl font-bold text-white">Gratuit</span>
+        <span className="text-zinc-400"> · Candidature</span>
+      </div>
+    </div>
+  );
+
+  const verticalMessageBlock = (
+    <div className="rounded-xl border border-amber-400/20 bg-amber-500/10 p-4">
+      <p className="whitespace-pre-line text-sm leading-relaxed text-amber-100/90">{promo.message}</p>
+    </div>
+  );
+
+  const verticalBenefitsBlock = (
+    <div>
+      <div className="mb-3 flex items-center gap-2">
+        <Check className="h-5 w-5 text-amber-400" />
+        <p className="text-xl font-bold text-white">Inclus</p>
+      </div>
+      <ul className="space-y-2">
+        {benefits.map((benefit) => (
+          <li key={benefit} className="flex items-start gap-3">
+            <Check className="mt-1 h-4 w-4 flex-shrink-0 text-amber-400" />
+            <span className="text-sm text-zinc-200/95">{benefit}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+
+  const verticalCta = (
+    <Button
+      className="w-full"
+      variant="primary"
+      size="lg"
+      onClick={handleOpen}
+    >
+      {promo.button_label}
+    </Button>
+  );
+
   return (
     <>
-      <Card className="flex h-full flex-col justify-between border border-amber-500/70 bg-zinc-900 p-6 shadow-[0_0_30px_rgba(245,158,11,0.10)] transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_0_40px_rgba(245,158,11,0.18)]">
-        <div>
-          <div className="mb-4 flex justify-center">
-            <span className="rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1 text-xs font-semibold text-white shadow-md">
-              Phase privée · Sélection
-            </span>
-          </div>
-
-          <div className="mb-6">
-            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10">
-              <Crown className="h-6 w-6 text-amber-400" />
+      {variant === 'horizontal' ? (
+        <Card className="border border-amber-500/70 bg-zinc-900 p-6 shadow-[0_0_30px_rgba(245,158,11,0.10)] transition-all duration-300 hover:shadow-[0_0_40px_rgba(245,158,11,0.18)] sm:p-10">
+          {/* Header centré : eyebrow + titre + sous-titre */}
+          <div className="mb-8 text-center">
+            <div className="mb-4 flex justify-center">
+              <span className="inline-flex items-center gap-2 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-200">
+                <Sparkles className="h-3 w-3" />
+                Phase privée · Sélection
+              </span>
             </div>
-            <h3 className="mb-1 text-2xl font-bold text-white">{promo.title}</h3>
-            <p className="font-semibold text-zinc-200">Accès privé · Sélection manuelle</p>
-            <p className="mt-1 flex items-center gap-2 text-sm text-zinc-400">
-              <Sparkles className="h-4 w-4 flex-shrink-0 text-amber-400" />
-              20 places disponibles
-            </p>
+            <h3 className="mx-auto max-w-3xl text-2xl font-bold leading-tight text-white sm:text-3xl">
+              {promo.title}
+            </h3>
+            <p className="mt-2 text-sm text-zinc-400">Accès privé · Sélection manuelle</p>
           </div>
 
-          <div className="mb-6">
-            <span className="text-4xl font-bold text-white">Gratuit</span>
-            <span className="text-zinc-400"> · Candidature</span>
+          {/* 3 colonnes avec labels de section */}
+          <div className="grid gap-8 border-t border-zinc-800 pt-8 md:grid-cols-3">
+            {/* Col 1 — Offre */}
+            <div>
+              <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-400/80">
+                Offre
+              </p>
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10">
+                <Crown className="h-6 w-6 text-amber-400" />
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-bold text-white">20</span>
+                <span className="text-sm text-zinc-400">places disponibles</span>
+              </div>
+              <div className="mt-3">
+                <span className="text-2xl font-bold text-white">Gratuit</span>
+                <span className="text-sm text-zinc-400"> · Candidature</span>
+              </div>
+            </div>
+
+            {/* Col 2 — Programme (message admin, FR/EN) */}
+            <div>
+              <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-400/80">
+                Le programme
+              </p>
+              <p className="whitespace-pre-line text-sm leading-relaxed text-zinc-300">
+                {promo.message}
+              </p>
+            </div>
+
+            {/* Col 3 — Inclus */}
+            <div>
+              <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-400/80">
+                Inclus
+              </p>
+              <ul className="space-y-2.5">
+                {benefits.map((benefit) => (
+                  <li key={benefit} className="flex items-start gap-2.5">
+                    <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-400" />
+                    <span className="text-sm leading-snug text-zinc-200/95">{benefit}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
 
-          <div className="mb-6 rounded-xl border border-amber-400/20 bg-amber-500/10 p-4">
-            <p className="whitespace-pre-line text-sm leading-relaxed text-amber-100/90">{promo.message}</p>
+          {/* CTA */}
+          <div className="mx-auto mt-10 max-w-md border-t border-zinc-800 pt-8">
+            <Button
+              className="group w-full"
+              variant="primary"
+              size="lg"
+              onClick={handleOpen}
+              rightIcon={<ArrowRight className="h-5 w-5 transition-transform duration-200 group-hover:translate-x-1" />}
+            >
+              {promo.button_label}
+            </Button>
+            <p className="mt-3 text-center text-xs text-zinc-500">{footnote}</p>
           </div>
-
-          <div className="mb-3 flex items-center gap-2">
-            <Check className="h-5 w-5 text-amber-400" />
-            <p className="text-xl font-bold text-white">Inclus</p>
+        </Card>
+      ) : (
+        <Card className="flex h-full flex-col justify-between border border-amber-500/70 bg-zinc-900 p-6 shadow-[0_0_30px_rgba(245,158,11,0.10)] transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_0_40px_rgba(245,158,11,0.18)]">
+          <div>
+            <div className="mb-4 flex justify-center">{verticalBadge}</div>
+            <div className="mb-6">{verticalInfoColumn}</div>
+            <div className="mb-6">{verticalMessageBlock}</div>
+            <div className="mb-6">{verticalBenefitsBlock}</div>
+            <p className="mb-2 text-center text-xs text-zinc-500">{footnote}</p>
           </div>
-          <ul className="mb-6 space-y-2">
-            {(promo.benefits?.length ? promo.benefits : DEFAULT_BENEFITS).map((benefit) => (
-              <li key={benefit} className="flex items-start gap-3">
-                <Check className="mt-1 h-4 w-4 flex-shrink-0 text-amber-400" />
-                <span className="text-sm text-zinc-200/95">{benefit}</span>
-              </li>
-            ))}
-          </ul>
-
-          <p className="mb-2 text-center text-xs text-zinc-500">
-            {promo.footnote ?? DEFAULT_FOOTNOTE}
-          </p>
-        </div>
-
-        <div className="pt-6">
-          <Button
-            className="mt-auto w-full"
-            variant="primary"
-            size="lg"
-            onClick={handleOpen}
-          >
-            {promo.button_label}
-          </Button>
-        </div>
-      </Card>
+          <div className="pt-6">{verticalCta}</div>
+        </Card>
+      )}
 
       <Modal
         isOpen={isModalOpen}

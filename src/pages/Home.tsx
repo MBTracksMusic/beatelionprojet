@@ -12,6 +12,7 @@ import {
   Headphones,
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
+import { ProducerPromoCard } from '../components/ProducerPromoCard';
 import { ProductCard } from '../components/products/ProductCard';
 import { HomeBattlesPreview } from '../components/home/HomeBattlesPreview';
 import { HomeBattleOfTheDay } from '../components/home/HomeBattleOfTheDay';
@@ -37,10 +38,12 @@ interface HomeStatsPayload {
 
 export function HomePage() {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { isActive: hasPremiumAccess, subscription: userSubStatus } = useUserSubscriptionStatus(user?.id);
   const isUserPremium = hasPremiumAccess && userSubStatus?.plan_code === 'user_monthly';
-  const { showHomepageStats, showHomepageBadge } = useMaintenanceModeContext();
+  const { showHomepageStats, showHomepageBadge, pricingProducerPromo } = useMaintenanceModeContext();
+  const hasActiveProducerSubscription = Boolean(user && profile?.is_producer_active === true);
+  const showProducerPromoCard = Boolean(pricingProducerPromo?.enabled) && !hasActiveProducerSubscription;
   const { productIds: wishlistProductIds, fetchWishlist, toggleWishlist, clearWishlist } = useWishlistStore();
   // TODO(levelup): reactiver cette section quand les categories Exclusifs/Kits reviennent.
   const isExclusiveSectionEnabled = false;
@@ -212,6 +215,22 @@ export function HomePage() {
               </Button>
             </Link>
           </motion.div>
+
+          {showProducerPromoCard && pricingProducerPromo && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.5, ease: 'easeOut' }}
+              className="mx-auto mb-12 max-w-5xl text-left"
+            >
+              <ProducerPromoCard
+                promo={pricingProducerPromo}
+                isActiveProducer={hasActiveProducerSubscription}
+                userEmail={user?.email ?? ''}
+                variant="horizontal"
+              />
+            </motion.div>
+          )}
 
           {/* Stats */}
           {showHomepageStats && (
