@@ -1612,9 +1612,9 @@ function ProducerPromoCardSettings() {
       <div className="border-b border-zinc-800 px-5 py-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-lg font-semibold text-white">Vignette Producteur (page Tarifs)</h2>
+            <h2 className="text-lg font-semibold text-white">Vignette Producteur (affichage marketing)</h2>
             <p className="mt-1 text-sm text-zinc-400">
-              Carte promotionnelle affichée sous les offres, cachée pour les producteurs actifs.
+              Carte promotionnelle affichée sur le site, cachée pour les producteurs actifs.
             </p>
           </div>
           <Tag className="mt-1 h-5 w-5 text-zinc-500" />
@@ -1625,7 +1625,7 @@ function ProducerPromoCardSettings() {
         <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950/40 px-4 py-3">
           <div>
             <p className="text-sm font-medium text-zinc-200">Afficher la vignette</p>
-            <p className="mt-0.5 text-xs text-zinc-500">Visible uniquement pour les non-producteurs actifs</p>
+            <p className="mt-0.5 text-xs text-zinc-500">Réglage marketing uniquement, visible pour les non-producteurs actifs si la campagne serveur est ouverte.</p>
           </div>
           <button
             type="button"
@@ -1644,6 +1644,14 @@ function ProducerPromoCardSettings() {
               ].join(' ')}
             />
           </button>
+        </div>
+
+        <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-4">
+          <p className="text-sm font-semibold text-amber-100">Masquer la vignette ne ferme pas la campagne.</p>
+          <p className="mt-1 text-sm leading-relaxed text-amber-100/80">
+            Ce réglage contrôle uniquement l’affichage marketing sur le site. Pour bloquer réellement les nouvelles demandes,
+            ferme la campagne serveur dans la section Campagne Producteurs.
+          </p>
         </div>
 
         <div>
@@ -1686,9 +1694,12 @@ function ProducerPromoCardSettings() {
               type="text"
               value={campaignType}
               onChange={(e) => setCampaignType(e.target.value)}
-              placeholder="founding_producer_trial"
+              placeholder="founding"
               disabled={isSettingsLoading || isSaving}
             />
+            <p className="mt-1 text-xs text-zinc-500">
+              Doit correspondre au type serveur dans producer_campaigns, par exemple founding.
+            </p>
           </div>
         </div>
 

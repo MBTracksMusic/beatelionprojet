@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { RefreshCw, UserPlus, Users } from 'lucide-react';
+import { RefreshCw, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Button } from '../ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
@@ -67,6 +67,11 @@ interface UnassignCampaignResponse {
   };
 }
 
+interface ToggleCampaignResponse {
+  ok: boolean;
+  campaign: Pick<CampaignInfo, 'type' | 'label' | 'max_slots' | 'is_active' | 'trial_duration'>;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -105,6 +110,10 @@ const getAssignErrorMessage = (error: unknown) => {
     return 'La campagne est complète.';
   }
 
+  if (normalized.includes('campaign_inactive') || normalized.includes('not active')) {
+    return 'La campagne serveur est fermée. Ouvre-la avant d’activer un producteur.';
+  }
+
   return message;
 };
 
@@ -133,6 +142,7 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
 
   const [producerIdentifierInput, setProducerIdentifierInput] = useState('');
   const [isAssigning, setIsAssigning] = useState(false);
+  const [isTogglingCampaign, setIsTogglingCampaign] = useState(false);
   const [removingUserId, setRemovingUserId] = useState<string | null>(null);
 
   const isMountedRef = useRef(true);
@@ -213,6 +223,46 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
     }
   };
 
+  const handleToggleCampaignActive = async () => {
+    if (!campaign || isTogglingCampaign) return;
+
+    const nextIsActive = !campaign.is_active;
+    const confirmed = nextIsActive
+      ? true
+      : window.confirm(
+          'Fermer la campagne serveur ? Les nouvelles demandes founding seront bloquées, mais les waitlists et trials existants ne seront pas modifiés.',
+        );
+
+    if (!confirmed) return;
+
+    setIsTogglingCampaign(true);
+
+    try {
+      const data = await invokeProtectedEdgeFunction<ToggleCampaignResponse>('admin-toggle-campaign', {
+        body: {
+          campaign_type: campaign.type,
+          is_active: nextIsActive,
+        },
+      });
+
+      const nextCampaign = data?.campaign;
+      if (!nextCampaign) {
+        throw new Error('Réponse campagne invalide.');
+      }
+
+      if (!isMountedRef.current) return;
+      setCampaign((current) => current ? { ...current, ...nextCampaign } : null);
+      toast.success(nextIsActive ? 'Campagne serveur ouverte.' : 'Campagne serveur fermée.');
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      toast.error(parseErrorMessage(err));
+    } finally {
+      if (isMountedRef.current) {
+        setIsTogglingCampaign(false);
+      }
+    }
+  };
+
   const handleRemove = async (producer: CampaignProducer) => {
     const producerIdentity =
       producer.username
@@ -274,6 +324,66 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
       </CardHeader>
 
       <CardContent className="flex flex-col gap-5 p-5 pt-0">
+        {campaign && (
+          <div
+            className={[
+              'rounded-lg border p-4',
+              campaign.is_active
+                ? 'border-emerald-500/25 bg-emerald-500/10'
+                : 'border-rose-500/25 bg-rose-500/10',
+            ].join(' ')}
+          >
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <ShieldCheck className={campaign.is_active ? 'h-4 w-4 text-emerald-300' : 'h-4 w-4 text-rose-300'} />
+                  <p className="text-sm font-semibold text-white">Campagne serveur actuelle</p>
+                  <span
+                    className={[
+                      'rounded-full border px-2.5 py-0.5 text-xs font-medium',
+                      campaign.is_active
+                        ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200'
+                        : 'border-rose-400/30 bg-rose-400/10 text-rose-200',
+                    ].join(' ')}
+                  >
+                    {campaign.is_active ? 'Ouverte' : 'Fermée'}
+                  </span>
+                </div>
+                <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-300">
+                  Ce statut modifie <span className="font-mono text-xs text-zinc-200">producer_campaigns.is_active</span>.
+                  Fermer la campagne bloque réellement les nouvelles demandes avec ce type de campagne. Cela ne masque pas la vignette marketing.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant={campaign.is_active ? 'danger' : 'secondary'}
+                size="sm"
+                onClick={() => { void handleToggleCampaignActive(); }}
+                isLoading={isTogglingCampaign}
+                disabled={isTogglingCampaign}
+                className="shrink-0"
+              >
+                {campaign.is_active ? 'Fermer la campagne serveur' : 'Ouvrir la campagne serveur'}
+              </Button>
+            </div>
+            <div className="mt-4 grid gap-3 text-xs sm:grid-cols-3">
+              <div className="rounded-md border border-white/10 bg-black/10 px-3 py-2">
+                <p className="text-zinc-500">Type</p>
+                <p className="mt-1 font-mono text-zinc-100">{campaign.type}</p>
+              </div>
+              <div className="rounded-md border border-white/10 bg-black/10 px-3 py-2">
+                <p className="text-zinc-500">Statut</p>
+                <p className={campaign.is_active ? 'mt-1 font-medium text-emerald-200' : 'mt-1 font-medium text-rose-200'}>
+                  {campaign.is_active ? 'Ouverte aux nouvelles demandes' : 'Nouvelles demandes bloquées'}
+                </p>
+              </div>
+              <div className="rounded-md border border-white/10 bg-black/10 px-3 py-2">
+                <p className="text-zinc-500">Slots max</p>
+                <p className="mt-1 font-medium text-zinc-100">{campaign.max_slots ?? 'Illimité'}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Slots counter */}
         {campaign && (
@@ -320,13 +430,18 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
           </div>
           <Button
             onClick={handleAssign}
-            disabled={isAssigning || !producerIdentifierInput.trim()}
+            disabled={isAssigning || !producerIdentifierInput.trim() || campaign?.is_active === false}
             className="flex shrink-0 items-center gap-2 whitespace-nowrap"
           >
             <UserPlus className="h-4 w-4" />
             {isAssigning ? 'Activation…' : 'Activer Founding'}
           </Button>
         </div>
+        {campaign?.is_active === false && (
+          <p className="-mt-3 text-xs text-rose-300">
+            La campagne serveur est fermée : les nouvelles demandes et activations manuelles sont bloquées tant qu’elle reste fermée.
+          </p>
+        )}
 
         {/* Participants list */}
         <div className="flex flex-col gap-2">
