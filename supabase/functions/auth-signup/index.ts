@@ -114,6 +114,36 @@ serveWithErrorHandling("auth-signup", async (req: Request) => {
     remoteIp: ipAddress,
   });
 
+  // Server-side launch gating: in PRIVATE / CONTROLLED modes, only
+  // whitelisted or waitlist-accepted emails may create an account.
+  // PUBLIC mode returns true unconditionally. Bypassing this check
+  // (e.g. direct edge function call) would otherwise leak signups
+  // past the launch screen.
+  try {
+    const supabaseAdmin = createAdminClient();
+    const { data: canRegister, error: gateError } = await supabaseAdmin.rpc(
+      "can_email_register",
+      { p_email: email },
+    );
+    if (gateError) {
+      console.error("[auth-signup] can_email_register check failed", {
+        message: gateError.message,
+        code: gateError.code,
+      });
+      throw new ApiError(500, "internal_error", "Access check failed");
+    }
+    if (canRegister !== true) {
+      throw new ApiError(
+        403,
+        "registration_not_allowed",
+        "This email is not authorized to register yet.",
+      );
+    }
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(500, "internal_error", "Access check failed");
+  }
+
   const supabase = createAuthClient();
   const { data, error } = await supabase.auth.signUp({
     email,
