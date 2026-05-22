@@ -142,6 +142,7 @@ export function HomeFeaturedBeats() {
         if (rpcRes.error) {
           console.error('Error fetching featured beats RPC for home:', rpcRes.error);
         }
+        featuredBeats.sort((a, b) => b.play_count - a.play_count);
         setBeats(featuredBeats);
         setIsLoading(false);
       }
