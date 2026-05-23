@@ -1317,7 +1317,7 @@ export function UploadBeatPage() {
                     <p className="text-xs text-zinc-500">
                       {t('producer.audioRequirements')}
                     </p>
-                    <p className="text-xs text-zinc-400 italic mt-1">
+                    <p className="text-sm text-amber-300 font-medium leading-snug mt-2">
                       {t('producer.audioMasteringTip')}
                     </p>
                   </div>
