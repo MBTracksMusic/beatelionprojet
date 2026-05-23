@@ -391,6 +391,7 @@ export const en: TranslationSchema = {
     chooseCoverFile: 'Choose a cover image',
     replaceFile: 'Replace file',
     audioRequirements: 'WAV or MP3 · max 50 MB · max 10 min',
+    audioMasteringTip: 'Tip: ~-12 LUFS, true peak ≤ -1 dBTP. Beatelion normalizes previews automatically — just avoid clipping to preserve dynamics.',
     coverRequirements: 'JPG or PNG · max 5 MB · min 500x500 px',
     fileMissing: 'No file',
     fileError: 'File error',

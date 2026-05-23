@@ -390,6 +390,7 @@ export const fr = {
     chooseCoverFile: 'Choisir une pochette',
     replaceFile: 'Remplacer le fichier',
     audioRequirements: 'WAV ou MP3 · 50 Mo max · 10 min max',
+    audioMasteringTip: 'Conseil : ~-12 LUFS, true peak ≤ -1 dBTP. Beatelion normalise automatiquement les previews — évite simplement de saturer pour préserver les dynamiques.',
     coverRequirements: 'JPG ou PNG · 5 Mo max · min 500x500 px',
     fileMissing: 'Aucun fichier',
     fileError: 'Erreur fichier',
