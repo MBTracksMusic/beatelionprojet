@@ -1,16 +1,34 @@
 /*
   # 263 — Fix auth header on repair-email-delivery cron job
-  See supabase/migrations/20260524183000_263_fix_repair_email_delivery_cron_auth.sql
+
+  Background:
+  - Migration 261 also scheduled `repair-email-delivery-every-15min` via
+    the helper from migration 175, which sends `Authorization: Bearer
+    <service_role_key>`. The repair-email-delivery edge function actually
+    checks `req.headers.get('x-email-repair-secret')` against
+    `Deno.env.get('EMAIL_REPAIR_SECRET')`. The cron therefore receives 401
+    Unauthorized on every tick.
+  - This is the same family of bug as migration 262 (different secret,
+    different header).
+
+  Fix:
+  - Unschedule the broken `repair-email-delivery-every-15min` job.
+  - Re-schedule with header `x-email-repair-secret` sourced from
+    `vault.email_repair_secret` (which mirrors the edge function env var
+    EMAIL_REPAIR_SECRET).
+
+  Pre-flight: RAISES if `vault.email_repair_secret` is missing.
 */
 
 BEGIN;
 
+-- ── 1. Pre-flight ────────────────────────────────────────────────────────────
 DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM vault.decrypted_secrets WHERE name = 'email_repair_secret'
   ) THEN
-    RAISE EXCEPTION 'vault.email_repair_secret is missing.';
+    RAISE EXCEPTION 'vault.email_repair_secret is missing. Copy the value of EMAIL_REPAIR_SECRET (Edge Function env var) into vault (Supabase Dashboard > Settings > Vault > New Secret named email_repair_secret) before applying this migration.';
   END IF;
 
   IF NOT EXISTS (
@@ -22,6 +40,7 @@ BEGIN
 END;
 $$;
 
+-- ── 2. Unschedule the broken job (idempotent) ────────────────────────────────
 DO $$
 DECLARE
   v_jobid bigint;
@@ -38,6 +57,7 @@ BEGIN
 END;
 $$;
 
+-- ── 3. Re-schedule with correct header ───────────────────────────────────────
 SELECT cron.schedule(
   'repair-email-delivery-every-15min',
   '*/15 * * * *',

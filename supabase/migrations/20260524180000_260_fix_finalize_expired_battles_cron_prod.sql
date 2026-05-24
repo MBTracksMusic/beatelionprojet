@@ -1,11 +1,30 @@
 /*
   # 260 — Fix corrupted agent-finalize-expired-battles cron job
 
-  See supabase/migrations/20260524180000_260_fix_finalize_expired_battles_cron_prod.sql
+  Background:
+  - Migration 234 hardcoded the production project URL when scheduling the
+    cron job. A stale sed/replace left the production prod cron command
+    syntactically corrupted (the literal keyword `url` was replaced by the
+    URL itself, and the body still contains an unsubstituted
+    `<STAGING_PROJECT_REF>` placeholder).
+  - Staging suffered a symmetric bug: jobid 15 in staging targets the
+    production URL instead of the staging URL.
+  - Result: no battle has ever auto-completed in production via this cron.
+
+  Fix:
+  - Unschedule the broken job (idempotent).
+  - Re-schedule it using `vault.project_url` so the same migration is
+    portable between staging and production.
+  - Use `vault.agent_cron_secret` for auth, matching the existing
+    convention (already used by agent-auto-execute-ai-actions).
+
+  Pre-flight: this migration RAISES if vault secrets are missing, so a
+  silent skip cannot leave the cron half-configured.
 */
 
 BEGIN;
 
+-- ── 1. Pre-flight: required vault secrets must exist ─────────────────────────
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -23,6 +42,7 @@ BEGIN
 END;
 $$;
 
+-- ── 2. Unschedule the broken job (idempotent) ────────────────────────────────
 DO $$
 BEGIN
   PERFORM cron.unschedule('agent-finalize-expired-battles');
@@ -31,6 +51,7 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $$;
 
+-- ── 3. Re-schedule with portable vault-based URL ─────────────────────────────
 SELECT cron.schedule(
   'agent-finalize-expired-battles',
   '*/15 * * * *',

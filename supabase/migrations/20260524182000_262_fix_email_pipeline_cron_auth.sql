@@ -1,16 +1,42 @@
 /*
   # 262 — Fix auth header on email pipeline cron jobs
-  See supabase/migrations/20260524182000_262_fix_email_pipeline_cron_auth.sql
+
+  Background:
+  - Migration 261 scheduled process-outbox / process-events /
+    process-email-queue via the helper introduced in migration 175.
+    The helper sends `Authorization: Bearer <service_role_key>`, but the
+    edge functions actually check `req.headers.get('x-internal-secret')`
+    against `Deno.env.get('INTERNAL_PIPELINE_SECRET')`. The cron jobs
+    therefore receive 401 Unauthorized on every tick — the email pipeline
+    is not drained.
+  - Migration 175's helper is a latent bug: any environment that relied
+    on it without additionally hardcoding the right header would be broken.
+    Staging works only because its jobs were created with hardcoded
+    `x-internal-secret` outside the migration system.
+
+  Fix:
+  - Unschedule the three workers created by migration 261.
+  - Re-schedule them with the canonical header pattern read from
+    `vault.internal_pipeline_secret`, matching the value of the edge
+    function env var `INTERNAL_PIPELINE_SECRET`.
+
+  Pre-flight: RAISES if vault.internal_pipeline_secret is missing.
+
+  Out of scope:
+  - repair-email-delivery uses a different secret (EMAIL_REPAIR_SECRET +
+    header `x-email-repair-secret`); will be fixed in a separate migration
+    once `vault.email_repair_secret` is provisioned.
 */
 
 BEGIN;
 
+-- ── 1. Pre-flight: required vault secret must exist ──────────────────────────
 DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM vault.decrypted_secrets WHERE name = 'internal_pipeline_secret'
   ) THEN
-    RAISE EXCEPTION 'vault.internal_pipeline_secret is missing.';
+    RAISE EXCEPTION 'vault.internal_pipeline_secret is missing. Copy the value of the Edge Function env var INTERNAL_PIPELINE_SECRET into vault (Supabase Dashboard > Settings > Vault > New Secret named internal_pipeline_secret) before applying this migration.';
   END IF;
 
   IF NOT EXISTS (
@@ -22,6 +48,7 @@ BEGIN
 END;
 $$;
 
+-- ── 2. Local helper: idempotent reschedule of one worker ─────────────────────
 CREATE OR REPLACE FUNCTION public._reschedule_pipeline_worker(
   p_jobname  text,
   p_endpoint text,
@@ -82,6 +109,7 @@ REVOKE EXECUTE ON FUNCTION public._reschedule_pipeline_worker(text, text, text) 
 REVOKE EXECUTE ON FUNCTION public._reschedule_pipeline_worker(text, text, text) FROM anon;
 REVOKE EXECUTE ON FUNCTION public._reschedule_pipeline_worker(text, text, text) FROM authenticated;
 
+-- ── 3. Reschedule the three pipeline workers with the right header ───────────
 SELECT public._reschedule_pipeline_worker(
   'process-outbox-every-minute',      'process-outbox',      '* * * * *'
 );
@@ -92,6 +120,7 @@ SELECT public._reschedule_pipeline_worker(
   'process-email-queue-every-minute', 'process-email-queue', '* * * * *'
 );
 
+-- ── 4. Cleanup local helper ──────────────────────────────────────────────────
 DROP FUNCTION public._reschedule_pipeline_worker(text, text, text);
 
 COMMIT;
