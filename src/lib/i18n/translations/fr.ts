@@ -24,6 +24,8 @@ export const fr = {
     confirm: 'Confirmer',
     viewAll: 'Voir tout',
     learnMore: 'En savoir plus',
+    readMore: 'Voir plus',
+    readLess: 'Voir moins',
     copyright: 'Tous droits reserves',
     min: 'Min',
     max: 'Max',

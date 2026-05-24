@@ -25,6 +25,8 @@ export const de: TranslationSchema = {
     confirm: 'Bestatigen',
     viewAll: 'Alle anzeigen',
     learnMore: 'Mehr erfahren',
+    readMore: 'Mehr anzeigen',
+    readLess: 'Weniger anzeigen',
     copyright: 'Alle Rechte vorbehalten',
     min: 'Min',
     max: 'Max',
