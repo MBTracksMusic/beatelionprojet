@@ -5,6 +5,7 @@ import { PublishedBeatsList } from '../components/producers/PublishedBeatsList';
 import { useAudioPlayer, type Track } from '../context/AudioPlayerContext';
 import { hasPlayableTrackSource, toTrack } from '../lib/audio/track';
 import { ReputationBadge, formatRankTier } from '../components/reputation/ReputationBadge';
+import { ExpandableText } from '../components/ui/ExpandableText';
 import { useTranslation } from '../lib/i18n';
 import { supabase } from '@/lib/supabase/client';
 import type { ProducerTier, ReputationRankTier } from '../lib/supabase/types';
@@ -480,9 +481,9 @@ export function ProducerPublicProfilePage() {
               <ReputationBadge rankTier={producer.rank_tier} level={producer.level} xp={producer.xp} />
             </div>
           </div>
-          <p className="text-zinc-300 whitespace-pre-wrap">
+          <ExpandableText maxLines={5} className="text-zinc-300 whitespace-pre-wrap">
             {producer.bio || t('producerProfile.noBio')}
-          </p>
+          </ExpandableText>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-5 max-w-xl">
             <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2">
               <p className="text-[11px] uppercase tracking-wide text-zinc-500">{t('producerProfile.statsBeats')}</p>

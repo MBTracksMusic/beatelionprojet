@@ -25,6 +25,8 @@ export const es: TranslationSchema = {
     confirm: 'Confirmar',
     viewAll: 'Ver todo',
     learnMore: 'Saber más',
+    readMore: 'Ver más',
+    readLess: 'Ver menos',
     copyright: 'Todos los derechos reservados',
     min: 'Mín',
     max: 'Máx',
