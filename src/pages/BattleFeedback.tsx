@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { ArrowLeft, Check, Share2 } from 'lucide-react';
+import { ArrowLeft, Check, Copy, Share2 } from 'lucide-react';
 import { supabase } from '../lib/supabase/client';
 import {
   BattleScoreRadar,
@@ -9,7 +9,7 @@ import {
 } from '../components/battles/feedback/BattleScoreRadar';
 import { useAuth, useUserRole } from '../lib/auth/hooks';
 import { deriveRole, type ViewerRole } from '../lib/feedback/deriveRole';
-import { trackBattleShare } from '../lib/analytics';
+import { trackBattleShare, type BattleShareMethod } from '../lib/analytics';
 
 interface FeedbackBattle {
   id: string;
@@ -83,6 +83,15 @@ type LoadState =
 
 const CACHE_TTL_MS = 60_000;
 const cache = new Map<string, { expires: number; state: LoadState }>();
+type SocialShareMethod = Extract<BattleShareMethod, 'x' | 'facebook' | 'linkedin' | 'whatsapp'>;
+type ShareTarget = {
+  method: SocialShareMethod;
+  label: string;
+  marker: string;
+  href: string;
+};
+type NativeShare = (data: ShareData) => Promise<void>;
+type NavigatorWithOptionalShare = Navigator & { share?: NativeShare };
 
 function isErr(p: FeedbackPayload): p is FeedbackPayloadErr {
   return typeof (p as FeedbackPayloadErr).error === 'string';
@@ -182,6 +191,45 @@ function isAbortError(error: unknown) {
   return error instanceof DOMException && error.name === 'AbortError';
 }
 
+function getNativeShare(): NativeShare | null {
+  if (typeof navigator === 'undefined') return null;
+  const share = (navigator as NavigatorWithOptionalShare).share;
+  return typeof share === 'function' ? share.bind(navigator) : null;
+}
+
+function buildSocialShareTargets(shareText: string, shareUrl: string): ShareTarget[] {
+  const text = encodeURIComponent(shareText);
+  const url = encodeURIComponent(shareUrl);
+  const textWithUrl = encodeURIComponent(`${shareText} ${shareUrl}`);
+
+  return [
+    {
+      method: 'x',
+      label: 'X',
+      marker: 'X',
+      href: `https://twitter.com/intent/tweet?text=${text}&url=${url}`,
+    },
+    {
+      method: 'facebook',
+      label: 'Facebook',
+      marker: 'f',
+      href: `https://www.facebook.com/sharer/sharer.php?u=${url}&quote=${text}`,
+    },
+    {
+      method: 'linkedin',
+      label: 'LinkedIn',
+      marker: 'in',
+      href: `https://www.linkedin.com/sharing/share-offsite/?url=${url}`,
+    },
+    {
+      method: 'whatsapp',
+      label: 'WhatsApp',
+      marker: 'WA',
+      href: `https://wa.me/?text=${textWithUrl}`,
+    },
+  ];
+}
+
 function ProducerCard({
   snapshot,
   variant,
@@ -273,59 +321,150 @@ function RoleCTA({
   slug: string;
 }) {
   const [shareState, setShareState] = useState<'idle' | 'sharing' | 'copied'>('idle');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const isSharing = shareState === 'sharing';
   const isCopied = shareState === 'copied';
+  const nativeShare = getNativeShare();
+  const shareTargets = useMemo(
+    () => buildSocialShareTargets(shareText, shareUrl),
+    [shareText, shareUrl],
+  );
+
+  useEffect(() => {
+    if (!isMenuOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (containerRef.current?.contains(event.target as Node)) return;
+      setIsMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isMenuOpen]);
 
   const copyShareText = async () => {
     await navigator.clipboard.writeText(`${shareText} → ${shareUrl}`);
     trackBattleShare({ battleId, method: 'clipboard' });
+    setIsMenuOpen(false);
     setShareState('copied');
     toast.success('Lien de partage copié.');
     window.setTimeout(() => setShareState('idle'), 2000);
   };
 
-  const onShare = async () => {
+  const onNativeShare = async () => {
     if (isSharing) return;
     setShareState('sharing');
 
     try {
-      if (navigator.share) {
-        try {
-          await navigator.share({
-            title: shareTitle,
-            text: shareText,
-            url: shareUrl,
-          });
-          trackBattleShare({ battleId, method: 'native' });
-          setShareState('idle');
-          return;
-        } catch (shareError) {
-          if (isAbortError(shareError)) {
-            setShareState('idle');
-            return;
-          }
-        }
+      if (!nativeShare) {
+        await copyShareText();
+        return;
       }
 
-      await copyShareText();
+      await nativeShare({
+        title: shareTitle,
+        text: shareText,
+        url: shareUrl,
+      });
+      trackBattleShare({ battleId, method: 'native' });
+      setIsMenuOpen(false);
+      setShareState('idle');
     } catch (shareError) {
+      if (isAbortError(shareError)) {
+        setShareState('idle');
+        return;
+      }
       console.error('Unable to share battle feedback:', shareError);
       toast.error('Partage indisponible pour le moment.');
       setShareState('idle');
     }
   };
 
+  const onSocialShare = (target: ShareTarget) => {
+    setIsMenuOpen(false);
+    trackBattleShare({ battleId, method: target.method });
+
+    const opened = window.open('', '_blank', 'width=720,height=640');
+    if (opened) {
+      opened.opener = null;
+      opened.location.href = target.href;
+      opened.focus();
+      return;
+    }
+
+    window.location.assign(target.href);
+  };
+
+  const renderShareMenu = () => (
+    <div className="absolute bottom-full left-1/2 z-30 mb-3 w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-zinc-700 bg-zinc-950 p-2 shadow-2xl">
+      <div className="grid grid-cols-2 gap-2">
+        {shareTargets.map((target) => (
+          <button
+            key={target.method}
+            type="button"
+            onClick={() => onSocialShare(target)}
+            className="inline-flex min-h-11 items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-left text-sm font-semibold text-zinc-100 transition-colors hover:border-zinc-600 hover:bg-zinc-800"
+          >
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-[11px] font-black text-zinc-950">
+              {target.marker}
+            </span>
+            {target.label}
+          </button>
+        ))}
+
+        {nativeShare && (
+          <button
+            type="button"
+            onClick={() => void onNativeShare()}
+            disabled={isSharing}
+            className="inline-flex min-h-11 items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-left text-sm font-semibold text-zinc-100 transition-colors hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Share2 className="h-5 w-5 text-zinc-300" />
+            Autres apps
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={() => void copyShareText()}
+          className="inline-flex min-h-11 items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-left text-sm font-semibold text-zinc-100 transition-colors hover:border-zinc-600 hover:bg-zinc-800"
+        >
+          {isCopied ? (
+            <Check className="h-5 w-5 text-emerald-400" />
+          ) : (
+            <Copy className="h-5 w-5 text-zinc-300" />
+          )}
+          Copier
+        </button>
+      </div>
+    </div>
+  );
+
   if (role === 'winner' || role === 'admin') {
     return (
-      <button
-        type="button"
-        onClick={() => void onShare()}
-        disabled={isSharing}
-        className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white shadow hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {isCopied ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
-        {isCopied ? 'Lien copié' : 'Partager ma victoire'}
-      </button>
+      <div ref={containerRef} className="relative inline-flex">
+        <button
+          type="button"
+          onClick={() => setIsMenuOpen((open) => !open)}
+          disabled={isSharing}
+          aria-expanded={isMenuOpen}
+          className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white shadow hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isCopied ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
+          {isCopied ? 'Lien copié' : 'Partager ma victoire'}
+        </button>
+        {isMenuOpen && renderShareMenu()}
+      </div>
     );
   }
   if (role === 'loser') {
@@ -341,15 +480,19 @@ function RoleCTA({
   if (role === 'tie_participant') {
     return (
       <div className="flex flex-col gap-2 sm:flex-row">
-        <button
-          type="button"
-          onClick={() => void onShare()}
-          disabled={isSharing}
-          className="inline-flex items-center justify-center gap-2 rounded-md bg-amber-500/90 px-5 py-3 text-sm font-semibold text-zinc-950 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isCopied ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
-          {isCopied ? 'Lien copié' : 'Match nul honorable'}
-        </button>
+        <div ref={containerRef} className="relative inline-flex">
+          <button
+            type="button"
+            onClick={() => setIsMenuOpen((open) => !open)}
+            disabled={isSharing}
+            aria-expanded={isMenuOpen}
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-amber-500/90 px-5 py-3 text-sm font-semibold text-zinc-950 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isCopied ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
+            {isCopied ? 'Lien copié' : 'Match nul honorable'}
+          </button>
+          {isMenuOpen && renderShareMenu()}
+        </div>
         <Link
           to={`/battles/${slug}`}
           className="inline-flex items-center justify-center rounded-md border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-100 hover:border-zinc-500"
