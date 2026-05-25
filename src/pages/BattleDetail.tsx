@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Check, Clock, Copy, Share2, Trophy, Users } from 'lucide-react';
+import { ArrowLeft, BarChart3, Check, Clock, Copy, Share2, Trophy, Users } from 'lucide-react';
 import { Badge } from '../components/ui/Badge';
 import { Card } from '../components/ui/Card';
 import { ReputationBadge } from '../components/reputation/ReputationBadge';
@@ -10,6 +10,7 @@ import { BattleAudioPlayer } from '../components/audio/BattleAudioPlayer';
 import { useTranslation } from '../lib/i18n';
 import { supabase } from '@/lib/supabase/client';
 import { fetchPublicProducerProfilesMap } from '../lib/supabase/publicProfiles';
+import { fetchCatalogProductsByIds } from '../lib/supabase/catalog';
 import type { BattleProductSnapshot, BattleWithRelations, ProductWithRelations } from '../lib/supabase/types';
 import { formatDateTime } from '../lib/utils/format';
 import { useAuth } from '../lib/auth/hooks';
@@ -98,8 +99,8 @@ export function BattleDetailPage() {
           prize_description,
           created_at,
           updated_at,
-          product1:products!battles_product1_id_fkey(id, title, slug, product_type, preview_url, cover_image_url, price),
-          product2:products!battles_product2_id_fkey(id, title, slug, product_type, preview_url, cover_image_url, price)
+          custom_duration_days,
+          extension_count
         `)
         .eq('slug', slug)
         .maybeSingle();
@@ -135,17 +136,24 @@ export function BattleDetailPage() {
         let nextBattle: BattleWithRelations = row;
 
         try {
-          const producerProfilesMap = await fetchPublicProducerProfilesMap([
-            row.producer1_id,
-            row.producer2_id,
-            row.winner_id,
+          const [producerProfilesMap, productsMap] = await Promise.all([
+            fetchPublicProducerProfilesMap([
+              row.producer1_id,
+              row.producer2_id,
+              row.winner_id,
+            ]),
+            fetchCatalogProductsByIds([row.product1_id, row.product2_id]),
           ]);
           const producer1 = producerProfilesMap.get(row.producer1_id);
           const producer2 = row.producer2_id ? producerProfilesMap.get(row.producer2_id) : undefined;
           const winner = row.winner_id ? producerProfilesMap.get(row.winner_id) : undefined;
+          const product1 = row.product1_id ? productsMap.get(row.product1_id) : undefined;
+          const product2 = row.product2_id ? productsMap.get(row.product2_id) : undefined;
 
           nextBattle = {
             ...row,
+            product1,
+            product2,
             producer1: producer1
               ? {
                   id: producer1.user_id,
@@ -386,7 +394,17 @@ export function BattleDetailPage() {
             <ArrowLeft className="w-4 h-4" />
             {t('battleDetail.backToBattles')}
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {battle.status === 'completed' && (
+              <Link
+                to={`/battles/${battle.slug}/feedback`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-amber-300 hover:text-white hover:bg-amber-500/10 transition-colors"
+                title={t('battleDetail.viewFeedbackReport')}
+              >
+                <BarChart3 className="w-4 h-4" />
+                <span className="hidden sm:inline">{t('battleDetail.viewFeedbackReport')}</span>
+              </Link>
+            )}
             <button
               type="button"
               onClick={handleShare}

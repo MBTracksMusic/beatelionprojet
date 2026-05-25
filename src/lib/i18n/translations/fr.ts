@@ -1094,6 +1094,7 @@ export const fr = {
     shareButton: 'Partager',
     copyLink: 'Copier le lien',
     linkCopied: 'Lien copié !',
+    viewFeedbackReport: 'Voir le feedback',
     statusActive: 'En cours',
     statusPendingAcceptance: 'En attente de reponse',
     statusAwaitingAdmin: 'En attente admin',

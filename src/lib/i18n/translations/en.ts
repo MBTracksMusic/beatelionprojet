@@ -1095,6 +1095,7 @@ export const en: TranslationSchema = {
     shareButton: 'Share',
     copyLink: 'Copy link',
     linkCopied: 'Link copied!',
+    viewFeedbackReport: 'View feedback',
     statusActive: 'Active',
     statusPendingAcceptance: 'Awaiting response',
     statusAwaitingAdmin: 'Awaiting admin',

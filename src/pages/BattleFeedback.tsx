@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import { supabase } from '../lib/supabase/client';
 import {
   BattleScoreRadar,
@@ -474,6 +475,13 @@ export function BattleFeedbackPage() {
   return (
     <div className="min-h-screen bg-[var(--brand-bg)] text-zinc-100">
       <div className="mx-auto max-w-5xl px-4 pb-24 pt-8 md:px-8">
+        <Link
+          to={`/battles/${slug}`}
+          className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-zinc-400 transition-colors hover:text-white"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Voir la battle
+        </Link>
         <header className="mb-6">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center rounded-full border border-zinc-700 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-300">
