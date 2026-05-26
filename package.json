@@ -26,6 +26,7 @@
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.6",
     "@ffmpeg/util": "^0.12.1",
+    "@fontsource/inter": "^5.2.8",
     "@hcaptcha/react-hcaptcha": "^2.0.2",
     "@sentry/deno": "^10.43.0",
     "@sentry/node": "^10.43.0",

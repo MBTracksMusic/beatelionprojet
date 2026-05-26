@@ -450,7 +450,7 @@ function RoleCTA({
     </div>
   );
 
-  if (role === 'winner' || role === 'admin') {
+  if (role === 'winner') {
     return (
       <div ref={containerRef} className="relative inline-flex">
         <button
@@ -462,6 +462,23 @@ function RoleCTA({
         >
           {isCopied ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
           {isCopied ? 'Lien copié' : 'Partager ma victoire'}
+        </button>
+        {isMenuOpen && renderShareMenu()}
+      </div>
+    );
+  }
+  if (role === 'admin') {
+    return (
+      <div ref={containerRef} className="relative inline-flex">
+        <button
+          type="button"
+          onClick={() => setIsMenuOpen((open) => !open)}
+          disabled={isSharing}
+          aria-expanded={isMenuOpen}
+          className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white shadow hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isCopied ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
+          {isCopied ? 'Lien copié' : 'Partager le résultat'}
         </button>
         {isMenuOpen && renderShareMenu()}
       </div>
