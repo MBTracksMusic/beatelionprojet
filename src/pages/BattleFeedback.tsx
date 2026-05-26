@@ -82,6 +82,7 @@ type LoadState =
   | { kind: 'ok'; payload: FeedbackPayloadOk };
 
 const CACHE_TTL_MS = 60_000;
+const SHARE_PREVIEW_VERSION = '3';
 const cache = new Map<string, { expires: number; state: LoadState }>();
 type SocialShareMethod = Extract<BattleShareMethod, 'x' | 'facebook' | 'linkedin' | 'whatsapp'>;
 type ShareTarget = {
@@ -684,7 +685,7 @@ export function BattleFeedbackPage() {
   }
 
   const { winner, opponent } = splitSnapshots(payload);
-  const shareUrl = `${window.location.origin}/share/battle/${slug}/feedback`;
+  const shareUrl = `${window.location.origin}/share/battle/${slug}/feedback?v=${SHARE_PREVIEW_VERSION}`;
   const shareText = buildShareText(payload);
 
   return (

@@ -26,6 +26,8 @@ type SocialShareTarget = {
   href: string;
 };
 
+const SHARE_PREVIEW_VERSION = '3';
+
 function buildSocialShareTargets(shareText: string, shareUrl: string): SocialShareTarget[] {
   const text = encodeURIComponent(shareText);
   const url = encodeURIComponent(shareUrl);
@@ -316,9 +318,10 @@ export function BattleDetailPage() {
 
   const shareUrl = useMemo(() => {
     if (!battleSlug) return null;
-    return user?.id
-      ? `${window.location.origin}/share/battle/${battleSlug}?ref=${user.id}`
-      : `${window.location.origin}/share/battle/${battleSlug}`;
+    const url = new URL(`/share/battle/${battleSlug}`, window.location.origin);
+    url.searchParams.set('v', SHARE_PREVIEW_VERSION);
+    if (user?.id) url.searchParams.set('ref', user.id);
+    return url.toString();
   }, [battleSlug, user?.id]);
 
   const shareText = battleTitle ? `${battleTitle} sur Beatelion` : '';

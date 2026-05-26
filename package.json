@@ -26,7 +26,6 @@
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.6",
     "@ffmpeg/util": "^0.12.1",
-    "@fontsource/inter": "^5.2.8",
     "@hcaptcha/react-hcaptcha": "^2.0.2",
     "@sentry/deno": "^10.43.0",
     "@sentry/node": "^10.43.0",
@@ -39,6 +38,7 @@
     "react-hot-toast": "^2.6.0",
     "react-router-dom": "^7.13.0",
     "resend": "^6.9.3",
+    "satori": "^0.26.0",
     "sharp": "^0.34.5",
     "xlsx": "^0.18.5",
     "zustand": "^5.0.10"
