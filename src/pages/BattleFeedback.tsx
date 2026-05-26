@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { ArrowLeft, Check, Copy, Share2 } from 'lucide-react';
+import { Modal } from '../components/ui/Modal';
 import { supabase } from '../lib/supabase/client';
 import {
   BattleScoreRadar,
@@ -10,6 +11,17 @@ import {
 import { useAuth, useUserRole } from '../lib/auth/hooks';
 import { deriveRole, type ViewerRole } from '../lib/feedback/deriveRole';
 import { trackBattleShare, type BattleShareMethod } from '../lib/analytics';
+import { useTranslation } from '../lib/i18n';
+import {
+  LOSER_SHARE_TEMPLATE_KEYS,
+  buildLoserShareMessage,
+  canShowLoserShareButton,
+  type LoserShareChannel,
+  type LoserShareData,
+  type LoserShareTemplateKey,
+  type LoserShareTrait,
+  type RecordLoserShareResult,
+} from '../lib/battles/loserShare';
 
 interface FeedbackBattle {
   id: string;
@@ -81,8 +93,14 @@ type LoadState =
   | { kind: 'error'; message: string }
   | { kind: 'ok'; payload: FeedbackPayloadOk };
 
+type LoserShareLoadState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'error'; message: string }
+  | { kind: 'ok'; data: LoserShareData };
+
 const CACHE_TTL_MS = 60_000;
-const SHARE_PREVIEW_VERSION = '3';
+const SHARE_PREVIEW_VERSION = '4';
 const cache = new Map<string, { expires: number; state: LoadState }>();
 type SocialShareMethod = Extract<BattleShareMethod, 'x' | 'facebook' | 'linkedin' | 'whatsapp'>;
 type ShareTarget = {
@@ -96,6 +114,126 @@ type NavigatorWithOptionalShare = Navigator & { share?: NativeShare };
 
 function isErr(p: FeedbackPayload): p is FeedbackPayloadErr {
   return typeof (p as FeedbackPayloadErr).error === 'string';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseLoserShareTrait(value: unknown): LoserShareTrait | null {
+  if (!isRecord(value)) return null;
+  const criterionKey = value.criterion_key;
+  const count = value.count;
+
+  if (typeof criterionKey !== 'string') return null;
+
+  return {
+    criterion_key: criterionKey,
+    count: typeof count === 'number' ? count : 0,
+  };
+}
+
+function parseLoserShareData(value: unknown): LoserShareData | null {
+  if (!isRecord(value)) return null;
+
+  const topTraits = Array.isArray(value.top_traits)
+    ? value.top_traits.map(parseLoserShareTrait).filter((trait): trait is LoserShareTrait => trait !== null)
+    : [];
+
+  if (typeof value.error === 'string') {
+    return {
+      battle_id: '',
+      battle_slug: '',
+      producer_id: '',
+      producer_name: '',
+      producer_slug: null,
+      opponent_id: '',
+      opponent_name: '',
+      opponent_slug: null,
+      top_traits: topTraits,
+      share_url: '',
+      is_loser_role: false,
+      error: value.error,
+    };
+  }
+
+  if (
+    typeof value.battle_id !== 'string'
+    || typeof value.battle_slug !== 'string'
+    || typeof value.producer_id !== 'string'
+    || typeof value.producer_name !== 'string'
+    || typeof value.opponent_id !== 'string'
+    || typeof value.opponent_name !== 'string'
+    || typeof value.share_url !== 'string'
+    || value.is_loser_role !== true
+  ) {
+    return null;
+  }
+
+  return {
+    battle_id: value.battle_id,
+    battle_slug: value.battle_slug,
+    producer_id: value.producer_id,
+    producer_name: value.producer_name,
+    producer_slug: typeof value.producer_slug === 'string' ? value.producer_slug : null,
+    opponent_id: value.opponent_id,
+    opponent_name: value.opponent_name,
+    opponent_slug: typeof value.opponent_slug === 'string' ? value.opponent_slug : null,
+    top_traits: topTraits,
+    share_url: value.share_url,
+    is_loser_role: true,
+  };
+}
+
+function parseRecordLoserShareResult(value: unknown): RecordLoserShareResult | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.share_event_id !== 'string') return null;
+
+  return {
+    share_event_id: value.share_event_id,
+    xp_awarded: value.xp_awarded === true,
+    xp_delta: typeof value.xp_delta === 'number' ? value.xp_delta : 0,
+    reputation_event_id: typeof value.reputation_event_id === 'string' ? value.reputation_event_id : null,
+    skipped_reason: typeof value.skipped_reason === 'string' ? value.skipped_reason : null,
+  };
+}
+
+async function fetchLoserShareData(battleId: string): Promise<LoserShareData> {
+  const { data, error } = await supabase.rpc('get_loser_share_data', { p_battle_id: battleId });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const parsed = parseLoserShareData(data);
+  if (!parsed || parsed.error || !parsed.is_loser_role) {
+    throw new Error(parsed?.error ?? 'loser_share_unavailable');
+  }
+
+  return parsed;
+}
+
+async function recordLoserBattleShare(
+  battleId: string,
+  shareChannel: LoserShareChannel,
+  templateKey: LoserShareTemplateKey,
+) {
+  const { data, error } = await supabase.rpc('record_loser_battle_share', {
+    p_battle_id: battleId,
+    p_share_channel: shareChannel,
+    p_template_used: templateKey,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const parsed = parseRecordLoserShareResult(data);
+  if (!parsed) {
+    throw new Error('invalid_share_response');
+  }
+
+  return parsed;
 }
 
 async function fetchFeedback(slug: string): Promise<LoadState> {
@@ -112,12 +250,9 @@ async function fetchFeedback(slug: string): Promise<LoadState> {
     return { kind: 'not_found' };
   }
 
-  // RPC name cast: get_battle_feedback_payload was added in migrations 266/268
-  // and is not yet present in generated database.types.ts. Regen via `npm run supabase:types`.
-  const { data, error } = await supabase.rpc(
-    'get_battle_feedback_payload' as never,
-    { p_battle_id: battle.id } as never,
-  );
+  const { data, error } = await supabase.rpc('get_battle_feedback_payload', {
+    p_battle_id: battle.id,
+  });
 
   if (error) {
     return { kind: 'error', message: error.message };
@@ -198,17 +333,25 @@ function getNativeShare(): NativeShare | null {
   return typeof share === 'function' ? share.bind(navigator) : null;
 }
 
-function buildSocialShareTargets(shareText: string, shareUrl: string): ShareTarget[] {
+function buildSocialShareTargets(
+  shareText: string,
+  shareUrl: string,
+  options: { textIncludesUrl?: boolean } = {},
+): ShareTarget[] {
   const text = encodeURIComponent(shareText);
   const url = encodeURIComponent(shareUrl);
-  const textWithUrl = encodeURIComponent(`${shareText} ${shareUrl}`);
+  const textWithUrl = options.textIncludesUrl
+    ? text
+    : encodeURIComponent(`${shareText} ${shareUrl}`);
 
   return [
     {
       method: 'x',
       label: 'X',
       marker: 'X',
-      href: `https://twitter.com/intent/tweet?text=${text}&url=${url}`,
+      href: options.textIncludesUrl
+        ? `https://twitter.com/intent/tweet?text=${text}`
+        : `https://twitter.com/intent/tweet?text=${text}&url=${url}`,
     },
     {
       method: 'facebook',
@@ -306,9 +449,230 @@ function TopCriteria({ items }: { items: FeedbackTopCriterion[] }) {
   );
 }
 
+function LoserShareModal({
+  battleId,
+  isOpen,
+  onClose,
+}: {
+  battleId: string;
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [loadState, setLoadState] = useState<LoserShareLoadState>({ kind: 'idle' });
+  const [selectedTemplate, setSelectedTemplate] = useState<LoserShareTemplateKey>('neutral');
+  const [draftText, setDraftText] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setLoadState({ kind: 'idle' });
+      setSelectedTemplate('neutral');
+      setDraftText('');
+      setIsSubmitting(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadState({ kind: 'loading' });
+    fetchLoserShareData(battleId)
+      .then((data) => {
+        if (cancelled) return;
+        setLoadState({ kind: 'ok', data });
+        setSelectedTemplate('neutral');
+        setDraftText(buildLoserShareMessage('neutral', data, t));
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : 'loser_share_unavailable';
+        setLoadState({ kind: 'error', message });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [battleId, isOpen, t]);
+
+  const shareData = loadState.kind === 'ok' ? loadState.data : null;
+  const shareTargets = useMemo(
+    () => buildSocialShareTargets(draftText, shareData?.share_url ?? '', { textIncludesUrl: true }),
+    [draftText, shareData?.share_url],
+  );
+
+  const selectTemplate = (templateKey: LoserShareTemplateKey) => {
+    setSelectedTemplate(templateKey);
+    if (shareData) {
+      setDraftText(buildLoserShareMessage(templateKey, shareData, t));
+    }
+  };
+
+  const showShareToast = (result: RecordLoserShareResult) => {
+    toast.success(result.xp_awarded ? t('battleFeedback.share.storytellerXp') : t('battleFeedback.share.shared'));
+  };
+
+  const recordShare = async (shareChannel: LoserShareChannel) => {
+    const result = await recordLoserBattleShare(battleId, shareChannel, selectedTemplate);
+    showShareToast(result);
+  };
+
+  const onSocialShare = (target: ShareTarget) => {
+    if (!shareData || !draftText.trim()) return;
+
+    const opened = window.open('', '_blank', 'width=720,height=640');
+    if (opened) {
+      opened.opener = null;
+      opened.location.href = target.href;
+      opened.focus();
+      onClose();
+      void recordShare(target.method).catch((error: unknown) => {
+        console.error('Unable to record loser battle share:', error);
+        toast.error(t('battleFeedback.share.unavailable'));
+      });
+    } else {
+      onClose();
+      void recordShare(target.method)
+        .catch((error: unknown) => {
+          console.error('Unable to record loser battle share:', error);
+          toast.error(t('battleFeedback.share.unavailable'));
+        })
+        .finally(() => {
+          window.location.assign(target.href);
+        });
+    }
+  };
+
+  const onCopy = async () => {
+    if (!shareData || !draftText.trim() || isSubmitting) return;
+
+    setIsSubmitting(true);
+    try {
+      await navigator.clipboard.writeText(draftText);
+      toast.success(t('battleFeedback.share.copied'));
+      const result = await recordLoserBattleShare(battleId, 'copy', selectedTemplate);
+      showShareToast(result);
+      onClose();
+    } catch (error) {
+      console.error('Unable to copy loser battle share:', error);
+      toast.error(t('battleFeedback.share.unavailable'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={t('battleFeedback.share.modalTitle')}
+      description={t('battleFeedback.share.modalDescription')}
+      size="lg"
+    >
+      {loadState.kind === 'loading' || loadState.kind === 'idle' ? (
+        <div className="rounded-md border border-zinc-800 bg-zinc-950/60 p-4 text-sm text-zinc-400">
+          {t('battleFeedback.share.loading')}
+        </div>
+      ) : loadState.kind === 'error' ? (
+        <div className="space-y-4">
+          <p className="rounded-md border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+            {t('battleFeedback.share.unavailable')}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setLoadState({ kind: 'loading' });
+              fetchLoserShareData(battleId)
+                .then((data) => {
+                  setLoadState({ kind: 'ok', data });
+                  setDraftText(buildLoserShareMessage(selectedTemplate, data, t));
+                })
+                .catch((error: unknown) => {
+                  const message = error instanceof Error ? error.message : loadState.message;
+                  setLoadState({ kind: 'error', message });
+                });
+            }}
+            className="inline-flex items-center justify-center rounded-md border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-100 hover:border-zinc-500"
+          >
+            {t('battleFeedback.share.retry')}
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-5">
+          <fieldset className="space-y-3">
+            {LOSER_SHARE_TEMPLATE_KEYS.map((templateKey) => (
+              <label
+                key={templateKey}
+                className="flex cursor-pointer gap-3 rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 transition-colors hover:border-zinc-600"
+              >
+                <input
+                  type="radio"
+                  name="loser-share-template"
+                  value={templateKey}
+                  checked={selectedTemplate === templateKey}
+                  onChange={() => selectTemplate(templateKey)}
+                  className="mt-1 h-4 w-4 accent-[var(--brand-primary)]"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-zinc-100">
+                    {t(`battleFeedback.share.templateLabels.${templateKey}`)}
+                  </span>
+                  <span className="mt-1 block text-sm text-zinc-400">
+                    {t(`battleFeedback.share.templateDescriptions.${templateKey}`)}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-semibold text-zinc-200">
+              {t('battleFeedback.share.textareaLabel')}
+            </span>
+            <textarea
+              value={draftText}
+              onChange={(event) => setDraftText(event.target.value)}
+              rows={5}
+              className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-600 focus:border-[var(--brand-primary)]"
+            />
+          </label>
+
+          <div className="grid grid-cols-2 gap-2">
+            {shareTargets.map((target) => (
+              <button
+                key={target.method}
+                type="button"
+                onClick={() => onSocialShare(target)}
+                disabled={!draftText.trim()}
+                className="inline-flex min-h-11 items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-left text-sm font-semibold text-zinc-100 transition-colors hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-[11px] font-black text-zinc-950">
+                  {target.marker}
+                </span>
+                {t('battleFeedback.share.shareOn', { channel: target.label })}
+              </button>
+            ))}
+
+            <button
+              type="button"
+              onClick={() => void onCopy()}
+              disabled={!draftText.trim() || isSubmitting}
+              className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm font-semibold text-zinc-100 transition-colors hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Copy className="h-5 w-5 text-zinc-300" />
+              {t('battleFeedback.share.copyText')}
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function RoleCTA({
   role,
   battleId,
+  battleStatus,
+  winnerProductId,
+  isTie,
   shareTitle,
   shareText,
   shareUrl,
@@ -316,13 +680,18 @@ function RoleCTA({
 }: {
   role: ViewerRole;
   battleId: string;
+  battleStatus: string;
+  winnerProductId: string | null;
+  isTie: boolean;
   shareTitle: string;
   shareText: string;
   shareUrl: string;
   slug: string;
 }) {
+  const { t } = useTranslation();
   const [shareState, setShareState] = useState<'idle' | 'sharing' | 'copied'>('idle');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isLoserShareModalOpen, setIsLoserShareModalOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const isSharing = shareState === 'sharing';
   const isCopied = shareState === 'copied';
@@ -451,6 +820,13 @@ function RoleCTA({
     </div>
   );
 
+  const showLoserShare = canShowLoserShareButton({
+    role,
+    status: battleStatus,
+    winnerProductId,
+    isTie,
+  });
+
   if (role === 'winner') {
     return (
       <div ref={containerRef} className="relative inline-flex">
@@ -485,14 +861,29 @@ function RoleCTA({
       </div>
     );
   }
-  if (role === 'loser') {
+  if (showLoserShare) {
     return (
-      <Link
-        to="/battles"
-        className="inline-flex items-center justify-center rounded-md border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-100 hover:border-zinc-500"
-      >
-        Recommencer une battle
-      </Link>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <button
+          type="button"
+          onClick={() => setIsLoserShareModalOpen(true)}
+          className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white shadow hover:opacity-90"
+        >
+          <Share2 className="h-4 w-4" />
+          {t('battleFeedback.share.openModal')}
+        </button>
+        <Link
+          to="/battles"
+          className="inline-flex items-center justify-center rounded-md border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-100 hover:border-zinc-500"
+        >
+          Recommencer une battle
+        </Link>
+        <LoserShareModal
+          battleId={battleId}
+          isOpen={isLoserShareModalOpen}
+          onClose={() => setIsLoserShareModalOpen(false)}
+        />
+      </div>
     );
   }
   if (role === 'tie_participant') {
@@ -741,6 +1132,9 @@ export function BattleFeedbackPage() {
           <RoleCTA
             role={viewerRole}
             battleId={battle.id}
+            battleStatus={battle.status}
+            winnerProductId={battle.winner_product_id}
+            isTie={battle.is_tie}
             shareTitle={battle.title}
             shareText={shareText}
             shareUrl={shareUrl}
@@ -748,12 +1142,15 @@ export function BattleFeedbackPage() {
           />
         </section>
 
-        {(viewerRole === 'winner' || viewerRole === 'tie_participant') && (
+        {(viewerRole === 'winner' || viewerRole === 'tie_participant' || viewerRole === 'loser') && (
           <div className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-800 bg-zinc-950/95 px-4 py-3 backdrop-blur md:hidden">
             <div className="mx-auto flex max-w-5xl items-center justify-center">
               <RoleCTA
                 role={viewerRole}
                 battleId={battle.id}
+                battleStatus={battle.status}
+                winnerProductId={battle.winner_product_id}
+                isTie={battle.is_tie}
                 shareTitle={battle.title}
                 shareText={shareText}
                 shareUrl={shareUrl}
