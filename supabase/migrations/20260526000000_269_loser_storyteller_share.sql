@@ -6,12 +6,14 @@
 
 BEGIN;
 
+-- enabled_from=NULL keeps XP blocked until the feature is activated manually;
+-- share events are still logged for QA and analytics before activation.
 INSERT INTO public.app_settings (key, value)
 VALUES (
   'storyteller_share_config',
   jsonb_build_object(
     'enabled_from',
-    to_jsonb(now()),
+    NULL,
     'xp',
     15
   )
