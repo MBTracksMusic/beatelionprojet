@@ -1,7 +1,7 @@
-import HCaptcha from '@hcaptcha/react-hcaptcha';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Mail, Music, ArrowLeft } from 'lucide-react';
+import { ResponsiveCaptcha } from '../../components/auth/ResponsiveCaptcha';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { useTranslation } from '../../lib/i18n';
@@ -96,7 +96,7 @@ export function ForgotPasswordPage() {
           </p>
         </div>
 
-        <div className="bg-zinc-900 rounded-2xl p-8 border border-zinc-800">
+        <div className="bg-zinc-900 rounded-2xl border border-zinc-800 p-5 sm:p-8">
           {emailSent ? (
             <div className="text-center space-y-4">
               <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center mx-auto">
@@ -136,15 +136,13 @@ export function ForgotPasswordPage() {
               )}
 
               {isCaptchaConfigured && (
-                <div className="space-y-1">
-                  <HCaptcha
-                    key={captchaInstanceKey}
-                    sitekey={captchaSiteKey}
-                    onVerify={handleCaptchaVerify}
-                    onExpire={handleCaptchaExpire}
-                    onError={handleCaptchaError}
-                  />
-                </div>
+                <ResponsiveCaptcha
+                  instanceKey={captchaInstanceKey}
+                  siteKey={captchaSiteKey}
+                  onVerify={handleCaptchaVerify}
+                  onExpire={handleCaptchaExpire}
+                  onError={handleCaptchaError}
+                />
               )}
 
               <Button

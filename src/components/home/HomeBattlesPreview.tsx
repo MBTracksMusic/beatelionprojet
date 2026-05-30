@@ -69,7 +69,7 @@ export function HomeBattlesPreview() {
       setIsLoading(true);
 
       let previewBattles: HomeBattleRow[] = [];
-      const rpcRes = await supabase.rpc('get_public_home_battles_preview' as any, { p_limit: 3 });
+      const rpcRes = await supabase.rpc('get_public_home_battles_preview' as never, { p_limit: 3 } as never);
       if (!rpcRes.error && Array.isArray(rpcRes.data)) {
         previewBattles = (rpcRes.data as HomeBattlesPreviewRpcRow[]).map((row) => ({
           id: row.id,
@@ -112,7 +112,7 @@ export function HomeBattlesPreview() {
             console.error('Error fetching home battles preview RPC:', rpcRes.error);
           }
           const { data: spotlightRow, error: spotlightError } = await supabase
-            .from('battle_of_the_day' as any)
+            .from('battle_of_the_day' as never)
             .select('battle_id, slug, title, status, producer1_id, producer1_username, producer2_id, producer2_username')
             .maybeSingle();
           if (!spotlightError && spotlightRow) {
@@ -190,7 +190,7 @@ export function HomeBattlesPreview() {
       transition={{ duration: 0.6, ease: 'easeOut' }}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between mb-8">
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Swords className="w-5 h-5 text-rose-400" />
@@ -198,7 +198,7 @@ export function HomeBattlesPreview() {
             </div>
             <p className="text-zinc-400 text-sm">{t('home.latestBattlesSubtitle')}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               aria-label="Scroll left"

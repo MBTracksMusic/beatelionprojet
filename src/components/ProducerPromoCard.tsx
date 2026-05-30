@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import HCaptcha from '@hcaptcha/react-hcaptcha';
 import { ArrowRight, Check, Crown, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase/client';
+import { ResponsiveCaptcha } from './auth/ResponsiveCaptcha';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { Input } from './ui/Input';
@@ -310,15 +310,13 @@ export function ProducerPromoCard({
               disabled={submitState === 'loading'}
             />
             {isCaptchaConfigured && (
-              <div className="flex justify-center">
-                <HCaptcha
-                  key={captchaKey}
-                  sitekey={CAPTCHA_SITE_KEY}
-                  onVerify={(token) => { captchaTokenRef.current = token; }}
-                  onExpire={() => { captchaTokenRef.current = null; }}
-                  onError={() => { captchaTokenRef.current = null; }}
-                />
-              </div>
+              <ResponsiveCaptcha
+                instanceKey={captchaKey}
+                siteKey={CAPTCHA_SITE_KEY}
+                onVerify={(token) => { captchaTokenRef.current = token; }}
+                onExpire={() => { captchaTokenRef.current = null; }}
+                onError={() => { captchaTokenRef.current = null; }}
+              />
             )}
             <div className="flex justify-end gap-2 pt-2">
               <Button

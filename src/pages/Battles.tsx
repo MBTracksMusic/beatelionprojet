@@ -293,10 +293,10 @@ function BattleCard({ battle }: BattleCardProps) {
   };
 
   return (
-    <Card padding="lg" className="hover:border-rose-500/30 transition-colors">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-xl font-bold text-white">{battle.title}</h3>
-          <div className="flex items-center gap-3">
+    <Card padding="none" className="p-4 transition-colors hover:border-rose-500/30 sm:p-6">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <h3 className="min-w-0 text-lg font-bold text-white sm:text-xl">{battle.title}</h3>
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
             {(battle.status === 'active' || battle.status === 'voting') && battle.voting_ends_at && (
               <div className="flex items-center gap-2 text-sm text-amber-400">
                 <Clock className="w-4 h-4" />
@@ -321,21 +321,21 @@ function BattleCard({ battle }: BattleCardProps) {
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-8">
-          <div className="flex-1 flex items-center gap-4">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between md:gap-8">
+          <div className="flex flex-1 items-center gap-3 sm:gap-4">
             {battle.producer1?.avatar_url ? (
               <img
                 src={battle.producer1.avatar_url}
                 alt={battle.producer1.username || ''}
-                className="w-20 h-20 rounded-full object-cover border-2 border-zinc-700"
+                className="h-14 w-14 shrink-0 rounded-full border-2 border-zinc-700 object-cover sm:h-16 sm:w-16 md:h-20 md:w-20"
               />
             ) : (
-              <div className="w-20 h-20 rounded-full bg-zinc-800 flex items-center justify-center border-2 border-zinc-700">
-                <Users className="w-8 h-8 text-zinc-600" />
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 border-zinc-700 bg-zinc-800 sm:h-16 sm:w-16 md:h-20 md:w-20">
+                <Users className="h-6 w-6 text-zinc-600 sm:h-7 sm:w-7 md:h-8 md:w-8" />
               </div>
             )}
-            <div>
-              <p className="font-semibold text-white text-lg">
+            <div className="min-w-0">
+              <p className="truncate text-base font-semibold text-white sm:text-lg">
                 {battle.producer1?.username || t('battles.producer1')}
               </p>
               {battle.producer1 && (
@@ -347,7 +347,7 @@ function BattleCard({ battle }: BattleCardProps) {
                 />
               )}
               {battle.product1 && (
-                <p className="text-zinc-400 text-sm">{battle.product1.title}</p>
+                <p className="truncate text-sm text-zinc-400">{battle.product1.title}</p>
               )}
               <p className="text-rose-400 font-bold mt-1">
                 {battle.votes_producer1} {t('battles.votes')}
@@ -365,13 +365,24 @@ function BattleCard({ battle }: BattleCardProps) {
             )}
           </div>
 
-          <div className="flex-1 flex items-center justify-end gap-4">
-            <div className="text-right">
-              <p className="font-semibold text-white text-lg">
+          <div className="flex flex-1 items-center gap-3 sm:gap-4 md:flex-row-reverse md:justify-end">
+            {battle.producer2?.avatar_url ? (
+              <img
+                src={battle.producer2.avatar_url}
+                alt={battle.producer2.username || ''}
+                className="h-14 w-14 shrink-0 rounded-full border-2 border-zinc-700 object-cover sm:h-16 sm:w-16 md:h-20 md:w-20"
+              />
+            ) : (
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 border-zinc-700 bg-zinc-800 sm:h-16 sm:w-16 md:h-20 md:w-20">
+                <Users className="h-6 w-6 text-zinc-600 sm:h-7 sm:w-7 md:h-8 md:w-8" />
+              </div>
+            )}
+            <div className="min-w-0 md:text-right">
+              <p className="truncate text-base font-semibold text-white sm:text-lg">
                 {battle.producer2?.username || t('battles.producer2')}
               </p>
               {battle.producer2 && (
-                <div className="flex justify-end">
+                <div className="flex md:justify-end">
                   <ReputationBadge
                     compact
                     rankTier={battle.producer2.rank_tier}
@@ -381,23 +392,12 @@ function BattleCard({ battle }: BattleCardProps) {
                 </div>
               )}
               {battle.product2 && (
-                <p className="text-zinc-400 text-sm">{battle.product2.title}</p>
+                <p className="truncate text-sm text-zinc-400">{battle.product2.title}</p>
               )}
               <p className="text-orange-400 font-bold mt-1">
                 {battle.votes_producer2} {t('battles.votes')}
               </p>
             </div>
-            {battle.producer2?.avatar_url ? (
-              <img
-                src={battle.producer2.avatar_url}
-                alt={battle.producer2.username || ''}
-                className="w-20 h-20 rounded-full object-cover border-2 border-zinc-700"
-              />
-            ) : (
-              <div className="w-20 h-20 rounded-full bg-zinc-800 flex items-center justify-center border-2 border-zinc-700">
-                <Users className="w-8 h-8 text-zinc-600" />
-              </div>
-            )}
           </div>
         </div>
 
@@ -413,7 +413,7 @@ function BattleCard({ battle }: BattleCardProps) {
                 style={{ width: `${percent2}%` }}
               />
             </div>
-            <div className="flex justify-between mt-2 text-sm text-zinc-500">
+            <div className="mt-2 flex justify-between text-xs text-zinc-500 sm:text-sm">
               <span>{percent1.toFixed(0)}%</span>
               <span>{t('battles.totalVotes', { count: totalVotes })}</span>
               <span>{percent2.toFixed(0)}%</span>
@@ -421,10 +421,10 @@ function BattleCard({ battle }: BattleCardProps) {
           </div>
         )}
 
-        <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-zinc-800 pt-4">
+        <div className="mt-6 flex flex-wrap gap-2 border-t border-zinc-800 pt-4 sm:justify-end">
           <Link
             to={`/battles/${battle.slug}`}
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+            className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-700 px-3 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white sm:flex-none"
           >
             <ExternalLink className="h-4 w-4" />
             {t('common.open')}
@@ -432,7 +432,7 @@ function BattleCard({ battle }: BattleCardProps) {
           {battle.status === 'completed' && (
             <Link
               to={`/battles/${battle.slug}/feedback`}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-amber-500/15 px-3 py-1.5 text-sm font-semibold text-amber-300 transition-colors hover:bg-amber-500/25 hover:text-amber-100"
+              className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg bg-amber-500/15 px-3 text-sm font-semibold text-amber-300 transition-colors hover:bg-amber-500/25 hover:text-amber-100 sm:flex-none"
             >
               <BarChart3 className="h-4 w-4" />
               {t('battleDetail.viewFeedbackReport')}

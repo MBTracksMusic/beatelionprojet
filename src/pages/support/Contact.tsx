@@ -1,6 +1,6 @@
-import HCaptcha from '@hcaptcha/react-hcaptcha';
 import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
+import { ResponsiveCaptcha } from '../../components/auth/ResponsiveCaptcha';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
@@ -224,15 +224,13 @@ export function ContactPage() {
             )}
 
             {isCaptchaConfigured && (
-              <div className="space-y-1">
-                <HCaptcha
-                  key={captchaInstanceKey}
-                  sitekey={captchaSiteKey}
-                  onVerify={handleCaptchaVerify}
-                  onExpire={handleCaptchaExpire}
-                  onError={handleCaptchaError}
-                />
-              </div>
+              <ResponsiveCaptcha
+                instanceKey={captchaInstanceKey}
+                siteKey={captchaSiteKey}
+                onVerify={handleCaptchaVerify}
+                onExpire={handleCaptchaExpire}
+                onError={handleCaptchaError}
+              />
             )}
 
             <div className="flex justify-end">

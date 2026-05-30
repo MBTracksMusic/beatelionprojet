@@ -82,7 +82,7 @@ export function BeatsPage({ mode = 'beats' }: BeatsPageProps) {
   }, [searchParamsString]);
 
   useEffect(() => {
-    if (!user) {
+    if (!user?.id) {
       clearWishlist();
       return;
     }
@@ -290,7 +290,7 @@ export function BeatsPage({ mode = 'beats' }: BeatsPageProps) {
         )}
 
         {isLoading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
             {[...Array(12)].map((_, i) => (
               <div key={i} className="bg-zinc-900 rounded-xl overflow-hidden animate-pulse">
                 <div className="aspect-square bg-zinc-800" />
@@ -307,7 +307,7 @@ export function BeatsPage({ mode = 'beats' }: BeatsPageProps) {
             <p className="text-zinc-400 text-lg">{t('products.noProducts')}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
             {beats.map((beat) => (
               <ProductCard
                 key={beat.id}

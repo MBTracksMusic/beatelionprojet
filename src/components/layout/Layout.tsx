@@ -8,9 +8,9 @@ interface LayoutProps {
   hidePlayer?: boolean;
 }
 
-export function Layout({ children, hidePlayer }: LayoutProps) {
+export function Layout({ children }: LayoutProps) {
   return (
-    <div className="min-h-screen bg-zinc-950 text-white flex flex-col">
+    <div className="min-h-screen bg-zinc-950 text-white flex flex-col overflow-x-hidden">
       <Header />
       <main className="flex-1 pt-16 pb-20">{children ?? <Outlet />}</main>
       <Footer />

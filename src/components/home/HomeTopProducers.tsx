@@ -51,7 +51,7 @@ export function HomeTopProducers() {
 
       let ranking: RankedProducer[] = [];
 
-      const rpcRes = await supabase.rpc('get_public_home_top_producers' as any, { p_limit: 10 });
+      const rpcRes = await supabase.rpc('get_public_home_top_producers' as never, { p_limit: 10 } as never);
       if (!rpcRes.error && Array.isArray(rpcRes.data)) {
         ranking = (rpcRes.data as TopProducersRpcRow[]).map((row) => ({
           id: row.user_id,
@@ -66,7 +66,7 @@ export function HomeTopProducers() {
       // even those with 0 wins — ensures the section is never empty).
       if (ranking.length === 0) {
         const { data, error } = await supabase
-          .from('leaderboard_producers' as any)
+          .from('leaderboard_producers' as never)
           .select('user_id, username, avatar_url, battle_wins, rank_position')
           .order('rank_position', { ascending: true })
           .limit(10);
@@ -107,7 +107,7 @@ export function HomeTopProducers() {
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Flame className="w-5 h-5 text-orange-400" />
@@ -115,7 +115,7 @@ export function HomeTopProducers() {
             </div>
             <p className="text-zinc-400 text-sm">{t('home.topProducersSubtitle')}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               aria-label="Scroll left"

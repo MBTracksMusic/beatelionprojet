@@ -1,9 +1,9 @@
-import HCaptcha from '@hcaptcha/react-hcaptcha';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, User, Music, ArrowLeft } from 'lucide-react';
 import { Button, ToastContainer } from '../../components/ui';
 import { Input } from '../../components/ui/Input';
+import { ResponsiveCaptcha } from '../../components/auth/ResponsiveCaptcha';
 import { useTranslation } from '../../lib/i18n';
 import { getReferrer, trackSignUp } from '../../lib/analytics';
 import { AuthFunctionError, signUp, loginWithGoogle } from '../../lib/auth/service';
@@ -229,7 +229,7 @@ export function RegisterPage() {
           </p>
         </div>
 
-        <div className="bg-zinc-900 rounded-2xl p-8 border border-zinc-800">
+        <div className="bg-zinc-900 rounded-2xl border border-zinc-800 p-5 sm:p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
               <p className="text-sm font-medium text-zinc-200">{t('auth.accountType')}</p>
@@ -324,15 +324,13 @@ export function RegisterPage() {
             )}
 
             {isCaptchaConfigured && (
-              <div className="space-y-1">
-                <HCaptcha
-                  key={captchaInstanceKey}
-                  sitekey={captchaSiteKey}
-                  onVerify={handleCaptchaVerify}
-                  onExpire={handleCaptchaExpire}
-                  onError={handleCaptchaError}
-                />
-              </div>
+              <ResponsiveCaptcha
+                instanceKey={captchaInstanceKey}
+                siteKey={captchaSiteKey}
+                onVerify={handleCaptchaVerify}
+                onExpire={handleCaptchaExpire}
+                onError={handleCaptchaError}
+              />
             )}
 
             <Button
