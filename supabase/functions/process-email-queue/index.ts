@@ -362,12 +362,9 @@ const getTemplateContent = (params: {
   if (template === "battle_invitation") {
     const battleTitle = asNonEmptyString(payload?.battle_title);
     const inviterName = asNonEmptyString(payload?.inviter_name);
-    const battleSlug = asNonEmptyString(payload?.battle_slug);
     const battleId = asNonEmptyString(payload?.battle_id) ?? "N/A";
     const responseDeadline = asNonEmptyString(payload?.response_deadline);
-    const ctaUrl = battleSlug
-      ? `${safeAppUrl}/battles/${battleSlug}`
-      : `${safeAppUrl}/producer/battles`;
+    const ctaUrl = `${safeAppUrl}/producer/battles`;
     const titleLine = battleTitle ? `Battle : ${battleTitle}` : null;
     const fromLine = inviterName ? `De la part de : ${inviterName}` : null;
     const deadlineLine = responseDeadline
@@ -389,9 +386,9 @@ const getTemplateContent = (params: {
         preheader: "Un producteur veut t'affronter en battle",
         bodyLines: [
           bodyIntro,
-          "Ouvre la battle pour accepter ou refuser l'invitation.",
+          "Ouvre ton espace producteur pour accepter ou refuser l'invitation.",
         ],
-        ctaLabel: "Voir l'invitation",
+        ctaLabel: "Repondre a l'invitation",
         ctaUrl,
         metaLines,
       }),
