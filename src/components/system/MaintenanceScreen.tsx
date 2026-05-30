@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
-import HCaptcha from '@hcaptcha/react-hcaptcha';
+import { ResponsiveCaptcha } from '../auth/ResponsiveCaptcha';
 import { supabase } from '@/lib/supabase/client';
 import toast from 'react-hot-toast';
 
@@ -285,15 +285,13 @@ export function MaintenanceScreen({ launchDate, launchVideoUrl }: MaintenanceScr
               />
 
               {isCaptchaConfigured && (
-                <div className="flex justify-center rounded-lg overflow-hidden">
-                  <HCaptcha
-                    key={captchaInstanceKey}
-                    sitekey={captchaSiteKey}
-                    onVerify={handleCaptchaVerify}
-                    onExpire={handleCaptchaExpire}
-                    onError={handleCaptchaError}
-                  />
-                </div>
+                <ResponsiveCaptcha
+                  instanceKey={captchaInstanceKey}
+                  siteKey={captchaSiteKey}
+                  onVerify={handleCaptchaVerify}
+                  onExpire={handleCaptchaExpire}
+                  onError={handleCaptchaError}
+                />
               )}
 
               <button

@@ -302,13 +302,14 @@ export function ProductCard({
             </div>
           )}
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between">
             <span className="text-lg font-bold bg-gradient-to-r from-white to-zinc-300 bg-clip-text text-transparent">
               {formatPrice(product.price)}
             </span>
             {!product.is_sold && (
               <Button
                 size="sm"
+                className="w-full min-[420px]:w-auto"
                 onClick={handleAddToCart}
                 disabled={isEarlyAccessPurchaseLocked}
                 isLoading={isAddingToCart}

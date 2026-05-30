@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Mail, Lock, Music } from 'lucide-react';
-import HCaptcha from '@hcaptcha/react-hcaptcha';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { ResponsiveCaptcha } from '../../components/auth/ResponsiveCaptcha';
 import { useTranslation } from '../../lib/i18n';
 import { setAnalyticsUserId, trackLogin } from '../../lib/analytics';
 import { AuthFunctionError, signIn, loginWithGoogle } from '../../lib/auth/service';
@@ -165,7 +165,7 @@ export function LoginPage() {
           </p>
         </div>
 
-        <div className="bg-zinc-900 rounded-2xl p-8 border border-zinc-800">
+        <div className="bg-zinc-900 rounded-2xl border border-zinc-800 p-5 sm:p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
               <div className="p-3 bg-red-900/20 border border-red-800 rounded-lg text-red-400 text-sm">
@@ -210,15 +210,13 @@ export function LoginPage() {
               </div>
             )}
             {isCaptchaConfigured && (
-              <div className="space-y-1">
-                <HCaptcha
-                  key={captchaInstanceKey}
-                  sitekey={captchaSiteKey}
-                  onVerify={handleCaptchaVerify}
-                  onExpire={handleCaptchaExpire}
-                  onError={handleCaptchaError}
-                />
-              </div>
+              <ResponsiveCaptcha
+                instanceKey={captchaInstanceKey}
+                siteKey={captchaSiteKey}
+                onVerify={handleCaptchaVerify}
+                onExpire={handleCaptchaExpire}
+                onError={handleCaptchaError}
+              />
             )}
 
             <Button

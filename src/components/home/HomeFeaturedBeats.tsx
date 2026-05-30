@@ -75,7 +75,7 @@ export function HomeFeaturedBeats() {
       setIsLoading(true);
 
       let featuredBeats: HomeBeatRow[] = [];
-      const rpcRes = await supabase.rpc('get_public_home_featured_beats' as any, { p_limit: 10 });
+      const rpcRes = await supabase.rpc('get_public_home_featured_beats' as never, { p_limit: 10 } as never);
       if (!rpcRes.error && Array.isArray(rpcRes.data)) {
         featuredBeats = (rpcRes.data as HomeFeaturedBeatRpcRow[]).map((row) => ({
           id: row.id,
@@ -243,7 +243,7 @@ export function HomeFeaturedBeats() {
   return (
     <section className="py-12 md:py-20 bg-zinc-950">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between mb-10">
+        <div className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-center gap-2 mb-2">
               <Headphones className="w-5 h-5 text-emerald-400" />

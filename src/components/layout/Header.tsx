@@ -175,12 +175,12 @@ export function Header() {
   return (
     <header className="fixed top-0 left-0 right-0 z-40 bg-zinc-950/80 backdrop-blur-lg border-b border-zinc-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          <div className="flex items-center gap-8">
+        <div className="flex h-16 items-center justify-between gap-2">
+          <div className="flex min-w-0 shrink-0 items-center gap-8">
             <Link
               to="/"
               aria-label="Beatelion - Beat marketplace"
-              className="group flex items-center gap-2 cursor-pointer transition duration-200 hover:scale-105"
+              className="group flex h-11 min-w-11 shrink-0 items-center justify-center gap-2 cursor-pointer transition duration-200 hover:scale-105 md:justify-start"
             >
               <img
                 src={beatelionIcon}
@@ -221,7 +221,7 @@ export function Header() {
             </nav>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-1 sm:gap-2 lg:gap-3">
             <button
               type="button"
               aria-label="Rechercher"
@@ -229,7 +229,7 @@ export function Header() {
                 closeAllMenus();
                 setIsMobileSearchOpen((prev) => !prev);
               }}
-              className="md:hidden p-2 text-zinc-400 hover:text-white transition-colors"
+              className="flex h-11 w-11 items-center justify-center text-zinc-400 transition-colors hover:text-white md:hidden"
             >
               <Search className="w-5 h-5" />
             </button>
@@ -249,12 +249,14 @@ export function Header() {
             <div className="relative">
               <button
                 data-menu-button
+                type="button"
+                aria-label="Changer de langue"
                 onClick={() => {
                   const nextIsLangMenuOpen = !isLangMenuOpen;
                   closeAllMenus();
                   setIsLangMenuOpen(nextIsLangMenuOpen);
                 }}
-                className="p-2 text-zinc-400 hover:text-white transition-colors"
+                className="flex h-11 w-11 items-center justify-center text-zinc-400 transition-colors hover:text-white"
               >
                 <Globe className="w-5 h-5" />
               </button>
@@ -474,7 +476,7 @@ export function Header() {
                 )}
               </div>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="hidden items-center gap-2 sm:flex">
                 <Link to="/login">
                   <Button variant="ghost" size="sm">
                     {t('nav.login')}
@@ -488,12 +490,14 @@ export function Header() {
 
             <button
               data-menu-button
+              type="button"
+              aria-label={isMenuOpen ? 'Fermer le menu' : 'Ouvrir le menu'}
               onClick={() => {
                 const nextIsMenuOpen = !isMenuOpen;
                 closeAllMenus();
                 setIsMenuOpen(nextIsMenuOpen);
               }}
-              className="lg:hidden p-2 text-zinc-400 hover:text-white"
+              className="flex h-11 w-11 items-center justify-center text-zinc-400 hover:text-white lg:hidden"
             >
               {isMenuOpen ? (
                 <X className="w-6 h-6" />
@@ -532,38 +536,63 @@ export function Header() {
             <Link
               to="/beats"
               onClick={closeAllMenus}
-              className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg"
+              className="flex h-11 items-center rounded-lg px-3 text-zinc-300 hover:bg-zinc-800 hover:text-white"
             >
               {t('nav.beats')}
             </Link>
             <Link
               to="/battles"
               onClick={closeAllMenus}
-              className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg"
+              className="flex h-11 items-center rounded-lg px-3 text-zinc-300 hover:bg-zinc-800 hover:text-white"
             >
               {t('nav.battles')}
             </Link>
             <Link
               to="/producers"
               onClick={closeAllMenus}
-              className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg"
+              className="flex h-11 items-center rounded-lg px-3 text-zinc-300 hover:bg-zinc-800 hover:text-white"
             >
               {t('nav.producers')}
             </Link>
             <Link
               to="/forum"
               onClick={closeAllMenus}
-              className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg"
+              className="flex h-11 items-center rounded-lg px-3 text-zinc-300 hover:bg-zinc-800 hover:text-white"
             >
               {t('forum.title')}
             </Link>
             <Link
               to="/pricing"
               onClick={closeAllMenus}
-              className="block px-3 py-2 text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg"
+              className="flex h-11 items-center rounded-lg px-3 text-zinc-300 hover:bg-zinc-800 hover:text-white"
             >
               {t('nav.pricing')}
             </Link>
+            <Link
+              to="/leaderboard"
+              onClick={closeAllMenus}
+              className="flex h-11 items-center rounded-lg px-3 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+            >
+              {t('leaderboard.title')}
+            </Link>
+            {!user && (
+              <div className="mt-3 grid grid-cols-2 gap-2 border-t border-zinc-800 pt-4">
+                <Link
+                  to="/login"
+                  onClick={closeAllMenus}
+                  className="inline-flex h-11 items-center justify-center rounded-lg border border-zinc-700 px-3 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-900 hover:text-white"
+                >
+                  {t('nav.login')}
+                </Link>
+                <Link
+                  to="/register"
+                  onClick={closeAllMenus}
+                  className="inline-flex h-11 items-center justify-center rounded-lg bg-gradient-to-r from-violet-600 via-rose-500 to-orange-500 px-3 text-sm font-medium text-white transition-colors hover:from-violet-700 hover:via-rose-600 hover:to-orange-600"
+                >
+                  {t('nav.register')}
+                </Link>
+              </div>
+            )}
           </nav>
         </div>
       )}

@@ -185,7 +185,7 @@ export function HomePage() {
   }, []);
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen overflow-x-hidden">
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
         {/* Background layers */}
         <div className="absolute inset-0 bg-[#0B0B0F]" />

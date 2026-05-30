@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
-import HCaptcha from '@hcaptcha/react-hcaptcha';
 import {
   ArrowRight,
   BarChart3,
@@ -15,6 +14,7 @@ import {
   Trophy,
   UserCheck,
 } from 'lucide-react';
+import { ResponsiveCaptcha } from '../auth/ResponsiveCaptcha';
 import { supabase } from '@/lib/supabase/client';
 import { useMaintenanceModeContext } from '@/lib/supabase/MaintenanceModeContext';
 import toast from 'react-hot-toast';
@@ -356,10 +356,10 @@ export function LaunchScreen({ messages }: LaunchScreenProps) {
                 </label>
 
                 {isCaptchaConfigured && (
-                  <div className="flex justify-center overflow-hidden rounded-xl border border-zinc-800 bg-white p-2">
-                    <HCaptcha
-                      key={captchaKey}
-                      sitekey={captchaSiteKey}
+                  <div className="rounded-xl border border-zinc-800 bg-white p-2">
+                    <ResponsiveCaptcha
+                      instanceKey={captchaKey}
+                      siteKey={captchaSiteKey}
                       onVerify={(token) => { captchaTokenRef.current = token; }}
                       onExpire={() => { captchaTokenRef.current = null; }}
                       onError={() => {
