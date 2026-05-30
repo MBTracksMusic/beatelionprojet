@@ -1,4 +1,5 @@
 import { AlertCircle, Bell } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { formatDateTime } from '@/lib/utils/format';
 import type { UserNotification } from '@/lib/notifications/hooks';
 import { LogoLoader } from '../ui/LogoLoader';
@@ -63,11 +64,8 @@ export function NotificationsPanel({
 
   return (
     <ul className="space-y-3">
-      {notifications.map((notification) => (
-        <li
-          key={notification.id}
-          className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-4"
-        >
+      {notifications.map((notification) => {
+        const content = (
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-sm font-semibold text-white">{notification.title}</p>
@@ -77,8 +75,23 @@ export function NotificationsPanel({
               {formatDateTime(notification.created_at)}
             </p>
           </div>
-        </li>
-      ))}
+        );
+
+        return (
+          <li
+            key={notification.id}
+            className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-4"
+          >
+            {notification.target_url ? (
+              <Link to={notification.target_url} className="block rounded transition-colors hover:text-white">
+                {content}
+              </Link>
+            ) : (
+              content
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }

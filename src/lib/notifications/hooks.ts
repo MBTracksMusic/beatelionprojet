@@ -9,6 +9,7 @@ export type UserNotification = {
   type: string;
   title: string;
   message: string;
+  target_url: string | null;
   created_at: string;
 };
 
@@ -33,7 +34,7 @@ export function useNotifications(limit = DEFAULT_LIMIT) {
 
     const { data, error: queryError } = await supabase
       .from('notifications')
-      .select('id, user_id, purchase_id, type, title, message, created_at')
+      .select('id, user_id, purchase_id, type, title, message, target_url, created_at')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(limit);
