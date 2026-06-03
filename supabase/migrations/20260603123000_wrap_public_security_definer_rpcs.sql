@@ -53,6 +53,35 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO service_role;
 
+/*
+  Older hardening migrations already moved some same-name implementations into
+  private. Later migrations recreated the public SECURITY DEFINER versions, so
+  the old private copies are stale and block ALTER FUNCTION ... SET SCHEMA.
+  Drop only exact conflicting signatures, without CASCADE, before moving the
+  current public implementation.
+*/
+DROP FUNCTION IF EXISTS private.can_email_register(text);
+DROP FUNCTION IF EXISTS private.get_public_producer_campaign_status(text);
+DROP FUNCTION IF EXISTS private.get_weekly_leaderboard(integer);
+DROP FUNCTION IF EXISTS private.get_battle_feedback_payload(uuid, uuid);
+DROP FUNCTION IF EXISTS private.forum_current_user_is_admin();
+DROP FUNCTION IF EXISTS private.accept_waitlist_entry(uuid);
+DROP FUNCTION IF EXISTS private.admin_assign_producer_campaign(uuid, text, timestamptz);
+DROP FUNCTION IF EXISTS private.admin_launch_battle_campaign(uuid);
+DROP FUNCTION IF EXISTS private.admin_validate_battle(uuid);
+DROP FUNCTION IF EXISTS private.can_create_active_battle(uuid);
+DROP FUNCTION IF EXISTS private.can_create_battle(uuid);
+DROP FUNCTION IF EXISTS private.check_battle_pair_active(uuid, uuid);
+DROP FUNCTION IF EXISTS private.enqueue_loudness_normalization_backfill();
+DROP FUNCTION IF EXISTS private.get_battle_pair_cooldown_end(uuid, uuid);
+DROP FUNCTION IF EXISTS private.get_loser_share_data(uuid);
+DROP FUNCTION IF EXISTS private.get_my_trial_status();
+DROP FUNCTION IF EXISTS private.get_user_battle_quota(uuid);
+DROP FUNCTION IF EXISTS private.record_loser_battle_share(uuid, text, text);
+DROP FUNCTION IF EXISTS private.rpc_create_battle(text, text, uuid, text, uuid, uuid, text, uuid);
+DROP FUNCTION IF EXISTS private.notify_battle_users_on_status_change();
+DROP FUNCTION IF EXISTS private.notify_forum_topic_author_on_reply();
+
 -- ---------------------------------------------------------------------------
 -- Public anon RPCs.
 -- ---------------------------------------------------------------------------
