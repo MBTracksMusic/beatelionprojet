@@ -386,8 +386,8 @@ function BattleCard({ battle }: BattleCardProps) {
           </div>
         </div>
 
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between md:gap-8">
-          <div className="flex flex-1 items-center gap-3 sm:gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:items-center md:gap-6">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
             {battle.producer1?.avatar_url ? (
               <img
                 src={battle.producer1.avatar_url}
@@ -430,7 +430,7 @@ function BattleCard({ battle }: BattleCardProps) {
             )}
           </div>
 
-          <div className="flex flex-1 items-center gap-3 sm:gap-4 md:flex-row-reverse md:justify-end">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4 md:flex-row-reverse">
             {battle.producer2?.avatar_url ? (
               <img
                 src={battle.producer2.avatar_url}
