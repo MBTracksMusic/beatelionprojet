@@ -234,6 +234,8 @@ export const fr = {
     noBattleOfTheDay: 'Aucune battle du jour pour le moment.',
     votesToday: '{count} votes aujourd hui',
     votesTotal: '{count} votes total',
+    voteSingular: 'vote',
+    votePlural: 'votes',
   },
   products: {
     beats: 'Beats',
