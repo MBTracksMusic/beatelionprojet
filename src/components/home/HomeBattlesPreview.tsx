@@ -5,10 +5,15 @@ import { motion } from 'framer-motion';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
-import { useTranslation } from '../../lib/i18n';
+import { useTranslation, type TranslationKey } from '../../lib/i18n';
 import { supabase } from '@/lib/supabase/client';
-import { fetchPublicProducerProfilesMap } from '../../lib/supabase/publicProfiles';
 import type { BattleStatus } from '../../lib/supabase/types';
+
+interface HomeBattleProducer {
+  id: string;
+  username: string | null;
+  avatar_url: string | null;
+}
 
 interface HomeBattleRow {
   id: string;
@@ -17,8 +22,8 @@ interface HomeBattleRow {
   status: BattleStatus;
   producer1_id: string;
   producer2_id: string | null;
-  producer1?: { id: string; username: string | null };
-  producer2?: { id: string; username: string | null };
+  producer1?: HomeBattleProducer;
+  producer2?: HomeBattleProducer;
 }
 
 interface HomeBattlesPreviewRpcRow {
@@ -46,10 +51,118 @@ const badgeByStatus: Record<BattleStatus, 'default' | 'success' | 'warning' | 'd
   rejected: 'danger',
 };
 
-function toStatusLabel(status: BattleStatus) {
-  if (status === 'active' || status === 'voting') return 'home.battleStatusActive';
-  if (status === 'completed') return 'home.battleStatusCompleted';
-  return status;
+interface HomeProducerProfileRow {
+  user_id: string | null;
+  username: string | null;
+  avatar_url: string | null;
+}
+
+function toStatusLabel(status: BattleStatus): TranslationKey {
+  if (status === 'active' || status === 'voting') return 'battleDetail.statusActive';
+  if (status === 'completed') return 'battleDetail.statusCompleted';
+  if (status === 'pending_acceptance') return 'battleDetail.statusPendingAcceptance';
+  if (status === 'awaiting_admin') return 'battleDetail.statusAwaitingAdmin';
+  if (status === 'approved') return 'battleDetail.statusApproved';
+  if (status === 'rejected') return 'battleDetail.statusRejected';
+  if (status === 'cancelled') return 'battleDetail.statusCancelled';
+  return 'battleDetail.statusPending';
+}
+
+function getProducerInitials(name: string) {
+  const parts = name.trim().split(/[\s._-]+/).filter(Boolean);
+  const initials = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : name.trim().slice(0, 2);
+  return initials.toUpperCase();
+}
+
+async function fetchHomeProducerProfilesMap(
+  userIds: Array<string | null | undefined>
+): Promise<Map<string, HomeProducerProfileRow>> {
+  const uniqueIds = [...new Set(userIds.filter((value): value is string => typeof value === 'string' && value.length > 0))];
+
+  if (uniqueIds.length === 0) {
+    return new Map();
+  }
+
+  const { data, error } = await supabase
+    .from('public_producer_profiles')
+    .select('user_id, username, avatar_url')
+    .in('user_id', uniqueIds);
+
+  if (error || !Array.isArray(data)) {
+    if (error) {
+      console.warn('Unable to enrich home battle producer avatars:', error);
+    }
+    return new Map();
+  }
+
+  const profilesById = new Map<string, HomeProducerProfileRow>();
+  for (const row of data as HomeProducerProfileRow[]) {
+    if (typeof row.user_id === 'string' && row.user_id.length > 0) {
+      profilesById.set(row.user_id, row);
+    }
+  }
+
+  return profilesById;
+}
+
+async function enrichBattleProducers(rows: HomeBattleRow[]): Promise<HomeBattleRow[]> {
+  if (rows.length === 0) return rows;
+
+  const producerProfilesMap = await fetchHomeProducerProfilesMap(
+    rows.flatMap((row) => [row.producer1_id, row.producer2_id])
+  );
+
+  return rows.map((row) => {
+    const producer1 = producerProfilesMap.get(row.producer1_id);
+    const producer2 = row.producer2_id ? producerProfilesMap.get(row.producer2_id) : undefined;
+
+    return {
+      ...row,
+      producer1: {
+        id: row.producer1_id,
+        username: producer1?.username ?? row.producer1?.username ?? null,
+        avatar_url: producer1?.avatar_url ?? row.producer1?.avatar_url ?? null,
+      },
+      producer2: row.producer2_id
+        ? {
+            id: row.producer2_id,
+            username: producer2?.username ?? row.producer2?.username ?? null,
+            avatar_url: producer2?.avatar_url ?? row.producer2?.avatar_url ?? null,
+          }
+        : undefined,
+    };
+  });
+}
+
+interface ProducerPreviewProps {
+  align: 'left' | 'right';
+  fallbackLabel: string;
+  producer?: HomeBattleProducer;
+}
+
+function ProducerPreview({ align, fallbackLabel, producer }: ProducerPreviewProps) {
+  const displayName = producer?.username || fallbackLabel;
+  const alignClass = align === 'right' ? 'sm:items-end sm:text-right' : 'sm:items-start sm:text-left';
+
+  return (
+    <div className={`flex min-w-0 items-center gap-3 text-left sm:flex-col sm:gap-0 ${alignClass}`}>
+      {producer?.avatar_url ? (
+        <img
+          src={producer.avatar_url}
+          alt={displayName}
+          className="h-12 w-12 rounded-full border border-zinc-700 object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <div className="flex h-12 w-12 items-center justify-center rounded-full border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-300">
+          {getProducerInitials(displayName)}
+        </div>
+      )}
+      <p className="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-white [overflow-wrap:anywhere] sm:mt-2 sm:max-w-full sm:flex-none">
+        {displayName}
+      </p>
+    </div>
+  );
 }
 
 export function HomeBattlesPreview() {
@@ -59,7 +172,7 @@ export function HomeBattlesPreview() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const scroll = (dir: 'left' | 'right') => {
-    scrollRef.current?.scrollBy({ left: dir === 'left' ? -340 : 340, behavior: 'smooth' });
+    scrollRef.current?.scrollBy({ left: dir === 'left' ? -400 : 400, behavior: 'smooth' });
   };
 
   useEffect(() => {
@@ -81,11 +194,13 @@ export function HomeBattlesPreview() {
           producer1: {
             id: row.producer1_id,
             username: row.producer1_username,
+            avatar_url: null,
           },
           producer2: row.producer2_id
             ? {
                 id: row.producer2_id,
                 username: row.producer2_username,
+                avatar_url: null,
               }
             : undefined,
         }));
@@ -128,42 +243,24 @@ export function HomeBattlesPreview() {
                 producer1: {
                   id: String(spotlight.producer1_id),
                   username: (spotlight.producer1_username as string | null) ?? null,
+                  avatar_url: null,
                 },
                 producer2: spotlight.producer2_id
                   ? {
                       id: String(spotlight.producer2_id),
                       username: (spotlight.producer2_username as string | null) ?? null,
+                      avatar_url: null,
                     }
                   : undefined,
               },
             ];
           }
         } else {
-          const rows = ((data as HomeBattleRow[] | null) ?? []);
-          const producerProfilesMap = await fetchPublicProducerProfilesMap(
-            rows.flatMap((row) => [row.producer1_id, row.producer2_id])
-          );
-          previewBattles = rows.map((row) => {
-            const producer1 = producerProfilesMap.get(row.producer1_id);
-            const producer2 = row.producer2_id ? producerProfilesMap.get(row.producer2_id) : undefined;
-            return {
-              ...row,
-              producer1: producer1
-                ? {
-                    id: producer1.user_id,
-                    username: producer1.username,
-                  }
-                : undefined,
-              producer2: producer2
-                ? {
-                    id: producer2.user_id,
-                    username: producer2.username,
-                  }
-                : undefined,
-            };
-          });
+          previewBattles = ((data as HomeBattleRow[] | null) ?? []);
         }
       }
+
+      previewBattles = await enrichBattleProducers(previewBattles);
 
       if (!isCancelled) {
         if (rpcRes.error && previewBattles.length > 0) {
@@ -225,10 +322,20 @@ export function HomeBattlesPreview() {
 
         {isLoading ? (
           <div className="flex gap-4 overflow-hidden">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="flex-shrink-0 w-72 bg-zinc-900 border border-zinc-800 rounded-xl p-5 animate-pulse space-y-3">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="w-[min(88vw,24rem)] flex-shrink-0 space-y-4 rounded-lg border border-zinc-800 bg-zinc-900 p-5 animate-pulse">
                 <div className="h-5 bg-zinc-800 rounded w-2/3" />
-                <div className="h-4 bg-zinc-800 rounded w-1/2" />
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-3">
+                  <div className="space-y-2">
+                    <div className="h-12 w-12 rounded-full bg-zinc-800" />
+                    <div className="h-4 bg-zinc-800 rounded w-24" />
+                  </div>
+                  <div className="mt-4 h-6 w-8 rounded-full bg-zinc-800" />
+                  <div className="flex flex-col items-end space-y-2">
+                    <div className="h-12 w-12 rounded-full bg-zinc-800" />
+                    <div className="h-4 bg-zinc-800 rounded w-24" />
+                  </div>
+                </div>
                 <div className="h-7 bg-zinc-800 rounded w-24" />
               </div>
             ))}
@@ -238,24 +345,39 @@ export function HomeBattlesPreview() {
         ) : (
           <div ref={scrollRef} className="flex gap-4 overflow-x-auto hide-scrollbar pb-2">
             {battles.map((battle, index) => (
-              <Link key={battle.id} to={`/battles/${battle.slug}`} className="flex-shrink-0 w-72">
+              <Link key={battle.id} to={`/battles/${battle.slug}`} className="w-[min(88vw,24rem)] flex-shrink-0">
                 <motion.div
                   initial={{ opacity: 0, y: 16 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
                   transition={{ duration: 0.4, delay: index * 0.08 }}
                   whileHover={{ y: -4 }}
-                  className="h-full bg-zinc-900/80 border border-zinc-800 hover:border-rose-500/40 rounded-xl p-5 space-y-3 transition-colors duration-200"
+                  className="flex h-full min-h-[184px] flex-col rounded-lg border border-zinc-800 bg-zinc-900/80 p-5 transition-colors duration-200 hover:border-rose-500/40"
                 >
-                  <p className="text-lg font-semibold text-white truncate">{battle.title}</p>
-                  <div className="flex items-center gap-2 text-sm text-zinc-400">
-                    <span className="truncate max-w-[90px]">{battle.producer1?.username || t('home.producerOne')}</span>
-                    <span className="text-rose-500 font-bold text-xs px-1.5 py-0.5 bg-rose-500/10 rounded">VS</span>
-                    <span className="truncate max-w-[90px]">{battle.producer2?.username || t('home.producerTwo')}</span>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="line-clamp-2 min-w-0 text-base font-semibold leading-snug text-white">
+                      {battle.title}
+                    </p>
+                    <Badge variant={badgeByStatus[battle.status]} className="shrink-0">
+                      {t(toStatusLabel(battle.status))}
+                    </Badge>
                   </div>
-                  <Badge variant={badgeByStatus[battle.status]}>
-                    {t(toStatusLabel(battle.status) as 'home.battleStatusActive' | 'home.battleStatusCompleted')}
-                  </Badge>
+
+                  <div className="mt-5 flex flex-1 flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-start">
+                    <ProducerPreview
+                      align="left"
+                      producer={battle.producer1}
+                      fallbackLabel={t('home.producerOne')}
+                    />
+                    <span className="self-center rounded-full bg-rose-500/10 px-2 py-1 text-xs font-bold text-rose-400 sm:mt-3">
+                      VS
+                    </span>
+                    <ProducerPreview
+                      align="right"
+                      producer={battle.producer2}
+                      fallbackLabel={t('home.producerTwo')}
+                    />
+                  </div>
                 </motion.div>
               </Link>
             ))}
