@@ -235,6 +235,8 @@ export const en: TranslationSchema = {
     noBattleOfTheDay: 'No battle of the day yet.',
     votesToday: '{count} votes today',
     votesTotal: '{count} total votes',
+    voteSingular: 'vote',
+    votePlural: 'votes',
   },
   products: {
     beats: 'Beats',

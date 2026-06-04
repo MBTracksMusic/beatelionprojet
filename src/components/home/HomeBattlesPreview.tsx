@@ -22,6 +22,8 @@ interface HomeBattleRow {
   status: BattleStatus;
   producer1_id: string;
   producer2_id: string | null;
+  votes_producer1: number;
+  votes_producer2: number;
   producer1?: HomeBattleProducer;
   producer2?: HomeBattleProducer;
 }
@@ -35,6 +37,8 @@ interface HomeBattlesPreviewRpcRow {
   producer1_username: string | null;
   producer2_id: string | null;
   producer2_username: string | null;
+  votes_producer1: number | null;
+  votes_producer2: number | null;
 }
 
 const visibleStatuses: BattleStatus[] = ['active', 'voting', 'completed', 'awaiting_admin', 'approved', 'pending_acceptance'];
@@ -137,12 +141,15 @@ async function enrichBattleProducers(rows: HomeBattleRow[]): Promise<HomeBattleR
 interface ProducerPreviewProps {
   align: 'left' | 'right';
   fallbackLabel: string;
+  voteCount: number;
   producer?: HomeBattleProducer;
 }
 
-function ProducerPreview({ align, fallbackLabel, producer }: ProducerPreviewProps) {
+function ProducerPreview({ align, fallbackLabel, voteCount, producer }: ProducerPreviewProps) {
+  const { t } = useTranslation();
   const displayName = producer?.username || fallbackLabel;
   const alignClass = align === 'right' ? 'sm:items-end sm:text-right' : 'sm:items-start sm:text-left';
+  const voteClass = align === 'right' ? 'text-orange-300' : 'text-rose-300';
 
   return (
     <div className={`flex min-w-0 items-center gap-3 text-left sm:flex-col sm:gap-0 ${alignClass}`}>
@@ -158,9 +165,14 @@ function ProducerPreview({ align, fallbackLabel, producer }: ProducerPreviewProp
           {getProducerInitials(displayName)}
         </div>
       )}
-      <p className="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-white [overflow-wrap:anywhere] sm:mt-2 sm:max-w-full sm:flex-none">
-        {displayName}
-      </p>
+      <div className="min-w-0 flex-1 sm:mt-2 sm:max-w-full sm:flex-none">
+        <p className="text-[13px] font-semibold leading-snug text-white [overflow-wrap:anywhere]">
+          {displayName}
+        </p>
+        <p className={`mt-1 text-xs font-semibold ${voteClass}`}>
+          {voteCount} {t(voteCount === 1 ? 'home.voteSingular' : 'home.votePlural')}
+        </p>
+      </div>
     </div>
   );
 }
@@ -191,6 +203,8 @@ export function HomeBattlesPreview() {
           status: row.status,
           producer1_id: row.producer1_id,
           producer2_id: row.producer2_id,
+          votes_producer1: row.votes_producer1 ?? 0,
+          votes_producer2: row.votes_producer2 ?? 0,
           producer1: {
             id: row.producer1_id,
             username: row.producer1_username,
@@ -215,7 +229,9 @@ export function HomeBattlesPreview() {
             slug,
             status,
             producer1_id,
-            producer2_id
+            producer2_id,
+            votes_producer1,
+            votes_producer2
           `)
           .in('status', visibleStatuses)
           .order('created_at', { ascending: false })
@@ -240,6 +256,8 @@ export function HomeBattlesPreview() {
                 status: (spotlight.status as BattleStatus) ?? 'active',
                 producer1_id: String(spotlight.producer1_id),
                 producer2_id: (spotlight.producer2_id as string | null) ?? null,
+                votes_producer1: 0,
+                votes_producer2: 0,
                 producer1: {
                   id: String(spotlight.producer1_id),
                   username: (spotlight.producer1_username as string | null) ?? null,
@@ -368,6 +386,7 @@ export function HomeBattlesPreview() {
                       align="left"
                       producer={battle.producer1}
                       fallbackLabel={t('home.producerOne')}
+                      voteCount={battle.votes_producer1}
                     />
                     <span className="self-center rounded-full bg-rose-500/10 px-2 py-1 text-xs font-bold text-rose-400 sm:mt-3">
                       VS
@@ -376,6 +395,7 @@ export function HomeBattlesPreview() {
                       align="right"
                       producer={battle.producer2}
                       fallbackLabel={t('home.producerTwo')}
+                      voteCount={battle.votes_producer2}
                     />
                   </div>
                 </motion.div>
