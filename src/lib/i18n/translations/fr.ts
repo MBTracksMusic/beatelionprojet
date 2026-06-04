@@ -97,6 +97,8 @@ export const fr = {
     email: 'Email',
     password: 'Mot de passe',
     confirmPassword: 'Confirmer le mot de passe',
+    showPassword: 'Afficher le mot de passe',
+    hidePassword: 'Masquer le mot de passe',
     username: 'Nom utilisateur',
     fullName: 'Nom complet',
     forgotPassword: 'Mot de passe oublie ?',

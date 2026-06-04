@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, User, Music, ArrowLeft } from 'lucide-react';
 import { Button, ToastContainer } from '../../components/ui';
 import { Input } from '../../components/ui/Input';
+import { PasswordVisibilityToggle } from '../../components/auth/PasswordVisibilityToggle';
 import { ResponsiveCaptcha } from '../../components/auth/ResponsiveCaptcha';
 import { useTranslation } from '../../lib/i18n';
 import { getReferrer, trackSignUp } from '../../lib/analytics';
@@ -26,6 +27,8 @@ export function RegisterPage() {
     confirmPassword: '',
   });
   const [accountType, setAccountType] = useState<AccountType>('user');
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -288,12 +291,20 @@ export function RegisterPage() {
             />
 
             <Input
-              type="password"
+              type={isPasswordVisible ? 'text' : 'password'}
               name="password"
               label={t('auth.password')}
               value={formData.password}
               onChange={handleChange}
               leftIcon={<Lock className="w-5 h-5" />}
+              rightIcon={
+                <PasswordVisibilityToggle
+                  isVisible={isPasswordVisible}
+                  onToggle={() => setIsPasswordVisible((current) => !current)}
+                  showLabel={t('auth.showPassword')}
+                  hideLabel={t('auth.hidePassword')}
+                />
+              }
               placeholder={t('auth.passwordPlaceholder')}
               error={errors.password}
               required
@@ -301,12 +312,20 @@ export function RegisterPage() {
             />
 
             <Input
-              type="password"
+              type={isConfirmPasswordVisible ? 'text' : 'password'}
               name="confirmPassword"
               label={t('auth.confirmPassword')}
               value={formData.confirmPassword}
               onChange={handleChange}
               leftIcon={<Lock className="w-5 h-5" />}
+              rightIcon={
+                <PasswordVisibilityToggle
+                  isVisible={isConfirmPasswordVisible}
+                  onToggle={() => setIsConfirmPasswordVisible((current) => !current)}
+                  showLabel={t('auth.showPassword')}
+                  hideLabel={t('auth.hidePassword')}
+                />
+              }
               placeholder={t('auth.passwordPlaceholder')}
               error={errors.confirmPassword}
               required

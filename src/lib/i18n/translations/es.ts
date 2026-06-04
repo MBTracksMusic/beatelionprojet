@@ -98,6 +98,8 @@ export const es: TranslationSchema = {
     email: 'Email',
     password: 'Contraseña',
     confirmPassword: 'Confirmar contraseña',
+    showPassword: 'Mostrar contraseña',
+    hidePassword: 'Ocultar contraseña',
     username: 'Nombre de usuario',
     fullName: 'Nombre completo',
     forgotPassword: '¿Olvidaste tu contraseña?',

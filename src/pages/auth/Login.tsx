@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Mail, Lock, Music } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
+import { PasswordVisibilityToggle } from '../../components/auth/PasswordVisibilityToggle';
 import { ResponsiveCaptcha } from '../../components/auth/ResponsiveCaptcha';
 import { useTranslation } from '../../lib/i18n';
 import { setAnalyticsUserId, trackLogin } from '../../lib/analytics';
@@ -16,6 +17,7 @@ export function LoginPage() {
   const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [error, setError] = useState('');
@@ -185,11 +187,19 @@ export function LoginPage() {
             />
 
             <Input
-              type="password"
+              type={isPasswordVisible ? 'text' : 'password'}
               label={t('auth.password')}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               leftIcon={<Lock className="w-5 h-5" />}
+              rightIcon={
+                <PasswordVisibilityToggle
+                  isVisible={isPasswordVisible}
+                  onToggle={() => setIsPasswordVisible((current) => !current)}
+                  showLabel={t('auth.showPassword')}
+                  hideLabel={t('auth.hidePassword')}
+                />
+              }
               placeholder={t('auth.passwordPlaceholder')}
               required
               autoComplete="current-password"
