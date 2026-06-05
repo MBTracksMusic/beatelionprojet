@@ -112,6 +112,59 @@ type ShareTarget = {
 type NativeShare = (data: ShareData) => Promise<void>;
 type NavigatorWithOptionalShare = Navigator & { share?: NativeShare };
 
+function toShareSnapshotPart(value: string | number | boolean | null | undefined) {
+  return String(value ?? 'none').replace(/[^a-zA-Z0-9_-]+/g, '-');
+}
+
+function buildShareSnapshot(parts: ReadonlyArray<string | number | boolean | null | undefined>) {
+  return parts.map(toShareSnapshotPart).join('.');
+}
+
+function appendSharePreviewParams(shareUrl: string, snapshot: string) {
+  try {
+    const baseUrl = typeof window === 'undefined' ? 'https://www.beatelion.com' : window.location.origin;
+    const url = new URL(shareUrl, baseUrl);
+    url.searchParams.set('v', SHARE_PREVIEW_VERSION);
+    url.searchParams.set('snapshot', snapshot);
+    return url.toString();
+  } catch {
+    return shareUrl;
+  }
+}
+
+function buildFeedbackShareSnapshot(payload: FeedbackPayloadOk) {
+  return buildShareSnapshot([
+    'feedback',
+    payload.battle.status,
+    payload.battle.is_tie,
+    payload.battle.winner_product_id,
+    payload.battle.finalized_at,
+    payload.meta.total_voters,
+    ...payload.snapshots.flatMap((snapshot) => [
+      snapshot.product_id,
+      snapshot.votes_for_product,
+      snapshot.votes_total,
+    ]),
+  ]);
+}
+
+function buildFeedbackShareUrl(slug: string, payload: FeedbackPayloadOk) {
+  const url = new URL(`/share/battle/${slug}/feedback`, window.location.origin);
+  url.searchParams.set('v', SHARE_PREVIEW_VERSION);
+  url.searchParams.set('snapshot', buildFeedbackShareSnapshot(payload));
+  return url.toString();
+}
+
+function buildLoserShareSnapshot(data: Pick<LoserShareData, 'battle_id' | 'producer_id' | 'opponent_id' | 'top_traits'>) {
+  return buildShareSnapshot([
+    'loser',
+    data.battle_id,
+    data.producer_id,
+    data.opponent_id,
+    ...data.top_traits.flatMap((trait) => [trait.criterion_key, trait.count]),
+  ]);
+}
+
 function isErr(p: FeedbackPayload): p is FeedbackPayloadErr {
   return typeof (p as FeedbackPayloadErr).error === 'string';
 }
@@ -170,7 +223,7 @@ function parseLoserShareData(value: unknown): LoserShareData | null {
     return null;
   }
 
-  return {
+  const parsed: LoserShareData = {
     battle_id: value.battle_id,
     battle_slug: value.battle_slug,
     producer_id: value.producer_id,
@@ -182,6 +235,11 @@ function parseLoserShareData(value: unknown): LoserShareData | null {
     top_traits: topTraits,
     share_url: value.share_url,
     is_loser_role: true,
+  };
+
+  return {
+    ...parsed,
+    share_url: appendSharePreviewParams(parsed.share_url, buildLoserShareSnapshot(parsed)),
   };
 }
 
@@ -1076,7 +1134,7 @@ export function BattleFeedbackPage() {
   }
 
   const { winner, opponent } = splitSnapshots(payload);
-  const shareUrl = `${window.location.origin}/share/battle/${slug}/feedback?v=${SHARE_PREVIEW_VERSION}`;
+  const shareUrl = buildFeedbackShareUrl(slug, payload);
   const shareText = buildShareText(payload);
 
   return (
