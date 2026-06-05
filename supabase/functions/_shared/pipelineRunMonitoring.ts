@@ -44,6 +44,27 @@ const normalizeDuration = (value: unknown) => {
   return Math.max(0, Math.round(numeric));
 };
 
+const isTruthyLabel = (value: unknown) => value === true || value === "true";
+
+const shouldSkipRunMetric = (
+  event: PipelineRunEvent,
+  processedCount: number,
+  errorCount: number,
+) => {
+  const labels = event.labels ?? {};
+  if (isTruthyLabel(labels.skip_metric_insert)) return true;
+
+  // Start rows double the write volume but are not used for business logic.
+  if (event.status === "start") return true;
+
+  return (
+    event.status === "success" &&
+    processedCount === 0 &&
+    errorCount === 0 &&
+    isTruthyLabel(labels.idle_run)
+  );
+};
+
 const insertMonitoringAlert = async (
   supabaseAdmin: SupabaseAdminClient,
   params: {
@@ -74,6 +95,10 @@ export const safeRecordPipelineRunEvent = async (
     const processedCount = normalizeCount(event.processedCount);
     const errorCount = normalizeCount(event.errorCount);
     const durationMs = normalizeDuration(event.durationMs);
+
+    if (shouldSkipRunMetric(event, processedCount, errorCount)) {
+      return;
+    }
 
     await insertPipelineMetrics(supabaseAdmin, [
       {
@@ -177,7 +202,7 @@ export const safeEmitPipelineRunAlerts = async (
       if (recentRuns.length >= zeroProcessedConsecutiveRuns) {
         const allZeroProcessed = recentRuns.every((run) => {
           const labels = run.labels ?? {};
-          const isSkipped = labels.skip_zero_processed_alert === true || labels.skip_zero_processed_alert === "true";
+          const isSkipped = isTruthyLabel(labels.skip_zero_processed_alert);
           const processed = normalizeCount(labels.processed_count);
           return !isSkipped && processed === 0;
         });
