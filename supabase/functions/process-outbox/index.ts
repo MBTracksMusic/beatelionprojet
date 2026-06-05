@@ -472,71 +472,24 @@ serveWithErrorHandling("process-outbox", async (req: Request) => {
 
   const events = (claimedRows as EventOutboxRow[] | null) ?? [];
   if (events.length === 0) {
-    const { count: queueBacklogCount, error: queueBacklogError } = await supabaseAdmin
-      .from("event_outbox")
-      .select("id", { head: true, count: "exact" })
-      .eq("status", "pending");
-
-    if (queueBacklogError) {
-      await finalizeRun({
-        status: "failure",
-        processedCount: 0,
-        errorCount: 1,
-        extraLabels: { reason: "backlog_query_failed" },
-      });
-      return jsonResponse(500, { error: "Unable to load outbox backlog" });
-    }
-
-    const metricsInserted = await safeInsertPipelineMetrics(
-      supabaseAdmin,
-      [
-        {
-          component: "process-outbox",
-          metricName: "events_processed",
-          metricValue: 0,
-          labels: { mode: pipelineMode },
-        },
-        {
-          component: "process-outbox",
-          metricName: "events_failed",
-          metricValue: 0,
-          labels: { mode: pipelineMode },
-        },
-        {
-          component: "process-outbox",
-          metricName: "queue_backlog",
-          metricValue: queueBacklogCount ?? 0,
-          labels: { queue: "event_outbox", status: "pending", mode: pipelineMode },
-        },
-      ],
-      "process-outbox",
-    );
-
-    if (!metricsInserted) {
-      await finalizeRun({
-        status: "failure",
-        processedCount: 0,
-        errorCount: 1,
-        extraLabels: { reason: "metrics_insert_failed" },
-      });
-      return jsonResponse(500, { error: "Unable to write pipeline metrics" });
-    }
-
     await finalizeRun({
       status: "success",
       processedCount: 0,
       errorCount: 0,
       extraLabels: {
+        idle_run: true,
         succeeded: 0,
         failed: 0,
         pending_retry: 0,
         synced_to_event_bus: 0,
         enqueued_emails: 0,
       },
+      skipZeroProcessedAlert: true,
     });
 
     return jsonResponse(200, {
       mode: pipelineMode,
+      idle: true,
       processed: 0,
       succeeded: 0,
       failed: 0,

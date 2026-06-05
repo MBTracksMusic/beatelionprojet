@@ -875,79 +875,21 @@ serveWithErrorHandling("process-email-queue", async (req: Request) => {
 
   const rows = (claimedRows as EmailQueueRow[] | null) ?? [];
   if (rows.length === 0) {
-    const [{ count: pendingBacklog, error: pendingBacklogError }, { count: failedBacklog, error: failedBacklogError }] =
-      await Promise.all([
-      supabaseAdmin
-        .from("email_queue")
-        .select("id", { head: true, count: "exact" })
-        .eq("status", "pending"),
-      supabaseAdmin
-        .from("email_queue")
-        .select("id", { head: true, count: "exact" })
-        .eq("status", "failed"),
-    ]);
-
-    if (pendingBacklogError || failedBacklogError) {
-      await finalizeRun({
-        status: "failure",
-        processedCount: 0,
-        errorCount: 1,
-        extraLabels: { reason: "backlog_query_failed" },
-      });
-      return jsonResponse(500, { error: "Unable to load email backlog" });
-    }
-
-    const metricsInserted = await safeInsertPipelineMetrics(
-      supabaseAdmin,
-      [
-        {
-          component: "process-email-queue",
-          metricName: "email_sent",
-          metricValue: 0,
-        },
-        {
-          component: "process-email-queue",
-          metricName: "email_failed",
-          metricValue: 0,
-        },
-        {
-          component: "process-email-queue",
-          metricName: "queue_backlog",
-          metricValue: pendingBacklog ?? 0,
-          labels: { queue: "email_queue", status: "pending" },
-        },
-        {
-          component: "process-email-queue",
-          metricName: "queue_backlog",
-          metricValue: failedBacklog ?? 0,
-          labels: { queue: "email_queue", status: "failed" },
-        },
-      ],
-      "process-email-queue",
-    );
-
-    if (!metricsInserted) {
-      await finalizeRun({
-        status: "failure",
-        processedCount: 0,
-        errorCount: 1,
-        extraLabels: { reason: "metrics_insert_failed" },
-      });
-      return jsonResponse(500, { error: "Unable to write pipeline metrics" });
-    }
-
     await finalizeRun({
       status: "success",
       processedCount: 0,
       errorCount: 0,
       extraLabels: {
+        idle_run: true,
         sent: 0,
         failed: 0,
         pending_retry: 0,
       },
+      skipZeroProcessedAlert: true,
     });
 
     return jsonResponse(200, {
+      idle: true,
       processed: 0,
       sent: 0,
       failed: 0,
