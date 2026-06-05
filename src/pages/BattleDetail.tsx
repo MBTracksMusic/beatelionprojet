@@ -28,6 +28,21 @@ type SocialShareTarget = {
 
 const SHARE_PREVIEW_VERSION = '4';
 
+function toShareSnapshotPart(value: string | number | null | undefined) {
+  return String(value ?? 'none').replace(/[^a-zA-Z0-9_-]+/g, '-');
+}
+
+function buildBattleShareSnapshot(battle: BattleWithRelations | null) {
+  if (!battle) return null;
+
+  return [
+    battle.status,
+    battle.votes_producer1,
+    battle.votes_producer2,
+    battle.winner_id,
+  ].map(toShareSnapshotPart).join('.');
+}
+
 function buildSocialShareTargets(shareText: string, shareUrl: string): SocialShareTarget[] {
   const text = encodeURIComponent(shareText);
   const url = encodeURIComponent(shareUrl);
@@ -320,9 +335,11 @@ export function BattleDetailPage() {
     if (!battleSlug) return null;
     const url = new URL(`/share/battle/${battleSlug}`, window.location.origin);
     url.searchParams.set('v', SHARE_PREVIEW_VERSION);
+    const snapshot = buildBattleShareSnapshot(battle);
+    if (snapshot) url.searchParams.set('snapshot', snapshot);
     if (user?.id) url.searchParams.set('ref', user.id);
     return url.toString();
-  }, [battleSlug, user?.id]);
+  }, [battle, battleSlug, user?.id]);
 
   const shareText = battleTitle ? `${battleTitle} sur Beatelion` : '';
   const socialShareTargets = useMemo(
