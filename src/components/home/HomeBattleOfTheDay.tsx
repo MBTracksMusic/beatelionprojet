@@ -12,11 +12,29 @@ interface BattleOfTheDayRow {
   slug: string;
   title: string;
   status: BattleStatus;
+  producer1_id: string | null;
   producer1_username: string | null;
+  producer1_avatar_url: string | null;
+  producer2_id: string | null;
   producer2_username: string | null;
+  producer2_avatar_url: string | null;
   votes_today: number;
   votes_total: number;
 }
+
+type BattleOfTheDayBaseRow = Omit<BattleOfTheDayRow, 'producer1_avatar_url' | 'producer2_avatar_url'>;
+
+interface BattleOfTheDayProfileRow {
+  user_id: string | null;
+  username: string | null;
+  avatar_url: string | null;
+}
+
+const BATTLE_OF_THE_DAY_BASE_SELECT =
+  'battle_id, slug, title, status, producer1_id, producer1_username, producer2_id, producer2_username, votes_today, votes_total' as const;
+
+const BATTLE_OF_THE_DAY_AVATAR_SELECT =
+  `${BATTLE_OF_THE_DAY_BASE_SELECT}, producer1_avatar_url, producer2_avatar_url` as const;
 
 function getStatusLabel(status: BattleStatus, t: ReturnType<typeof useTranslation>['t']) {
   if (status === 'active' || status === 'voting') return t('battleDetail.statusActive');
@@ -35,6 +53,74 @@ function getStatusVariant(status: BattleStatus): 'default' | 'success' | 'warnin
   return 'warning';
 }
 
+function getProducerInitials(name: string) {
+  const parts = name.trim().split(/[\s._-]+/).filter(Boolean);
+  const initials = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : name.trim().slice(0, 2);
+  return initials.toUpperCase();
+}
+
+async function enrichBattleProfileAvatars(row: BattleOfTheDayRow | null): Promise<BattleOfTheDayRow | null> {
+  if (!row) return row;
+
+  const uniqueProducerIds = [...new Set([row.producer1_id, row.producer2_id].filter((value): value is string => Boolean(value)))];
+  if (uniqueProducerIds.length === 0) return row;
+
+  const { data, error } = await supabase
+    .from('public_producer_profiles')
+    .select('user_id, username, avatar_url')
+    .in('user_id', uniqueProducerIds);
+
+  if (error || !Array.isArray(data)) {
+    if (error) {
+      console.warn('Unable to enrich battle of the day avatars:', error);
+    }
+    return row;
+  }
+
+  const profilesById = new Map<string, BattleOfTheDayProfileRow>();
+  for (const profile of data as BattleOfTheDayProfileRow[]) {
+    if (typeof profile.user_id === 'string' && profile.user_id.length > 0) {
+      profilesById.set(profile.user_id, profile);
+    }
+  }
+
+  const producer1 = row.producer1_id ? profilesById.get(row.producer1_id) : undefined;
+  const producer2 = row.producer2_id ? profilesById.get(row.producer2_id) : undefined;
+
+  return {
+    ...row,
+    producer1_username: row.producer1_username ?? producer1?.username ?? null,
+    producer1_avatar_url: row.producer1_avatar_url ?? producer1?.avatar_url ?? null,
+    producer2_username: row.producer2_username ?? producer2?.username ?? null,
+    producer2_avatar_url: row.producer2_avatar_url ?? producer2?.avatar_url ?? null,
+  };
+}
+
+interface ProducerPillProps {
+  avatarUrl: string | null;
+  name: string;
+}
+
+function ProducerPill({ avatarUrl, name }: ProducerPillProps) {
+  return (
+    <span className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950 px-2 py-1 text-sm text-zinc-300">
+      {avatarUrl ? (
+        <img
+          src={avatarUrl}
+          alt={name}
+          className="h-7 w-7 flex-none rounded-full border border-zinc-700 object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <span className="flex h-7 w-7 flex-none items-center justify-center rounded-full border border-zinc-700 bg-zinc-800 text-[11px] font-bold text-zinc-300">
+          {getProducerInitials(name)}
+        </span>
+      )}
+      <span className="min-w-0 max-w-[11rem] truncate">{name}</span>
+    </span>
+  );
+}
+
 export function HomeBattleOfTheDay() {
   const { t } = useTranslation();
   const [battle, setBattle] = useState<BattleOfTheDayRow | null>(null);
@@ -50,11 +136,28 @@ export function HomeBattleOfTheDay() {
       let error: unknown = null;
 
       const viewRes = await supabase
-        .from('battle_of_the_day' as any)
-        .select('battle_id, slug, title, status, producer1_username, producer2_username, votes_today, votes_total')
+        .from('battle_of_the_day')
+        .select(BATTLE_OF_THE_DAY_AVATAR_SELECT)
         .maybeSingle();
-      data = (viewRes.data as BattleOfTheDayRow | null) ?? null;
-      error = viewRes.error;
+
+      if (viewRes.error) {
+        const fallbackRes = await supabase
+          .from('battle_of_the_day')
+          .select(BATTLE_OF_THE_DAY_BASE_SELECT)
+          .maybeSingle();
+
+        const fallbackData = fallbackRes.data as unknown as BattleOfTheDayBaseRow | null;
+        error = fallbackRes.error;
+        data = fallbackData
+          ? await enrichBattleProfileAvatars({
+              ...fallbackData,
+              producer1_avatar_url: null,
+              producer2_avatar_url: null,
+            })
+          : null;
+      } else {
+        data = (viewRes.data as BattleOfTheDayRow | null) ?? null;
+      }
 
       if (isCancelled) return;
 
@@ -94,9 +197,17 @@ export function HomeBattleOfTheDay() {
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div className="space-y-2">
                   <p className="text-xl font-semibold text-white">{battle.title}</p>
-                  <p className="text-sm text-zinc-400">
-                    {battle.producer1_username || t('home.producerOne')} {t('battles.vs')} {battle.producer2_username || t('home.producerTwo')}
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <ProducerPill
+                      avatarUrl={battle.producer1_avatar_url}
+                      name={battle.producer1_username || t('home.producerOne')}
+                    />
+                    <span className="text-xs font-semibold uppercase text-zinc-500">{t('battles.vs')}</span>
+                    <ProducerPill
+                      avatarUrl={battle.producer2_avatar_url}
+                      name={battle.producer2_username || t('home.producerTwo')}
+                    />
+                  </div>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-300">
                     <span className="inline-flex items-center gap-1 rounded-full border border-zinc-800 bg-zinc-950 px-2 py-1">
                       <CalendarDays className="w-3.5 h-3.5 text-amber-400" />
