@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '../auth/hooks';
 import { useTranslation } from '../i18n';
+import { fetchPublicProducerProfilesMap } from '../supabase/publicProfiles';
 import type { ReputationRankTier, UserReputation } from '../supabase/types';
 
 export interface LeaderboardEntry {
@@ -36,6 +37,7 @@ export interface EloLeaderboardEntry {
 export interface WeeklyLeaderboardEntry {
   user_id: string;
   username: string | null;
+  avatar_url: string | null;
   weekly_wins: number;
   weekly_losses: number;
   weekly_winrate: number;
@@ -222,7 +224,19 @@ export function useWeeklyLeaderboard(limit = 50) {
       return;
     }
 
-    setEntries((data as WeeklyLeaderboardEntry[] | null) ?? []);
+    const weeklyEntries = (data as Omit<WeeklyLeaderboardEntry, 'avatar_url'>[] | null) ?? [];
+    const profilesById = await fetchPublicProducerProfilesMap(weeklyEntries.map((entry) => entry.user_id));
+
+    setEntries(
+      weeklyEntries.map((entry) => {
+        const profile = profilesById.get(entry.user_id);
+        return {
+          ...entry,
+          username: profile?.username ?? entry.username,
+          avatar_url: profile?.avatar_url ?? null,
+        };
+      })
+    );
     setIsLoading(false);
   }, [limit, t]);
 

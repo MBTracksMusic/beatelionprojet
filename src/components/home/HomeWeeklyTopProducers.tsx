@@ -5,6 +5,12 @@ import { Card } from '../ui/Card';
 import { useTranslation } from '../../lib/i18n';
 import { useWeeklyLeaderboard } from '../../lib/reputation/hooks';
 
+function getProducerInitials(name: string) {
+  const parts = name.trim().split(/[\s._-]+/).filter(Boolean);
+  const initials = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : name.trim().slice(0, 2);
+  return initials.toUpperCase();
+}
+
 export function HomeWeeklyTopProducers() {
   const { t } = useTranslation();
   const { entries, isLoading } = useWeeklyLeaderboard(5);
@@ -36,15 +42,28 @@ export function HomeWeeklyTopProducers() {
         ) : (
           <div className="space-y-3">
             {entries.map((entry, index) => {
+              const displayName = entry.username || t('leaderboard.memberFallback');
               const card = (
                 <Card className={`border-zinc-800 p-4 transition-colors duration-200 ${entry.username ? 'hover:border-violet-500/40 cursor-pointer' : ''}`}>
                   <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
                       <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-zinc-900 text-sm font-semibold text-white">
                         {entry.rank_position || index + 1}
                       </span>
-                      <div>
-                        <p className="font-semibold text-white">{entry.username || t('leaderboard.memberFallback')}</p>
+                      {entry.avatar_url ? (
+                        <img
+                          src={entry.avatar_url}
+                          alt={displayName}
+                          className="h-10 w-10 rounded-full border border-zinc-700 object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full border border-zinc-700 bg-zinc-800 text-xs font-bold text-zinc-300">
+                          {getProducerInitials(displayName)}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-white">{displayName}</p>
                         <p className="text-xs text-zinc-500">
                           {t('leaderboard.weeklyRecord', {
                             wins: entry.weekly_wins,

@@ -20,6 +20,39 @@ type LeaderboardSource = 'overall' | 'forum' | 'battle';
 type LeaderboardGlobalMode = 'elo' | 'reputation';
 type LeaderboardTab = 'global' | 'weekly' | 'season';
 
+function getLeaderboardInitials(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return '?';
+
+  const parts = trimmed.split(/[\s._-]+/).filter(Boolean);
+  const initials = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : trimmed.slice(0, 2);
+  return initials.toUpperCase();
+}
+
+interface LeaderboardAvatarProps {
+  avatarUrl: string | null;
+  displayName: string;
+}
+
+function LeaderboardAvatar({ avatarUrl, displayName }: LeaderboardAvatarProps) {
+  if (avatarUrl) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={displayName}
+        className="h-12 w-12 shrink-0 rounded-full border border-zinc-700 object-cover"
+        loading="lazy"
+      />
+    );
+  }
+
+  return (
+    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-zinc-700 bg-zinc-800 text-sm font-bold text-zinc-300">
+      {getLeaderboardInitials(displayName)}
+    </div>
+  );
+}
+
 export function LeaderboardPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -197,128 +230,147 @@ export function LeaderboardPage() {
           <Card className="p-8 text-center text-zinc-400">{t('leaderboard.empty')}</Card>
         ) : tab === 'weekly' ? (
           <div className="space-y-3">
-            {weeklyEntries.map((entry, index) => (
-              <Card key={entry.user_id} className="border-zinc-800 p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-900 text-white font-bold">
-                      {entry.rank_position || index + 1}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-semibold text-white">{entry.username || t('leaderboard.memberFallback')}</p>
-                        {index < 3 && (
-                          <span className="inline-flex items-center gap-1 text-amber-300 text-xs">
-                            <Trophy className="h-3 w-3" />
-                            {t('leaderboard.topRank', { rank: index + 1 })}
-                          </span>
-                        )}
+            {weeklyEntries.map((entry, index) => {
+              const displayName = entry.username || t('leaderboard.memberFallback');
+
+              return (
+                <Card key={entry.user_id} className="border-zinc-800 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-sm font-bold text-white">
+                        {entry.rank_position || index + 1}
                       </div>
-                      <p className="text-xs text-zinc-500 uppercase tracking-wide">
-                        {t('leaderboard.weeklyRecord', {
-                          wins: entry.weekly_wins,
-                          losses: entry.weekly_losses,
-                          winRate: entry.weekly_winrate,
-                        })}
-                      </p>
+                      <LeaderboardAvatar avatarUrl={entry.avatar_url} displayName={displayName} />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <p className="truncate font-semibold text-white">{displayName}</p>
+                          {index < 3 && (
+                            <span className="inline-flex items-center gap-1 text-amber-300 text-xs">
+                              <Trophy className="h-3 w-3" />
+                              {t('leaderboard.topRank', { rank: index + 1 })}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-zinc-500 uppercase tracking-wide">
+                          {t('leaderboard.weeklyRecord', {
+                            wins: entry.weekly_wins,
+                            losses: entry.weekly_losses,
+                            winRate: entry.weekly_winrate,
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right text-sm text-zinc-400">
+                      <div className="text-white font-semibold">
+                        {t('leaderboard.weeklyWins', { wins: entry.weekly_wins })}
+                      </div>
+                      <div>{t('leaderboard.weeklyLosses', { losses: entry.weekly_losses })}</div>
                     </div>
                   </div>
-                  <div className="text-right text-sm text-zinc-400">
-                    <div className="text-white font-semibold">
-                      {t('leaderboard.weeklyWins', { wins: entry.weekly_wins })}
-                    </div>
-                    <div>{t('leaderboard.weeklyLosses', { losses: entry.weekly_losses })}</div>
-                  </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
         ) : tab === 'season' ? (
           <div className="space-y-3">
-            {seasonEntries.map((entry, index) => (
-              <Card key={`${entry.season_id}:${entry.user_id}`} className="border-zinc-800 p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-900 text-white font-bold">
-                      {entry.rank_position || index + 1}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-semibold text-white">{entry.username || t('leaderboard.memberFallback')}</p>
-                        {index < 3 && (
-                          <span className="inline-flex items-center gap-1 text-amber-300 text-xs">
-                            <Trophy className="h-3 w-3" />
-                            {t('leaderboard.topRank', { rank: index + 1 })}
-                          </span>
-                        )}
+            {seasonEntries.map((entry, index) => {
+              const displayName = entry.username || t('leaderboard.memberFallback');
+
+              return (
+                <Card key={`${entry.season_id}:${entry.user_id}`} className="border-zinc-800 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-sm font-bold text-white">
+                        {entry.rank_position || index + 1}
                       </div>
-                      <p className="text-xs text-zinc-500 uppercase tracking-wide">
-                        {t('leaderboard.eloRecord', {
-                          wins: entry.battle_wins,
-                          losses: entry.battle_losses,
-                          draws: entry.battle_draws,
-                          winRate: entry.win_rate,
-                        })}
-                      </p>
+                      <LeaderboardAvatar avatarUrl={entry.avatar_url} displayName={displayName} />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <p className="truncate font-semibold text-white">{displayName}</p>
+                          {index < 3 && (
+                            <span className="inline-flex items-center gap-1 text-amber-300 text-xs">
+                              <Trophy className="h-3 w-3" />
+                              {t('leaderboard.topRank', { rank: index + 1 })}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-zinc-500 uppercase tracking-wide">
+                          {t('leaderboard.eloRecord', {
+                            wins: entry.battle_wins,
+                            losses: entry.battle_losses,
+                            draws: entry.battle_draws,
+                            winRate: entry.win_rate,
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right text-sm text-zinc-400">
+                      <div className="text-white font-semibold">{t('leaderboard.eloPoints', { elo: entry.elo_rating })}</div>
+                      <div>{t('leaderboard.totalBattles', { total: entry.total_battles })}</div>
                     </div>
                   </div>
-                  <div className="text-right text-sm text-zinc-400">
-                    <div className="text-white font-semibold">{t('leaderboard.eloPoints', { elo: entry.elo_rating })}</div>
-                    <div>{t('leaderboard.totalBattles', { total: entry.total_battles })}</div>
-                  </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
         ) : globalMode === 'elo' ? (
           <div className="space-y-3">
-            {eloEntries.map((entry, index) => (
-              <Card key={entry.user_id} className="border-zinc-800 p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-900 text-white font-bold">
-                      {entry.rank_position || index + 1}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-semibold text-white">{entry.username || t('leaderboard.memberFallback')}</p>
-                        {index < 3 && (
-                          <span className="inline-flex items-center gap-1 text-amber-300 text-xs">
-                            <Trophy className="h-3 w-3" />
-                            {t('leaderboard.topRank', { rank: index + 1 })}
-                          </span>
-                        )}
+            {eloEntries.map((entry, index) => {
+              const displayName = entry.username || t('leaderboard.memberFallback');
+
+              return (
+                <Card key={entry.user_id} className="border-zinc-800 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-sm font-bold text-white">
+                        {entry.rank_position || index + 1}
                       </div>
-                      <p className="text-xs text-zinc-500 uppercase tracking-wide">
-                        {t('leaderboard.eloRecord', {
-                          wins: entry.battle_wins,
-                          losses: entry.battle_losses,
-                          draws: entry.battle_draws,
-                          winRate: entry.win_rate,
-                        })}
-                      </p>
+                      <LeaderboardAvatar avatarUrl={entry.avatar_url} displayName={displayName} />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <p className="truncate font-semibold text-white">{displayName}</p>
+                          {index < 3 && (
+                            <span className="inline-flex items-center gap-1 text-amber-300 text-xs">
+                              <Trophy className="h-3 w-3" />
+                              {t('leaderboard.topRank', { rank: index + 1 })}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-zinc-500 uppercase tracking-wide">
+                          {t('leaderboard.eloRecord', {
+                            wins: entry.battle_wins,
+                            losses: entry.battle_losses,
+                            draws: entry.battle_draws,
+                            winRate: entry.win_rate,
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right text-sm text-zinc-400">
+                      <div className="text-white font-semibold">{t('leaderboard.eloPoints', { elo: entry.elo_rating })}</div>
+                      <div>{t('leaderboard.totalBattles', { total: entry.total_battles })}</div>
                     </div>
                   </div>
-                  <div className="text-right text-sm text-zinc-400">
-                    <div className="text-white font-semibold">{t('leaderboard.eloPoints', { elo: entry.elo_rating })}</div>
-                    <div>{t('leaderboard.totalBattles', { total: entry.total_battles })}</div>
-                  </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
         ) : (
           <div className="space-y-3">
-            {reputationEntries.map((entry, index) => (
-              <Card key={entry.user_id} className="border-zinc-800 p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-900 text-white font-bold">
-                      {index + 1}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-semibold text-white">{entry.username || t('leaderboard.memberFallback')}</p>
+            {reputationEntries.map((entry, index) => {
+              const displayName = entry.username || t('leaderboard.memberFallback');
+
+              return (
+                <Card key={entry.user_id} className="border-zinc-800 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-sm font-bold text-white">
+                        {index + 1}
+                      </div>
+                      <LeaderboardAvatar avatarUrl={entry.avatar_url} displayName={displayName} />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <p className="truncate font-semibold text-white">{displayName}</p>
                         {index < 3 && (
                           <span className="inline-flex items-center gap-1 text-amber-300 text-xs">
                             <Trophy className="h-3 w-3" />
@@ -326,16 +378,17 @@ export function LeaderboardPage() {
                           </span>
                         )}
                       </div>
-                      <ReputationBadge rankTier={entry.rank_tier} level={entry.level} xp={entry.xp} />
+                        <ReputationBadge rankTier={entry.rank_tier} level={entry.level} xp={entry.xp} />
+                      </div>
+                    </div>
+                    <div className="text-right text-sm text-zinc-400">
+                      <div className="text-white font-semibold">{t('leaderboard.periodXp', { xp: entry.period_xp })}</div>
+                      <div>{t('leaderboard.totalXp', { xp: entry.xp })}</div>
                     </div>
                   </div>
-                  <div className="text-right text-sm text-zinc-400">
-                    <div className="text-white font-semibold">{t('leaderboard.periodXp', { xp: entry.period_xp })}</div>
-                    <div>{t('leaderboard.totalXp', { xp: entry.xp })}</div>
-                  </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
         )}
 
