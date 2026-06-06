@@ -9,6 +9,28 @@ echo "🚀 DÉPLOIEMENT PRODUCTION"
 # =========================
 EXPECTED_VERCEL_PROJECT="beatelion"
 
+get_vercel_project_name() {
+  if [ -f ".vercel/project.json" ]; then
+    jq -r '.projectName // .name // empty' .vercel/project.json
+    return
+  fi
+
+  if [ -f ".vercel/repo.json" ]; then
+    jq -r '.projects[]? | select(.directory == ".") | .name' .vercel/repo.json | head -n 1
+    return
+  fi
+
+  echo ""
+}
+
+link_vercel_project() {
+  if [ -n "${VERCEL_SCOPE:-}" ]; then
+    vercel link --yes --project "$EXPECTED_VERCEL_PROJECT" --scope "$VERCEL_SCOPE"
+  else
+    vercel link --yes --project "$EXPECTED_VERCEL_PROJECT"
+  fi
+}
+
 # =========================
 # 0. LOAD ENV
 # =========================
@@ -144,14 +166,16 @@ fi
 # =========================
 echo "🔗 Vérification Vercel production..."
 
-if [ ! -f ".vercel/project.json" ]; then
-  vercel link --project "$EXPECTED_VERCEL_PROJECT"
-fi
-
-CURRENT_PROJECT_NAME=$(jq -r '.projectName' .vercel/project.json)
+CURRENT_PROJECT_NAME="$(get_vercel_project_name)"
 
 if [ "$CURRENT_PROJECT_NAME" != "$EXPECTED_VERCEL_PROJECT" ]; then
-  vercel link --project "$EXPECTED_VERCEL_PROJECT"
+  link_vercel_project
+  CURRENT_PROJECT_NAME="$(get_vercel_project_name)"
+fi
+
+if [ "$CURRENT_PROJECT_NAME" != "$EXPECTED_VERCEL_PROJECT" ]; then
+  echo "❌ Projet Vercel incorrect ou introuvable (actuel: ${CURRENT_PROJECT_NAME:-none}, attendu: $EXPECTED_VERCEL_PROJECT)"
+  exit 1
 fi
 
 echo "✅ Vercel OK"
