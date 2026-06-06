@@ -6563,8 +6563,10 @@ export type Database = {
         Row: {
           battle_id: string | null
           producer1_id: string | null
+          producer1_avatar_url: string | null
           producer1_username: string | null
           producer2_id: string | null
+          producer2_avatar_url: string | null
           producer2_username: string | null
           slug: string | null
           status: Database["public"]["Enums"]["battle_status"] | null
