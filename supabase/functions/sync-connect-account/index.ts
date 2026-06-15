@@ -84,6 +84,7 @@ Deno.serve(async (req: Request) => {
       .update({
         stripe_account_charges_enabled: account.charges_enabled || false,
         stripe_account_details_submitted: account.details_submitted || false,
+        stripe_account_country: typeof account.country === "string" ? account.country.toUpperCase() : null,
         updated_at: new Date(),
       })
       .eq("id", userId);
@@ -112,6 +113,7 @@ Deno.serve(async (req: Request) => {
         account_id: account.id,
         charges_enabled: account.charges_enabled,
         payouts_enabled: account.payouts_enabled,
+        country: account.country,
         requirements: {
           current_deadline: account.requirements?.current_deadline,
           currently_due:

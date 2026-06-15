@@ -156,6 +156,9 @@ Deno.serve(async (req: Request) => {
       const stripeAccountId = event.data.object.id;
       const chargesEnabled = event.data.object.charges_enabled || false;
       const detailsSubmitted = event.data.object.details_submitted || false;
+      const country = typeof event.data.object.country === "string"
+        ? event.data.object.country.toUpperCase()
+        : null;
 
       // Find user with this Stripe account ID and update status
       const { data: profile, error: findError } = await supabaseAdmin
@@ -178,6 +181,7 @@ Deno.serve(async (req: Request) => {
         .update({
           stripe_account_charges_enabled: chargesEnabled,
           stripe_account_details_submitted: detailsSubmitted,
+          stripe_account_country: country,
         })
         .eq("id", profile.id);
 
@@ -193,6 +197,7 @@ Deno.serve(async (req: Request) => {
         userId: profile.id,
         chargesEnabled,
         detailsSubmitted,
+        country,
       });
     }
 
