@@ -44,7 +44,32 @@ BEGIN
 END;
 $$;
 
+DO $$
+DECLARE
+  policy_record record;
+BEGIN
+  FOR policy_record IN
+    SELECT schemaname, tablename, policyname
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'user_profiles'
+      AND (
+        qual ILIKE '%owner_can_update_profile%'
+        OR with_check ILIKE '%owner_can_update_profile%'
+      )
+  LOOP
+    EXECUTE format(
+      'DROP POLICY IF EXISTS %I ON %I.%I',
+      policy_record.policyname,
+      policy_record.schemaname,
+      policy_record.tablename
+    );
+  END LOOP;
+END;
+$$;
+
 DROP POLICY IF EXISTS "Owner can update own profile" ON public.user_profiles;
+DROP POLICY IF EXISTS "Advisor user profiles update" ON public.user_profiles;
 
 DROP FUNCTION IF EXISTS private.owner_can_update_profile(
   uuid, public.user_role, public.producer_tier_type, boolean, boolean,
