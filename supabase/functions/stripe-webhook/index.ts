@@ -1518,6 +1518,7 @@ async function processStripeEvent(
           stripe_account_id: null,
           stripe_account_charges_enabled: false,
           stripe_account_details_submitted: false,
+          stripe_account_country: null,
         })
         .eq("stripe_account_id", stripeAccountId)
         .select("id, email")

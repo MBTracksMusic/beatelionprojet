@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth/hooks';
 import { supabase } from '@/lib/supabase/client';
 import { Button } from '../components/ui/Button';
@@ -135,20 +135,22 @@ const connectCountryOptions = configuredAllowedCountries
   ? STRIPE_CONNECT_COUNTRY_OPTIONS.filter((option) => configuredAllowedCountries.has(option.value))
   : STRIPE_CONNECT_COUNTRY_OPTIONS;
 
-const defaultConnectCountry = connectCountryOptions.some((option) => option.value === 'FR')
-  ? 'FR'
-  : connectCountryOptions[0]?.value ?? '';
+const getCountryLabel = (country: string | null | undefined) =>
+  connectCountryOptions.find((option) => option.value === country)?.label ?? country ?? 'Unknown';
 
 interface StripeConnectStatus {
   stripe_account_id: string | null;
   charges_enabled: boolean;
   details_submitted: boolean;
+  payouts_enabled: boolean;
+  country: string | null;
+  can_replace_account: boolean;
 }
 
 export function ProducerStripeConnectPage() {
   const { user, profile } = useAuth();
   const [status, setStatus] = useState<StripeConnectStatus | null>(null);
-  const [selectedCountry, setSelectedCountry] = useState(defaultConnectCountry);
+  const [selectedCountry, setSelectedCountry] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isFetching, setIsFetching] = useState(false);
   const isAdmin = profile?.role === 'admin';
@@ -158,9 +160,64 @@ export function ProducerStripeConnectPage() {
     stripe_account_charges_enabled: status?.charges_enabled,
   });
 
+  const callStripeConnectOnboarding = useCallback(async (body: Record<string, unknown>) => {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) {
+      throw new Error('Please log in first');
+    }
+
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stripe-connect-onboarding`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Stripe Connect request failed');
+    }
+
+    return result;
+  }, []);
+
+  const loadStatus = useCallback(async () => {
+    if (!user?.id) return;
+
+    try {
+      setIsLoading(true);
+      const data = await callStripeConnectOnboarding({ action: 'get_status' });
+
+      setStatus({
+        stripe_account_id: data.stripe_account_id ?? null,
+        charges_enabled: data.charges_enabled || false,
+        details_submitted: data.details_submitted || false,
+        payouts_enabled: data.payouts_enabled || false,
+        country: data.country ?? null,
+        can_replace_account: data.can_replace_account || false,
+      });
+
+      if (data.stripe_account_id) {
+        setSelectedCountry('');
+      }
+    } catch (err) {
+      console.error('Failed to load Stripe Connect status:', err);
+      toast.error('Failed to load Stripe Connect status');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [callStripeConnectOnboarding, user?.id]);
+
   useEffect(() => {
-    loadStatus();
-  }, [user?.id]);
+    void loadStatus();
+  }, [loadStatus]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -176,34 +233,9 @@ export function ProducerStripeConnectPage() {
       charges_enabled: status?.charges_enabled ?? false,
       details_submitted: status?.details_submitted ?? false,
       role: profile?.role ?? null,
+      country: status?.country ?? null,
     });
   }, [user?.id, stripeReady, status, profile?.is_producer_active, profile?.role]);
-
-  const loadStatus = async () => {
-    if (!user?.id) return;
-
-    try {
-      setIsLoading(true);
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('stripe_account_id, stripe_account_charges_enabled, stripe_account_details_submitted')
-        .eq('id', user.id)
-        .single();
-
-      if (error) throw error;
-
-      setStatus({
-        stripe_account_id: data.stripe_account_id,
-        charges_enabled: data.stripe_account_charges_enabled || false,
-        details_submitted: data.stripe_account_details_submitted || false,
-      });
-    } catch (err) {
-      console.error('Failed to load Stripe Connect status:', err);
-      toast.error('Failed to load Stripe Connect status');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const handleStartOnboarding = async () => {
     if (!user?.id) return;
@@ -215,33 +247,10 @@ export function ProducerStripeConnectPage() {
 
     try {
       setIsFetching(true);
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (!session) {
-        toast.error('Please log in first');
-        return;
-      }
-
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stripe-connect-onboarding`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            action: 'create_account_link',
-            ...(!status?.stripe_account_id ? { country: selectedCountry } : {}),
-          }),
-        }
-      );
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to create account link');
-      }
+      const result = await callStripeConnectOnboarding({
+        action: 'create_account_link',
+        ...(!status?.stripe_account_id ? { country: selectedCountry } : {}),
+      });
 
       if (result.url) {
         window.location.href = result.url;
@@ -254,10 +263,58 @@ export function ProducerStripeConnectPage() {
     }
   };
 
+  const handleReplaceCountryAccount = async () => {
+    if (!user?.id || !status?.stripe_account_id) return;
+
+    if (!selectedCountry) {
+      toast.error('Select the correct country before replacing this account');
+      return;
+    }
+
+    if (status.country && selectedCountry === status.country) {
+      toast.error('Select a different country than the current Stripe account country');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'This will create a new Stripe Connect account for the selected country and use it for future onboarding. Continue?'
+    );
+    if (!confirmed) return;
+
+    try {
+      setIsFetching(true);
+      const result = await callStripeConnectOnboarding({
+        action: 'replace_account_country',
+        country: selectedCountry,
+      });
+
+      if (result.url) {
+        window.location.href = result.url;
+        return;
+      }
+
+      await loadStatus();
+      toast.success('Stripe Connect account country reset');
+    } catch (err) {
+      console.error('Failed to replace Stripe Connect account country:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to replace Stripe Connect account');
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
   const handleRefreshStatus = async () => {
     await loadStatus();
     toast.success('Status refreshed');
   };
+
+  const lockedCountryLabel = getCountryLabel(status?.country);
+  const canReplaceCountryAccount = Boolean(
+    status?.stripe_account_id
+      && status.can_replace_account
+      && !status.details_submitted
+      && !stripeReady
+  );
 
   if (isLoading) {
     return (
@@ -367,6 +424,7 @@ export function ProducerStripeConnectPage() {
                     id="stripe-connect-country"
                     label="Country"
                     options={connectCountryOptions}
+                    placeholder="Select a country"
                     value={selectedCountry}
                     onChange={(event) => setSelectedCountry(event.target.value)}
                     disabled={isFetching || connectCountryOptions.length === 0}
@@ -397,6 +455,45 @@ export function ProducerStripeConnectPage() {
                 <p className="text-sm text-zinc-400 mb-4">
                   Click below to continue filling out your Stripe Connect details.
                 </p>
+                <div className="mb-4 rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
+                  <p className="text-xs uppercase tracking-wide text-zinc-500">Locked country</p>
+                  <p className="mt-1 text-sm font-medium text-zinc-200">{lockedCountryLabel}</p>
+                  <p className="mt-2 text-xs text-zinc-500">
+                    Stripe locks the country after the connected account is created.
+                  </p>
+                </div>
+                {canReplaceCountryAccount && (
+                  <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+                    <p className="text-sm font-medium text-amber-200">Wrong country?</p>
+                    <p className="mt-1 text-xs text-amber-100/80">
+                      This account is incomplete, so you can create a replacement account with the correct country.
+                    </p>
+                    <div className="mt-3 max-w-sm">
+                      <Select
+                        id="stripe-connect-replacement-country"
+                        label="Correct country"
+                        options={connectCountryOptions}
+                        placeholder="Select a country"
+                        value={selectedCountry}
+                        onChange={(event) => setSelectedCountry(event.target.value)}
+                        disabled={isFetching || connectCountryOptions.length === 0}
+                      />
+                    </div>
+                    <Button
+                      onClick={handleReplaceCountryAccount}
+                      isLoading={isFetching}
+                      disabled={
+                        !selectedCountry
+                        || selectedCountry === status.country
+                        || connectCountryOptions.length === 0
+                      }
+                      variant="secondary"
+                      className="mt-3 w-full md:w-auto"
+                    >
+                      Create Replacement Account
+                    </Button>
+                  </div>
+                )}
                 {isAdmin ? (
                   <div className="text-sm text-gray-400">
                     Admin view: onboarding disabled

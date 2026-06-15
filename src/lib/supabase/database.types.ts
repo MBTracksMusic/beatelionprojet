@@ -5904,6 +5904,7 @@ export type Database = {
           role: Database["public"]["Enums"]["user_role"]
           social_links: Json | null
           stripe_account_charges_enabled: boolean | null
+          stripe_account_country: string | null
           stripe_account_created_at: string | null
           stripe_account_details_submitted: boolean | null
           stripe_account_id: string | null
@@ -5952,6 +5953,7 @@ export type Database = {
           role?: Database["public"]["Enums"]["user_role"]
           social_links?: Json | null
           stripe_account_charges_enabled?: boolean | null
+          stripe_account_country?: string | null
           stripe_account_created_at?: string | null
           stripe_account_details_submitted?: boolean | null
           stripe_account_id?: string | null
@@ -6000,6 +6002,7 @@ export type Database = {
           role?: Database["public"]["Enums"]["user_role"]
           social_links?: Json | null
           stripe_account_charges_enabled?: boolean | null
+          stripe_account_country?: string | null
           stripe_account_created_at?: string | null
           stripe_account_details_submitted?: boolean | null
           stripe_account_id?: string | null

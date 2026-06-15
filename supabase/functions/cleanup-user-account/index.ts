@@ -47,6 +47,7 @@ Deno.serve(async (req: Request) => {
         stripe_account_id: null,
         stripe_account_charges_enabled: false,
         stripe_account_details_submitted: false,
+        stripe_account_country: null,
         stripe_account_created_at: null,
       })
       .eq("id", user_id);

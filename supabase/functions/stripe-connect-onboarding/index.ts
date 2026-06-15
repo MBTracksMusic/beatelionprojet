@@ -8,15 +8,18 @@ const corsHeaders = {
 };
 
 interface StripeConnectRequest {
-  action: "create_account_link" | "get_status";
+  action: "create_account_link" | "get_status" | "replace_account_country";
   country?: string;
 }
 
 interface StripeConnectResponse {
   url?: string;
-  stripe_account_id?: string;
+  stripe_account_id?: string | null;
   charges_enabled?: boolean;
   details_submitted?: boolean;
+  payouts_enabled?: boolean;
+  country?: string | null;
+  can_replace_account?: boolean;
   error?: string;
 }
 
@@ -25,9 +28,23 @@ interface StripeConnectProfile {
   is_producer_active: boolean | null;
   stripe_account_charges_enabled: boolean | null;
   stripe_account_details_submitted: boolean | null;
+  stripe_account_country: string | null;
 }
 
-type SupabaseAdminClient = ReturnType<typeof createClient>;
+interface StripeAccount {
+  id: string;
+  country?: string | null;
+  charges_enabled?: boolean | null;
+  details_submitted?: boolean | null;
+  payouts_enabled?: boolean | null;
+}
+
+interface StripeAccountLink {
+  url?: string;
+  error?: { message?: string };
+}
+
+type SupabaseAdminClient = ReturnType<typeof createClient<any>>;
 type CorsHeaders = typeof corsHeaders;
 
 const PRODUCTION_SITE_URL = "https://beatelion.com";
@@ -42,6 +59,24 @@ const STRIPE_CONNECT_SUPPORTED_COUNTRIES = new Set([
   "PY", "QA", "RO", "RS", "RW", "SA", "SE", "SG", "SI", "SK", "SN", "SV", "TH", "TN", "TR", "TT",
   "TW", "TZ", "US", "UY", "UZ", "VN", "ZA",
 ]);
+
+class HttpError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+const jsonResponse = (
+  payload: Record<string, unknown>,
+  status: number,
+  corsHeaders: CorsHeaders,
+) => new Response(
+  JSON.stringify(payload),
+  { status, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+);
 
 const asNonEmptyString = (value: string | null | undefined): string | null => {
   if (typeof value !== "string") return null;
@@ -141,6 +176,157 @@ const resolveAppUrl = (): string => {
   return "http://localhost:5173";
 };
 
+const stripeApiFetch = async <T>(
+  path: string,
+  stripeSecretKey: string,
+  init: RequestInit,
+): Promise<T> => {
+  const response = await fetch(`https://api.stripe.com${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${stripeSecretKey}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+      ...(init.headers ?? {}),
+    },
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  const stripeError = payload?.error?.message;
+
+  if (!response.ok || stripeError) {
+    throw new HttpError(
+      response.ok ? 400 : response.status,
+      typeof stripeError === "string" ? stripeError : "Stripe request failed",
+    );
+  }
+
+  return payload as T;
+};
+
+const retrieveStripeAccount = async (
+  stripeAccountId: string,
+  stripeSecretKey: string,
+): Promise<StripeAccount> => {
+  return await stripeApiFetch<StripeAccount>(
+    `/v1/accounts/${encodeURIComponent(stripeAccountId)}`,
+    stripeSecretKey,
+    { method: "GET" },
+  );
+};
+
+const createStripeAccount = async (
+  userId: string,
+  country: string,
+  stripeSecretKey: string,
+): Promise<StripeAccount> => {
+  const accountParams = new URLSearchParams({
+    type: "express",
+    country,
+    "capabilities[card_payments][requested]": "true",
+    "capabilities[transfers][requested]": "true",
+    "metadata[beatelion_user_id]": userId,
+  });
+
+  return await stripeApiFetch<StripeAccount>(
+    "/v1/accounts",
+    stripeSecretKey,
+    {
+      method: "POST",
+      body: accountParams.toString(),
+    },
+  );
+};
+
+const createStripeAccountLink = async (
+  stripeAccountId: string,
+  returnUrl: string,
+  refreshUrl: string,
+  stripeSecretKey: string,
+): Promise<string> => {
+  const link = await stripeApiFetch<StripeAccountLink>(
+    "/v1/account_links",
+    stripeSecretKey,
+    {
+      method: "POST",
+      body: new URLSearchParams({
+        account: stripeAccountId,
+        type: "account_onboarding",
+        refresh_url: refreshUrl,
+        return_url: returnUrl,
+      }).toString(),
+    },
+  );
+
+  if (!link.url) {
+    throw new HttpError(502, "Stripe did not return an onboarding URL");
+  }
+
+  return link.url;
+};
+
+const canReplaceIncompleteAccount = (
+  account: StripeAccount,
+  profile: StripeConnectProfile,
+): boolean => {
+  return !account.details_submitted
+    && !account.charges_enabled
+    && !account.payouts_enabled
+    && !profile.stripe_account_details_submitted
+    && !profile.stripe_account_charges_enabled;
+};
+
+const syncStripeAccountToProfile = async (
+  userId: string,
+  account: StripeAccount,
+  supabaseAdmin: SupabaseAdminClient,
+): Promise<void> => {
+  const { error } = await supabaseAdmin
+    .from("user_profiles")
+    .update({
+      stripe_account_charges_enabled: account.charges_enabled || false,
+      stripe_account_details_submitted: account.details_submitted || false,
+      stripe_account_country: normalizeCountryCode(account.country) ?? null,
+    })
+    .eq("id", userId);
+
+  if (error) {
+    console.error("[stripe-connect-onboarding] Failed to sync account status:", {
+      userId,
+      accountId: account.id,
+      error: error.message,
+    });
+    throw new HttpError(500, "Failed to sync Stripe account status");
+  }
+};
+
+const saveStripeAccountToProfile = async (
+  userId: string,
+  account: StripeAccount,
+  fallbackCountry: string,
+  supabaseAdmin: SupabaseAdminClient,
+): Promise<void> => {
+  const { error } = await supabaseAdmin
+    .from("user_profiles")
+    .update({
+      stripe_account_id: account.id,
+      stripe_account_charges_enabled: account.charges_enabled || false,
+      stripe_account_details_submitted: account.details_submitted || false,
+      stripe_account_country: normalizeCountryCode(account.country) ?? fallbackCountry,
+      stripe_account_created_at: new Date().toISOString(),
+    })
+    .eq("id", userId);
+
+  if (!error) return;
+
+  console.error("[stripe-connect-onboarding] Failed to save account ID:", error);
+
+  if (error.code === "23505") {
+    throw new HttpError(409, "Stripe account already linked to another user");
+  }
+
+  throw new HttpError(500, "Failed to save account ID");
+};
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -157,7 +343,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Initialize Supabase client with service role
-    const supabaseAdmin = createClient(
+    const supabaseAdmin = createClient<any>(
       Deno.env.get("SUPABASE_URL") || "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || ""
     );
@@ -184,7 +370,7 @@ Deno.serve(async (req: Request) => {
     // Get user profile
     const { data: profile, error: profileError } = await supabaseAdmin
       .from("user_profiles")
-      .select("stripe_account_id, is_producer_active, stripe_account_charges_enabled, stripe_account_details_submitted")
+      .select("stripe_account_id, is_producer_active, stripe_account_charges_enabled, stripe_account_details_submitted, stripe_account_country")
       .eq("id", userId)
       .single();
 
@@ -215,20 +401,33 @@ Deno.serve(async (req: Request) => {
         corsHeaders
       );
     } else if (body.action === "get_status") {
-      return await handleGetStatus(profile, corsHeaders);
-    } else {
-      return new Response(
-        JSON.stringify({ error: "Invalid action" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      return await handleGetStatus(
+        userId,
+        stripeProfile,
+        supabaseAdmin,
+        stripeSecretKey,
+        corsHeaders,
       );
+    } else if (body.action === "replace_account_country") {
+      return await handleReplaceAccountCountry(
+        userId,
+        stripeProfile,
+        body.country,
+        supabaseAdmin,
+        stripeSecretKey,
+        corsHeaders,
+      );
+    } else {
+      return jsonResponse({ error: "Invalid action" }, 400, corsHeaders);
     }
   } catch (error) {
     console.error("[stripe-connect-onboarding] Error:", error);
-    return new Response(
-      JSON.stringify({
+    return jsonResponse(
+      {
         error: error instanceof Error ? error.message : "Internal server error",
-      }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      },
+      error instanceof HttpError ? error.status : 500,
+      corsHeaders,
     );
   }
 });
@@ -250,64 +449,29 @@ async function handleCreateAccountLink(
   if (!stripeAccountId) {
     const { country, error: countryError } = validateConnectCountry(requestedCountry);
     if (countryError || !country) {
-      return new Response(
-        JSON.stringify({ error: countryError ?? "Invalid Stripe Connect country" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return jsonResponse({ error: countryError ?? "Invalid Stripe Connect country" }, 400, corsHeaders);
     }
 
-    const accountParams = new URLSearchParams({
-      type: "express",
-      country,
-      "capabilities[card_payments][requested]": "true",
-      "capabilities[transfers][requested]": "true",
-      "metadata[beatelion_user_id]": userId,
-    });
-
-    const accountResponse = await fetch("https://api.stripe.com/v1/accounts", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${stripeSecretKey}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: accountParams.toString(),
-    });
-
-    const account = await accountResponse.json();
-
-    if (account.error) {
-      return new Response(
-        JSON.stringify({ error: account.error.message }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
+    const account = await createStripeAccount(userId, country, stripeSecretKey);
     stripeAccountId = account.id;
+    await saveStripeAccountToProfile(userId, account, country, supabaseAdmin);
+  } else {
+    const requestedNormalizedCountry = normalizeCountryCode(requestedCountry);
+    if (requestedNormalizedCountry) {
+      const account = await retrieveStripeAccount(stripeAccountId, stripeSecretKey);
+      await syncStripeAccountToProfile(userId, account, supabaseAdmin);
+      const existingCountry = normalizeCountryCode(account.country) ?? profile.stripe_account_country;
 
-    // Save account ID to database
-    const { error: updateError } = await supabaseAdmin
-      .from("user_profiles")
-      .update({
-        stripe_account_id: stripeAccountId,
-        stripe_account_created_at: new Date().toISOString(),
-      })
-      .eq("id", userId);
-
-    if (updateError) {
-      console.error("[stripe-connect-onboarding] Failed to save account ID:", updateError);
-
-      // Check for unique constraint violation (error code 23505)
-      if (updateError.code === "23505") {
-        return new Response(
-          JSON.stringify({ error: "Stripe account already linked to another user" }),
-          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      if (existingCountry && requestedNormalizedCountry !== existingCountry) {
+        return jsonResponse(
+          {
+            error: `A Stripe Connect account already exists with country ${existingCountry}. Stripe locks country after account creation.`,
+            country: existingCountry,
+          },
+          409,
+          corsHeaders,
         );
       }
-
-      return new Response(
-        JSON.stringify({ error: "Failed to save account ID" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
     }
   }
 
@@ -319,55 +483,127 @@ async function handleCreateAccountLink(
     refreshUrl,
   });
 
-  const linkResponse = await fetch(
-    `https://api.stripe.com/v1/account_links`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${stripeSecretKey}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        account: stripeAccountId,
-        type: "account_onboarding",
-        refresh_url: refreshUrl,
-        return_url: returnUrl,
-      }).toString(),
-    }
-  );
-
-  const link = await linkResponse.json();
-
-  if (link.error) {
-    return new Response(
-      JSON.stringify({ error: link.error.message }),
-      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
+  const url = await createStripeAccountLink(stripeAccountId, returnUrl, refreshUrl, stripeSecretKey);
 
   console.log("[stripe-connect-onboarding] Account link created", {
     userId,
     stripeAccountId,
   });
 
-  return new Response(
-    JSON.stringify({ url: link.url }),
-    { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+  return jsonResponse({ url }, 200, corsHeaders);
+}
+
+async function handleReplaceAccountCountry(
+  userId: string,
+  profile: StripeConnectProfile,
+  requestedCountry: unknown,
+  supabaseAdmin: SupabaseAdminClient,
+  stripeSecretKey: string,
+  corsHeaders: CorsHeaders
+): Promise<Response> {
+  if (!profile.stripe_account_id) {
+    return jsonResponse(
+      { error: "No existing Stripe Connect account to replace" },
+      400,
+      corsHeaders,
+    );
+  }
+
+  const { country, error: countryError } = validateConnectCountry(requestedCountry);
+  if (countryError || !country) {
+    return jsonResponse({ error: countryError ?? "Invalid Stripe Connect country" }, 400, corsHeaders);
+  }
+
+  const existingAccount = await retrieveStripeAccount(profile.stripe_account_id, stripeSecretKey);
+  await syncStripeAccountToProfile(userId, existingAccount, supabaseAdmin);
+  const syncedProfile: StripeConnectProfile = {
+    ...profile,
+    stripe_account_charges_enabled: existingAccount.charges_enabled || false,
+    stripe_account_details_submitted: existingAccount.details_submitted || false,
+    stripe_account_country: normalizeCountryCode(existingAccount.country) ?? profile.stripe_account_country,
+  };
+
+  const existingCountry = syncedProfile.stripe_account_country;
+  if (existingCountry === country) {
+    return jsonResponse(
+      { error: `The existing Stripe Connect account already uses ${country}`, country },
+      409,
+      corsHeaders,
+    );
+  }
+
+  if (!canReplaceIncompleteAccount(existingAccount, syncedProfile)) {
+    return jsonResponse(
+      {
+        error: "This Stripe Connect account is already submitted or active. Contact support to reset it.",
+        country: existingCountry,
+      },
+      409,
+      corsHeaders,
+    );
+  }
+
+  const replacementAccount = await createStripeAccount(userId, country, stripeSecretKey);
+  await saveStripeAccountToProfile(userId, replacementAccount, country, supabaseAdmin);
+
+  const appUrl = resolveAppUrl();
+  const returnUrl = `${appUrl}/producer`;
+  const refreshUrl = `${appUrl}/producer`;
+  const url = await createStripeAccountLink(replacementAccount.id, returnUrl, refreshUrl, stripeSecretKey);
+
+  console.log("[stripe-connect-onboarding] Replaced incomplete account country", {
+    userId,
+    previousStripeAccountId: profile.stripe_account_id,
+    previousCountry: existingCountry,
+    replacementStripeAccountId: replacementAccount.id,
+    replacementCountry: country,
+  });
+
+  return jsonResponse(
+    {
+      url,
+      stripe_account_id: replacementAccount.id,
+      country,
+    },
+    200,
+    corsHeaders,
   );
 }
 
 async function handleGetStatus(
+  userId: string,
   profile: StripeConnectProfile,
+  supabaseAdmin: SupabaseAdminClient,
+  stripeSecretKey: string,
   corsHeaders: CorsHeaders
 ): Promise<Response> {
+  if (profile.stripe_account_id) {
+    const account = await retrieveStripeAccount(profile.stripe_account_id, stripeSecretKey);
+    await syncStripeAccountToProfile(userId, account, supabaseAdmin);
+
+    const response: StripeConnectResponse = {
+      stripe_account_id: account.id,
+      charges_enabled: account.charges_enabled || false,
+      details_submitted: account.details_submitted || false,
+      payouts_enabled: account.payouts_enabled || false,
+      country: normalizeCountryCode(account.country) ?? profile.stripe_account_country,
+      can_replace_account: canReplaceIncompleteAccount(account, {
+        ...profile,
+        stripe_account_charges_enabled: account.charges_enabled || false,
+        stripe_account_details_submitted: account.details_submitted || false,
+      }),
+    };
+
+    return jsonResponse(response as unknown as Record<string, unknown>, 200, corsHeaders);
+  }
+
   const response: StripeConnectResponse = {
     stripe_account_id: profile.stripe_account_id,
     charges_enabled: profile.stripe_account_charges_enabled || false,
     details_submitted: profile.stripe_account_details_submitted || false,
+    country: profile.stripe_account_country,
+    can_replace_account: false,
   };
 
-  return new Response(
-    JSON.stringify(response),
-    { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-  );
+  return jsonResponse(response as unknown as Record<string, unknown>, 200, corsHeaders);
 }
