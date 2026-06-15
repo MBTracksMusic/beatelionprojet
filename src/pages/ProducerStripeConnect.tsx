@@ -2,9 +2,142 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth/hooks';
 import { supabase } from '@/lib/supabase/client';
 import { Button } from '../components/ui/Button';
+import { Select } from '../components/ui/Select';
 import { AlertCircle, CheckCircle, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { isProducerSafe, isStripeReady } from '../lib/auth/producer';
+
+const STRIPE_CONNECT_COUNTRY_OPTIONS = [
+  { value: 'AE', label: 'United Arab Emirates' },
+  { value: 'AG', label: 'Antigua & Barbuda' },
+  { value: 'AL', label: 'Albania' },
+  { value: 'AM', label: 'Armenia' },
+  { value: 'AR', label: 'Argentina' },
+  { value: 'AT', label: 'Austria' },
+  { value: 'AU', label: 'Australia' },
+  { value: 'BA', label: 'Bosnia & Herzegovina' },
+  { value: 'BE', label: 'Belgium' },
+  { value: 'BG', label: 'Bulgaria' },
+  { value: 'BH', label: 'Bahrain' },
+  { value: 'BJ', label: 'Benin' },
+  { value: 'BN', label: 'Brunei' },
+  { value: 'BO', label: 'Bolivia' },
+  { value: 'BS', label: 'Bahamas' },
+  { value: 'BW', label: 'Botswana' },
+  { value: 'CA', label: 'Canada' },
+  { value: 'CH', label: 'Switzerland' },
+  { value: 'CI', label: "Cote d'Ivoire" },
+  { value: 'CL', label: 'Chile' },
+  { value: 'CO', label: 'Colombia' },
+  { value: 'CR', label: 'Costa Rica' },
+  { value: 'CY', label: 'Cyprus' },
+  { value: 'CZ', label: 'Czechia' },
+  { value: 'DE', label: 'Germany' },
+  { value: 'DK', label: 'Denmark' },
+  { value: 'DO', label: 'Dominican Republic' },
+  { value: 'EC', label: 'Ecuador' },
+  { value: 'EE', label: 'Estonia' },
+  { value: 'EG', label: 'Egypt' },
+  { value: 'ES', label: 'Spain' },
+  { value: 'ET', label: 'Ethiopia' },
+  { value: 'FI', label: 'Finland' },
+  { value: 'FR', label: 'France' },
+  { value: 'GB', label: 'United Kingdom' },
+  { value: 'GH', label: 'Ghana' },
+  { value: 'GM', label: 'Gambia' },
+  { value: 'GR', label: 'Greece' },
+  { value: 'GT', label: 'Guatemala' },
+  { value: 'GY', label: 'Guyana' },
+  { value: 'HK', label: 'Hong Kong' },
+  { value: 'HU', label: 'Hungary' },
+  { value: 'IE', label: 'Ireland' },
+  { value: 'IL', label: 'Israel' },
+  { value: 'IS', label: 'Iceland' },
+  { value: 'IT', label: 'Italy' },
+  { value: 'JM', label: 'Jamaica' },
+  { value: 'JO', label: 'Jordan' },
+  { value: 'JP', label: 'Japan' },
+  { value: 'KE', label: 'Kenya' },
+  { value: 'KH', label: 'Cambodia' },
+  { value: 'KR', label: 'South Korea' },
+  { value: 'KW', label: 'Kuwait' },
+  { value: 'LC', label: 'Saint Lucia' },
+  { value: 'LK', label: 'Sri Lanka' },
+  { value: 'LT', label: 'Lithuania' },
+  { value: 'LU', label: 'Luxembourg' },
+  { value: 'LV', label: 'Latvia' },
+  { value: 'MA', label: 'Morocco' },
+  { value: 'MC', label: 'Monaco' },
+  { value: 'MD', label: 'Moldova' },
+  { value: 'MG', label: 'Madagascar' },
+  { value: 'MK', label: 'North Macedonia' },
+  { value: 'MN', label: 'Mongolia' },
+  { value: 'MO', label: 'Macao' },
+  { value: 'MT', label: 'Malta' },
+  { value: 'MU', label: 'Mauritius' },
+  { value: 'MX', label: 'Mexico' },
+  { value: 'NA', label: 'Namibia' },
+  { value: 'NG', label: 'Nigeria' },
+  { value: 'NL', label: 'Netherlands' },
+  { value: 'NO', label: 'Norway' },
+  { value: 'NZ', label: 'New Zealand' },
+  { value: 'OM', label: 'Oman' },
+  { value: 'PA', label: 'Panama' },
+  { value: 'PE', label: 'Peru' },
+  { value: 'PH', label: 'Philippines' },
+  { value: 'PK', label: 'Pakistan' },
+  { value: 'PL', label: 'Poland' },
+  { value: 'PT', label: 'Portugal' },
+  { value: 'PY', label: 'Paraguay' },
+  { value: 'QA', label: 'Qatar' },
+  { value: 'RO', label: 'Romania' },
+  { value: 'RS', label: 'Serbia' },
+  { value: 'RW', label: 'Rwanda' },
+  { value: 'SA', label: 'Saudi Arabia' },
+  { value: 'SE', label: 'Sweden' },
+  { value: 'SG', label: 'Singapore' },
+  { value: 'SI', label: 'Slovenia' },
+  { value: 'SK', label: 'Slovakia' },
+  { value: 'SN', label: 'Senegal' },
+  { value: 'SV', label: 'El Salvador' },
+  { value: 'TH', label: 'Thailand' },
+  { value: 'TN', label: 'Tunisia' },
+  { value: 'TR', label: 'Turkey' },
+  { value: 'TT', label: 'Trinidad & Tobago' },
+  { value: 'TW', label: 'Taiwan' },
+  { value: 'TZ', label: 'Tanzania' },
+  { value: 'US', label: 'United States' },
+  { value: 'UY', label: 'Uruguay' },
+  { value: 'UZ', label: 'Uzbekistan' },
+  { value: 'VN', label: 'Vietnam' },
+  { value: 'ZA', label: 'South Africa' },
+];
+
+const parseAllowedCountries = (value: unknown): Set<string> | null => {
+  if (typeof value !== 'string' || value.trim().length === 0) return null;
+
+  const allowed = new Set<string>();
+  for (const token of value.split(',')) {
+    const country = token.trim().toUpperCase();
+    if (/^[A-Z]{2}$/.test(country)) {
+      allowed.add(country);
+    }
+  }
+
+  return allowed.size > 0 ? allowed : null;
+};
+
+const configuredAllowedCountries = parseAllowedCountries(
+  import.meta.env.VITE_STRIPE_CONNECT_ALLOWED_COUNTRIES
+);
+
+const connectCountryOptions = configuredAllowedCountries
+  ? STRIPE_CONNECT_COUNTRY_OPTIONS.filter((option) => configuredAllowedCountries.has(option.value))
+  : STRIPE_CONNECT_COUNTRY_OPTIONS;
+
+const defaultConnectCountry = connectCountryOptions.some((option) => option.value === 'FR')
+  ? 'FR'
+  : connectCountryOptions[0]?.value ?? '';
 
 interface StripeConnectStatus {
   stripe_account_id: string | null;
@@ -15,6 +148,7 @@ interface StripeConnectStatus {
 export function ProducerStripeConnectPage() {
   const { user, profile } = useAuth();
   const [status, setStatus] = useState<StripeConnectStatus | null>(null);
+  const [selectedCountry, setSelectedCountry] = useState(defaultConnectCountry);
   const [isLoading, setIsLoading] = useState(true);
   const [isFetching, setIsFetching] = useState(false);
   const isAdmin = profile?.role === 'admin';
@@ -74,6 +208,11 @@ export function ProducerStripeConnectPage() {
   const handleStartOnboarding = async () => {
     if (!user?.id) return;
 
+    if (!status?.stripe_account_id && !selectedCountry) {
+      toast.error('Select your country before creating a Stripe Connect account');
+      return;
+    }
+
     try {
       setIsFetching(true);
       const { data: { session } } = await supabase.auth.getSession();
@@ -91,7 +230,10 @@ export function ProducerStripeConnectPage() {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ action: 'create_account_link' }),
+          body: JSON.stringify({
+            action: 'create_account_link',
+            ...(!status?.stripe_account_id ? { country: selectedCountry } : {}),
+          }),
         }
       );
 
@@ -220,6 +362,20 @@ export function ProducerStripeConnectPage() {
                 <p className="text-sm text-zinc-400 mb-4">
                   Click below to create your Stripe Connect account and start receiving payments.
                 </p>
+                <div className="mb-4 max-w-sm">
+                  <Select
+                    id="stripe-connect-country"
+                    label="Country"
+                    options={connectCountryOptions}
+                    value={selectedCountry}
+                    onChange={(event) => setSelectedCountry(event.target.value)}
+                    disabled={isFetching || connectCountryOptions.length === 0}
+                  />
+                  <p className="mt-2 text-xs text-zinc-500">
+                    Select the country where you live or where your business is legally established.
+                    Stripe locks this country after account creation.
+                  </p>
+                </div>
                 {isAdmin ? (
                   <div className="text-sm text-gray-400">
                     Admin view: onboarding disabled
@@ -228,6 +384,7 @@ export function ProducerStripeConnectPage() {
                   <Button
                     onClick={handleStartOnboarding}
                     isLoading={isFetching}
+                    disabled={!selectedCountry || connectCountryOptions.length === 0}
                     variant="primary"
                     className="w-full md:w-auto"
                   >
