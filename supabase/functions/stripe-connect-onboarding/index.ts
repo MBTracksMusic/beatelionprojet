@@ -9,6 +9,7 @@ const corsHeaders = {
 
 interface StripeConnectRequest {
   action: "create_account_link" | "get_status";
+  country?: string;
 }
 
 interface StripeConnectResponse {
@@ -19,13 +20,80 @@ interface StripeConnectResponse {
   error?: string;
 }
 
+interface StripeConnectProfile {
+  stripe_account_id: string | null;
+  is_producer_active: boolean | null;
+  stripe_account_charges_enabled: boolean | null;
+  stripe_account_details_submitted: boolean | null;
+}
+
+type SupabaseAdminClient = ReturnType<typeof createClient>;
+type CorsHeaders = typeof corsHeaders;
+
 const PRODUCTION_SITE_URL = "https://beatelion.com";
 const STAGING_SITE_URL = "https://beatelion-staging.vercel.app";
+
+const STRIPE_CONNECT_SUPPORTED_COUNTRIES = new Set([
+  "AE", "AG", "AL", "AM", "AR", "AT", "AU", "BA", "BE", "BG", "BH", "BJ", "BN", "BO", "BS", "BW",
+  "CA", "CH", "CI", "CL", "CO", "CR", "CY", "CZ", "DE", "DK", "DO", "EC", "EE", "EG", "ES", "ET",
+  "FI", "FR", "GB", "GH", "GM", "GR", "GT", "GY", "HK", "HU", "IE", "IL", "IS", "IT", "JM", "JO",
+  "JP", "KE", "KH", "KR", "KW", "LC", "LK", "LT", "LU", "LV", "MA", "MC", "MD", "MG", "MK", "MN",
+  "MO", "MT", "MU", "MX", "NA", "NG", "NL", "NO", "NZ", "OM", "PA", "PE", "PH", "PK", "PL", "PT",
+  "PY", "QA", "RO", "RS", "RW", "SA", "SE", "SG", "SI", "SK", "SN", "SV", "TH", "TN", "TR", "TT",
+  "TW", "TZ", "US", "UY", "UZ", "VN", "ZA",
+]);
 
 const asNonEmptyString = (value: string | null | undefined): string | null => {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+};
+
+const normalizeCountryCode = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(normalized) ? normalized : null;
+};
+
+const resolveAllowedConnectCountries = (): Set<string> => {
+  const configuredCountries = asNonEmptyString(Deno.env.get("STRIPE_CONNECT_ALLOWED_COUNTRIES"));
+  if (!configuredCountries) return STRIPE_CONNECT_SUPPORTED_COUNTRIES;
+
+  const allowed = new Set<string>();
+  for (const token of configuredCountries.split(",")) {
+    const country = normalizeCountryCode(token);
+    if (country && STRIPE_CONNECT_SUPPORTED_COUNTRIES.has(country)) {
+      allowed.add(country);
+    }
+  }
+
+  return allowed.size > 0 ? allowed : STRIPE_CONNECT_SUPPORTED_COUNTRIES;
+};
+
+const validateConnectCountry = (value: unknown): { country: string | null; error: string | null } => {
+  const country = normalizeCountryCode(value);
+  if (!country) {
+    return {
+      country: null,
+      error: "Country is required before creating a Stripe Connect account",
+    };
+  }
+
+  if (!STRIPE_CONNECT_SUPPORTED_COUNTRIES.has(country)) {
+    return {
+      country: null,
+      error: "This country is not supported for Stripe Connect Express onboarding",
+    };
+  }
+
+  if (!resolveAllowedConnectCountries().has(country)) {
+    return {
+      country: null,
+      error: "This country is not enabled for Stripe Connect onboarding",
+    };
+  }
+
+  return { country, error: null };
 };
 
 const normalizeSiteUrl = (value: string | null | undefined): string | null => {
@@ -120,14 +188,16 @@ Deno.serve(async (req: Request) => {
       .eq("id", userId)
       .single();
 
-    if (profileError || !profile) {
+    const stripeProfile = profile as StripeConnectProfile | null;
+
+    if (profileError || !stripeProfile) {
       return new Response(
         JSON.stringify({ error: "User profile not found" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    if (!profile.is_producer_active) {
+    if (!stripeProfile.is_producer_active) {
       return new Response(
         JSON.stringify({ error: "User is not a producer" }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -138,7 +208,8 @@ Deno.serve(async (req: Request) => {
     if (body.action === "create_account_link") {
       return await handleCreateAccountLink(
         userId,
-        profile,
+        stripeProfile,
+        body.country,
         supabaseAdmin,
         stripeSecretKey,
         corsHeaders
@@ -164,10 +235,11 @@ Deno.serve(async (req: Request) => {
 
 async function handleCreateAccountLink(
   userId: string,
-  profile: any,
-  supabaseAdmin: any,
+  profile: StripeConnectProfile,
+  requestedCountry: unknown,
+  supabaseAdmin: SupabaseAdminClient,
   stripeSecretKey: string,
-  corsHeaders: any
+  corsHeaders: CorsHeaders
 ): Promise<Response> {
   let stripeAccountId = profile.stripe_account_id;
   const appUrl = resolveAppUrl();
@@ -176,13 +248,29 @@ async function handleCreateAccountLink(
 
   // If no account exists, create one
   if (!stripeAccountId) {
+    const { country, error: countryError } = validateConnectCountry(requestedCountry);
+    if (countryError || !country) {
+      return new Response(
+        JSON.stringify({ error: countryError ?? "Invalid Stripe Connect country" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const accountParams = new URLSearchParams({
+      type: "express",
+      country,
+      "capabilities[card_payments][requested]": "true",
+      "capabilities[transfers][requested]": "true",
+      "metadata[beatelion_user_id]": userId,
+    });
+
     const accountResponse = await fetch("https://api.stripe.com/v1/accounts", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${stripeSecretKey}`,
         "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: "type=express&capabilities[card_payments][requested]=true&capabilities[transfers][requested]=true",
+      body: accountParams.toString(),
     });
 
     const account = await accountResponse.json();
@@ -269,8 +357,8 @@ async function handleCreateAccountLink(
 }
 
 async function handleGetStatus(
-  profile: any,
-  corsHeaders: any
+  profile: StripeConnectProfile,
+  corsHeaders: CorsHeaders
 ): Promise<Response> {
   const response: StripeConnectResponse = {
     stripe_account_id: profile.stripe_account_id,
