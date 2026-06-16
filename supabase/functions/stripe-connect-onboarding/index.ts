@@ -264,14 +264,18 @@ const createStripeAccountLink = async (
   return link.url;
 };
 
+// An account can be replaced with the correct country as long as it never
+// became able to move money (no charges and no payouts enabled). We intentionally
+// allow replacement even after details were submitted: a producer who submitted
+// the wrong country (e.g. the legacy FR-hardcoded onboarding) but could never get
+// charges/payouts enabled would otherwise be permanently stuck on an account they
+// cannot use. Once charges or payouts are enabled, the account is live and locked.
 const canReplaceIncompleteAccount = (
   account: StripeAccount,
   profile: StripeConnectProfile,
 ): boolean => {
-  return !account.details_submitted
-    && !account.charges_enabled
+  return !account.charges_enabled
     && !account.payouts_enabled
-    && !profile.stripe_account_details_submitted
     && !profile.stripe_account_charges_enabled;
 };
 

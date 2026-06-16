@@ -309,10 +309,13 @@ export function ProducerStripeConnectPage() {
   };
 
   const lockedCountryLabel = getCountryLabel(status?.country);
+  // can_replace_account is the backend source of truth (account never activated:
+  // no charges / no payouts). It already covers the stripeReady case, and we no
+  // longer gate on details_submitted so producers stuck on a wrong-country account
+  // they could never activate can still switch to the correct country.
   const canReplaceCountryAccount = Boolean(
     status?.stripe_account_id
       && status.can_replace_account
-      && !status.details_submitted
       && !stripeReady
   );
 
@@ -450,10 +453,12 @@ export function ProducerStripeConnectPage() {
                   </Button>
                 )}
               </div>
-            ) : !stripeReady && !status?.details_submitted ? (
+            ) : !stripeReady ? (
               <div>
                 <p className="text-sm text-zinc-400 mb-4">
-                  Click below to continue filling out your Stripe Connect details.
+                  {status?.details_submitted
+                    ? 'Your details have been submitted. Stripe is reviewing your account.'
+                    : 'Click below to continue filling out your Stripe Connect details.'}
                 </p>
                 <div className="mb-4 rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
                   <p className="text-xs uppercase tracking-wide text-zinc-500">Locked country</p>
@@ -466,7 +471,7 @@ export function ProducerStripeConnectPage() {
                   <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
                     <p className="text-sm font-medium text-amber-200">Wrong country?</p>
                     <p className="mt-1 text-xs text-amber-100/80">
-                      This account is incomplete, so you can create a replacement account with the correct country.
+                      This account is not active yet, so you can create a replacement account with the correct country.
                     </p>
                     <div className="mt-3 max-w-sm">
                       <Select
@@ -498,6 +503,15 @@ export function ProducerStripeConnectPage() {
                   <div className="text-sm text-gray-400">
                     Admin view: onboarding disabled
                   </div>
+                ) : status?.details_submitted ? (
+                  <Button
+                    onClick={handleRefreshStatus}
+                    isLoading={isFetching}
+                    variant="secondary"
+                    className="w-full md:w-auto"
+                  >
+                    Refresh Status
+                  </Button>
                 ) : (
                   <Button
                     onClick={handleStartOnboarding}
@@ -508,20 +522,6 @@ export function ProducerStripeConnectPage() {
                     Complete Onboarding
                   </Button>
                 )}
-              </div>
-            ) : !stripeReady ? (
-              <div>
-                <p className="text-sm text-zinc-400 mb-4">
-                  Your details have been submitted. Stripe is reviewing your account.
-                </p>
-                <Button
-                  onClick={handleRefreshStatus}
-                  isLoading={isFetching}
-                  variant="secondary"
-                  className="w-full md:w-auto"
-                >
-                  Refresh Status
-                </Button>
               </div>
             ) : (
               <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-4">
