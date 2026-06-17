@@ -10,7 +10,7 @@ import { serveWithErrorHandling } from "../_shared/error-handler.ts";
 const FUNCTION_VERSION = "2026-06-17-admin-reset-campaign-trial-1";
 
 const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const asNonEmptyString = (value: unknown) => {
   if (typeof value !== "string") return null;
