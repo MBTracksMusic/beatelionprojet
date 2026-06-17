@@ -59,6 +59,8 @@ interface UnassignCampaignResponse {
     success: boolean;
     user_id: string;
     message: string;
+    producer_access_revoked?: boolean;
+    has_active_subscription?: boolean;
   };
   resolved_user?: {
     id: string;
@@ -313,7 +315,10 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
       if (!isMountedRef.current) return;
 
       const resolvedIdentity = data?.resolved_user?.email ?? data?.resolved_user?.username ?? producerIdentity;
-      toast.success(`Producteur retiré (${resolvedIdentity}).`);
+      const accessDetail = data?.result?.producer_access_revoked === false
+        ? 'Accès payé conservé.'
+        : 'Accès producteur révoqué.';
+      toast.success(`Producteur retiré de la campagne (${resolvedIdentity}). ${accessDetail}`);
       await loadCampaign();
     } catch (err) {
       if (!isMountedRef.current) return;
