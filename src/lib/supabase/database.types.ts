@@ -7448,6 +7448,14 @@ export type Database = {
         Args: { p_request_id: string; p_user_id: string }
         Returns: boolean
       }
+      admin_reset_producer_campaign_trial: {
+        Args: {
+          p_campaign_type: string
+          p_trial_start?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       admin_set_campaign_selection: {
         Args: {
           p_campaign_id: string
