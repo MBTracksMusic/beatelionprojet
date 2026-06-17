@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { RefreshCw, ShieldCheck, UserPlus, Users } from 'lucide-react';
+import { RefreshCw, RotateCcw, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Button } from '../ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
@@ -67,6 +67,18 @@ interface UnassignCampaignResponse {
   };
 }
 
+interface ResetCampaignTrialResponse {
+  ok: boolean;
+  result: {
+    success: boolean;
+    user_id: string;
+    campaign_type: string;
+    trial_start: string;
+    trial_end: string;
+    days_remaining: number;
+  };
+}
+
 interface ToggleCampaignResponse {
   ok: boolean;
   campaign: Pick<CampaignInfo, 'type' | 'label' | 'max_slots' | 'is_active' | 'trial_duration'>;
@@ -128,6 +140,21 @@ const getRemoveErrorMessage = (error: unknown) => {
   return message;
 };
 
+const getResetErrorMessage = (error: unknown) => {
+  const message = parseErrorMessage(error);
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes('campaign_membership_mismatch') || normalized.includes('not assigned to campaign')) {
+    return 'Ce producteur n’est plus assigné à cette campagne.';
+  }
+
+  if (normalized.includes('user_not_found') || normalized.includes('user not found')) {
+    return 'Utilisateur introuvable.';
+  }
+
+  return message;
+};
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 interface ProducerCampaignManagerProps {
@@ -144,6 +171,7 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
   const [isAssigning, setIsAssigning] = useState(false);
   const [isTogglingCampaign, setIsTogglingCampaign] = useState(false);
   const [removingUserId, setRemovingUserId] = useState<string | null>(null);
+  const [resettingUserId, setResettingUserId] = useState<string | null>(null);
 
   const isMountedRef = useRef(true);
   useEffect(() => {
@@ -293,6 +321,45 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
     } finally {
       if (isMountedRef.current) {
         setRemovingUserId(null);
+      }
+    }
+  };
+
+  const handleResetTrial = async (producer: CampaignProducer) => {
+    const producerIdentity =
+      producer.username
+      ?? producer.full_name
+      ?? producer.email
+      ?? producer.user_id;
+
+    const confirmed = window.confirm(
+      `Réinitialiser le trial de ${producerIdentity} ? La nouvelle fin sera recalculée à partir d'aujourd'hui.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setResettingUserId(producer.user_id);
+
+    try {
+      const data = await invokeProtectedEdgeFunction<ResetCampaignTrialResponse>('admin-reset-campaign-trial', {
+        body: {
+          user_id: producer.user_id,
+          campaign_type: campaignType,
+        },
+      });
+
+      if (!isMountedRef.current) return;
+
+      const trialEndLabel = formatDate(data?.result?.trial_end ?? null);
+      toast.success(`Trial réinitialisé (${producerIdentity}) jusqu'au ${trialEndLabel}.`);
+      await loadCampaign();
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      toast.error(getResetErrorMessage(err));
+    } finally {
+      if (isMountedRef.current) {
+        setResettingUserId(null);
       }
     }
   };
@@ -522,16 +589,29 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <Button
-                          type="button"
-                          variant="danger"
-                          size="sm"
-                          onClick={() => { void handleRemove(p); }}
-                          disabled={removingUserId !== null}
-                          isLoading={removingUserId === p.user_id}
-                        >
-                          Retirer
-                        </Button>
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => { void handleResetTrial(p); }}
+                            disabled={removingUserId !== null || resettingUserId !== null}
+                            isLoading={resettingUserId === p.user_id}
+                            leftIcon={<RotateCcw className="h-3.5 w-3.5" />}
+                          >
+                            Réinitialiser
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="danger"
+                            size="sm"
+                            onClick={() => { void handleRemove(p); }}
+                            disabled={removingUserId !== null || resettingUserId !== null}
+                            isLoading={removingUserId === p.user_id}
+                          >
+                            Retirer
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}

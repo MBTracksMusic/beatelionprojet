@@ -34,6 +34,9 @@ verify_jwt = false
 [functions.admin-unassign-campaign]
 verify_jwt = false
 
+[functions.admin-reset-campaign-trial]
+verify_jwt = false
+
 [functions.admin-toggle-campaign]
 verify_jwt = false
 
