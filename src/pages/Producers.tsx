@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Users, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Users } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useTranslation } from '../lib/i18n';
 import { SearchSortFilterBar } from '../components/ui/SearchSortFilterBar';
 import { Select } from '../components/ui/Select';
@@ -22,12 +23,13 @@ interface ProducerListItem {
 
 type SortKey = 'newest' | 'oldest' | 'alpha_asc' | 'alpha_desc';
 
+const PRODUCERS_PAGE_SIZE = 12;
+
 export function ProducersPage() {
-  const PAGE_SIZE = 12;
   const { t } = useTranslation();
   const [allProducers, setAllProducers] = useState<ProducerListItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [visibleCount, setVisibleCount] = useState(PRODUCERS_PAGE_SIZE);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('newest');
   const [tierFilter, setTierFilter] = useState('');
@@ -80,39 +82,38 @@ export function ProducersPage() {
 
   const hasActiveFilters = Boolean(tierFilter);
 
-  const totalPages = Math.ceil(filteredProducers.length / PAGE_SIZE);
-  const producers = filteredProducers.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const producers = filteredProducers.slice(0, visibleCount);
+  const hasMoreProducers = visibleCount < filteredProducers.length;
+
+  const loadMoreProducers = useCallback(() => {
+    setVisibleCount((currentCount) =>
+      Math.min(currentCount + PRODUCERS_PAGE_SIZE, filteredProducers.length),
+    );
+  }, [filteredProducers.length]);
+
+  const loadMoreRef = useInfiniteScroll({
+    isEnabled: !isLoading && hasMoreProducers,
+    onLoadMore: loadMoreProducers,
+  });
 
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
-    setCurrentPage(1);
+    setVisibleCount(PRODUCERS_PAGE_SIZE);
   };
 
   const handleSortChange = (value: string) => {
     setSortKey(value as SortKey);
-    setCurrentPage(1);
+    setVisibleCount(PRODUCERS_PAGE_SIZE);
   };
 
   const handleTierChange = (value: string) => {
     setTierFilter(value);
-    setCurrentPage(1);
+    setVisibleCount(PRODUCERS_PAGE_SIZE);
   };
 
   const clearFilters = () => {
     setTierFilter('');
-    setCurrentPage(1);
-  };
-
-  const goToPage = (page: number) => {
-    setCurrentPage(page);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const getPageNumbers = (current: number, total: number): (number | '...')[] => {
-    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-    if (current <= 4) return [1, 2, 3, 4, 5, '...', total];
-    if (current >= total - 3) return [1, '...', total - 4, total - 3, total - 2, total - 1, total];
-    return [1, '...', current - 1, current, current + 1, '...', total];
+    setVisibleCount(PRODUCERS_PAGE_SIZE);
   };
 
   useEffect(() => {
@@ -122,7 +123,7 @@ export function ProducersPage() {
       setIsLoading(true);
       try {
         const { data, error } = await supabase
-          .from('public_visible_producer_profiles' as any)
+          .from('public_visible_producer_profiles')
           .select('user_id, raw_username, username, avatar_url, producer_tier, bio, social_links, is_deleted, is_producer_active, created_at, updated_at')
           .eq('is_deleted', false)
           .order('created_at', { ascending: false })
@@ -252,50 +253,7 @@ export function ProducersPage() {
           </div>
         )}
 
-        {!isLoading && totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 mt-10">
-            <button
-              type="button"
-              onClick={() => goToPage(currentPage - 1)}
-              disabled={currentPage === 1}
-              className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-medium border border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              Précédent
-            </button>
-
-            <div className="flex items-center gap-1">
-              {getPageNumbers(currentPage, totalPages).map((p, i) =>
-                p === '...' ? (
-                  <span key={`ellipsis-${i}`} className="px-2 text-zinc-500">…</span>
-                ) : (
-                  <button
-                    type="button"
-                    key={p}
-                    onClick={() => goToPage(p as number)}
-                    className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
-                      p === currentPage
-                        ? 'bg-rose-500 text-white'
-                        : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-                    }`}
-                  >
-                    {p}
-                  </button>
-                )
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => goToPage(currentPage + 1)}
-              disabled={currentPage === totalPages}
-              className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-medium border border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              Suivant
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+        {!isLoading && hasMoreProducers && <div ref={loadMoreRef} className="h-16 mt-6" />}
       </div>
     </div>
   );
