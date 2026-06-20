@@ -1771,49 +1771,117 @@ const STYLE_PRODUCER_CAMPAIGN_TYPES = PRODUCER_CAMPAIGN_TYPES.filter(
 );
 
 function ProducerCampaignAdminSection() {
+  const { pricingProducerPromo, updateSettings, isLoading: isSettingsLoading } = useMaintenanceModeContext();
   const [selectedCampaignType, setSelectedCampaignType] = useState<ProducerCampaignType>(
     FOUNDING_PRODUCER_CAMPAIGN_TYPE,
   );
+  const [isSyncingVignetteCampaign, setIsSyncingVignetteCampaign] = useState(false);
   const selectedCampaign = PRODUCER_CAMPAIGN_TYPES.find(
     (campaignType) => campaignType.type === selectedCampaignType,
   );
+  const displayedCampaignType = pricingProducerPromo?.campaign_type ?? FOUNDING_PRODUCER_CAMPAIGN_TYPE;
+  const displayedCampaign = getProducerCampaignTypeMeta(displayedCampaignType);
+  const isSelectedCampaignDisplayed = selectedCampaignType === displayedCampaignType;
+
+  const handleUseSelectedCampaignForVignette = async () => {
+    if (!pricingProducerPromo || isSyncingVignetteCampaign) return;
+
+    setIsSyncingVignetteCampaign(true);
+    try {
+      await updateSettings({
+        pricing_producer_promo: {
+          ...pricingProducerPromo,
+          campaign_type: selectedCampaignType,
+        },
+      } as Parameters<typeof updateSettings>[0]);
+      toast.success(`Vignette réglée sur ${selectedCampaign?.label ?? selectedCampaignType}.`);
+    } catch (err) {
+      console.error('[AdminLaunch] promo campaign sync error', err);
+      toast.error('Impossible de modifier la campagne affichée par la vignette.');
+    } finally {
+      setIsSyncingVignetteCampaign(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
       <Card className="border-zinc-800 bg-zinc-900/80">
-        <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-white">Campagne Producteurs</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-relaxed text-zinc-400">
-              Choisis le type serveur à piloter. La campagne publique principale reste founding ;
-              les campagnes style_* servent aux sélections ciblées.
-            </p>
-            {selectedCampaign && (
-              <p className="mt-2 text-xs text-zinc-500">{selectedCampaign.description}</p>
-            )}
+        <div className="space-y-4 p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-white">Campagne Producteurs</h2>
+              <p className="mt-1 max-w-3xl text-sm leading-relaxed text-zinc-400">
+                Choisis le type serveur à administrer dans le cadran vert. La vignette publique garde son réglage
+                marketing tant que tu ne l’alignes pas explicitement.
+              </p>
+              {selectedCampaign && (
+                <p className="mt-2 text-xs text-zinc-500">{selectedCampaign.description}</p>
+              )}
+            </div>
+            <div className="w-full max-w-sm">
+              <label className="mb-1.5 block text-sm font-medium text-zinc-300">Type de campagne à administrer</label>
+              <select
+                value={selectedCampaignType}
+                onChange={(event) => setSelectedCampaignType(event.target.value as ProducerCampaignType)}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none transition-colors hover:border-zinc-600 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/50"
+              >
+                <optgroup label="Campagne principale">
+                  {GENERAL_PRODUCER_CAMPAIGN_TYPES.map((campaignType) => (
+                    <option key={campaignType.type} value={campaignType.type}>
+                      {campaignType.label} ({campaignType.type})
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Campagnes par style">
+                  {STYLE_PRODUCER_CAMPAIGN_TYPES.map((campaignType) => (
+                    <option key={campaignType.type} value={campaignType.type}>
+                      {campaignType.label} ({campaignType.type})
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
           </div>
-          <div className="w-full max-w-sm">
-            <label className="mb-1.5 block text-sm font-medium text-zinc-300">Type de campagne</label>
-            <select
-              value={selectedCampaignType}
-              onChange={(event) => setSelectedCampaignType(event.target.value as ProducerCampaignType)}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none transition-colors hover:border-zinc-600 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/50"
-            >
-              <optgroup label="Campagne principale">
-                {GENERAL_PRODUCER_CAMPAIGN_TYPES.map((campaignType) => (
-                  <option key={campaignType.type} value={campaignType.type}>
-                    {campaignType.label} ({campaignType.type})
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Campagnes par style">
-                {STYLE_PRODUCER_CAMPAIGN_TYPES.map((campaignType) => (
-                  <option key={campaignType.type} value={campaignType.type}>
-                    {campaignType.label} ({campaignType.type})
-                  </option>
-                ))}
-              </optgroup>
-            </select>
+
+          <div
+            className={[
+              'flex flex-col gap-3 rounded-lg border px-4 py-3 sm:flex-row sm:items-center sm:justify-between',
+              isSelectedCampaignDisplayed
+                ? 'border-emerald-500/20 bg-emerald-500/10'
+                : 'border-amber-500/25 bg-amber-500/10',
+            ].join(' ')}
+          >
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Vignette publique
+              </p>
+              <p className="mt-1 text-sm text-zinc-200">
+                Affiche actuellement{' '}
+                <span className="font-medium text-white">
+                  {displayedCampaign?.label ?? displayedCampaignType}
+                </span>{' '}
+                <span className="font-mono text-xs text-zinc-400">({displayedCampaignType})</span>
+              </p>
+              {!isSelectedCampaignDisplayed && (
+                <p className="mt-1 text-xs text-amber-100/80">
+                  Le cadran vert édite {selectedCampaign?.label ?? selectedCampaignType}, mais la vignette reste sur {displayedCampaign?.label ?? displayedCampaignType}.
+                </p>
+              )}
+            </div>
+            {!isSelectedCampaignDisplayed && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => { void handleUseSelectedCampaignForVignette(); }}
+                isLoading={isSyncingVignetteCampaign}
+                disabled={isSettingsLoading || isSyncingVignetteCampaign || !pricingProducerPromo}
+                leftIcon={<Eye className="h-3.5 w-3.5" />}
+                className="shrink-0"
+              >
+                Afficher cette campagne
+              </Button>
+            )}
           </div>
         </div>
       </Card>
