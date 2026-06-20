@@ -279,7 +279,7 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
     const confirmed = nextIsActive
       ? true
       : window.confirm(
-          'Fermer la campagne serveur ? Les nouvelles demandes founding seront bloquées, mais les waitlists et trials existants ne seront pas modifiés.',
+          'Fermer la campagne serveur ? Les nouvelles demandes avec ce type de campagne seront bloquées, mais les waitlists et trials existants ne seront pas modifiés.',
         );
 
     if (!confirmed) return;
@@ -613,7 +613,7 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
             className="flex shrink-0 items-center gap-2 whitespace-nowrap"
           >
             <UserPlus className="h-4 w-4" />
-            {isAssigning ? 'Activation…' : 'Activer Founding'}
+            {isAssigning ? 'Activation…' : 'Activer dans la campagne'}
           </Button>
         </div>
         {campaign?.is_active === false && (

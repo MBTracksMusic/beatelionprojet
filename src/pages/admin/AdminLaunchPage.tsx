@@ -35,6 +35,11 @@ import {
   serializeLaunchPageContent,
   type LaunchPageContent,
 } from '@/lib/launchPageContent';
+import {
+  FOUNDING_PRODUCER_CAMPAIGN_TYPE,
+  PRODUCER_CAMPAIGN_TYPES,
+  type ProducerCampaignType,
+} from '@/lib/producerCampaignTypes';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1553,7 +1558,6 @@ function WhitelistCard() {
 
 const DEFAULT_PROMO_BENEFITS_TEXT =
   "Demande d'accès producteur\nProfil étudié manuellement\nPhase privée limitée\nSélection progressive";
-const PRODUCER_PROMO_CAMPAIGN_TYPE = 'founding';
 
 function ProducerPromoCardSettings() {
   const { pricingProducerPromo, updateSettings, isLoading: isSettingsLoading } = useMaintenanceModeContext();
@@ -1592,7 +1596,7 @@ function ProducerPromoCardSettings() {
           title: title.trim(),
           message: message.trim(),
           button_label: buttonLabel.trim(),
-          campaign_type: PRODUCER_PROMO_CAMPAIGN_TYPE,
+          campaign_type: FOUNDING_PRODUCER_CAMPAIGN_TYPE,
           benefits,
           footnote: footnote.trim() || undefined,
         },
@@ -1691,7 +1695,7 @@ function ProducerPromoCardSettings() {
             <label className="mb-1.5 block text-sm font-medium text-zinc-300">Campagne serveur</label>
             <Input
               type="text"
-              value={PRODUCER_PROMO_CAMPAIGN_TYPE}
+              value={FOUNDING_PRODUCER_CAMPAIGN_TYPE}
               readOnly
               disabled
             />
@@ -1735,6 +1739,68 @@ function ProducerPromoCardSettings() {
   );
 }
 
+// ─── ProducerCampaignAdminSection ─────────────────────────────────────────────
+
+const GENERAL_PRODUCER_CAMPAIGN_TYPES = PRODUCER_CAMPAIGN_TYPES.filter(
+  (campaignType) => campaignType.category === 'general',
+);
+const STYLE_PRODUCER_CAMPAIGN_TYPES = PRODUCER_CAMPAIGN_TYPES.filter(
+  (campaignType) => campaignType.category === 'style',
+);
+
+function ProducerCampaignAdminSection() {
+  const [selectedCampaignType, setSelectedCampaignType] = useState<ProducerCampaignType>(
+    FOUNDING_PRODUCER_CAMPAIGN_TYPE,
+  );
+  const selectedCampaign = PRODUCER_CAMPAIGN_TYPES.find(
+    (campaignType) => campaignType.type === selectedCampaignType,
+  );
+
+  return (
+    <div className="space-y-4">
+      <Card className="border-zinc-800 bg-zinc-900/80">
+        <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Campagne Producteurs</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-relaxed text-zinc-400">
+              Choisis le type serveur à piloter. La campagne publique principale reste founding ;
+              les campagnes style_* servent aux sélections ciblées.
+            </p>
+            {selectedCampaign && (
+              <p className="mt-2 text-xs text-zinc-500">{selectedCampaign.description}</p>
+            )}
+          </div>
+          <div className="w-full max-w-sm">
+            <label className="mb-1.5 block text-sm font-medium text-zinc-300">Type de campagne</label>
+            <select
+              value={selectedCampaignType}
+              onChange={(event) => setSelectedCampaignType(event.target.value as ProducerCampaignType)}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none transition-colors hover:border-zinc-600 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/50"
+            >
+              <optgroup label="Campagne principale">
+                {GENERAL_PRODUCER_CAMPAIGN_TYPES.map((campaignType) => (
+                  <option key={campaignType.type} value={campaignType.type}>
+                    {campaignType.label} ({campaignType.type})
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Campagnes par style">
+                {STYLE_PRODUCER_CAMPAIGN_TYPES.map((campaignType) => (
+                  <option key={campaignType.type} value={campaignType.type}>
+                    {campaignType.label} ({campaignType.type})
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </div>
+        </div>
+      </Card>
+
+      <ProducerCampaignManager campaignType={selectedCampaignType} />
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function AdminLaunchPage() {
@@ -1745,7 +1811,7 @@ export function AdminLaunchPage() {
         <LaunchPhaseCard />
         <LaunchSettingsCard />
       </div>
-      <ProducerCampaignManager campaignType="founding" />
+      <ProducerCampaignAdminSection />
       <ProducerPromoCardSettings />
       <div className="grid gap-6 2xl:grid-cols-2">
         <WaitlistCard />
