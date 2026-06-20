@@ -1567,10 +1567,11 @@ function ProducerPromoCardSettings() {
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [buttonLabel, setButtonLabel] = useState('');
-  const [campaignType, setCampaignType] = useState<ProducerCampaignType>(FOUNDING_PRODUCER_CAMPAIGN_TYPE);
   const [benefitsText, setBenefitsText] = useState(DEFAULT_PROMO_BENEFITS_TEXT);
   const [footnote, setFootnote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const displayedCampaignType = pricingProducerPromo?.campaign_type ?? FOUNDING_PRODUCER_CAMPAIGN_TYPE;
+  const displayedCampaign = getProducerCampaignTypeMeta(displayedCampaignType);
 
   useEffect(() => {
     if (pricingProducerPromo) {
@@ -1578,11 +1579,6 @@ function ProducerPromoCardSettings() {
       setTitle(pricingProducerPromo.title);
       setMessage(pricingProducerPromo.message);
       setButtonLabel(pricingProducerPromo.button_label);
-      setCampaignType(
-        getProducerCampaignTypeMeta(pricingProducerPromo.campaign_type)
-          ? pricingProducerPromo.campaign_type as ProducerCampaignType
-          : FOUNDING_PRODUCER_CAMPAIGN_TYPE,
-      );
       setBenefitsText(pricingProducerPromo.benefits?.join('\n') ?? DEFAULT_PROMO_BENEFITS_TEXT);
       setFootnote(pricingProducerPromo.footnote ?? '');
     }
@@ -1603,7 +1599,7 @@ function ProducerPromoCardSettings() {
           title: title.trim(),
           message: message.trim(),
           button_label: buttonLabel.trim(),
-          campaign_type: campaignType,
+          campaign_type: displayedCampaignType,
           benefits,
           footnote: footnote.trim() || undefined,
         },
@@ -1700,29 +1696,12 @@ function ProducerPromoCardSettings() {
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium text-zinc-300">Campagne serveur affichée</label>
-            <select
-              value={campaignType}
-              onChange={(event) => setCampaignType(event.target.value as ProducerCampaignType)}
-              disabled={isSettingsLoading || isSaving}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none transition-colors hover:border-zinc-600 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <optgroup label="Campagne principale">
-                {GENERAL_PRODUCER_CAMPAIGN_TYPES.map((producerCampaignType) => (
-                  <option key={producerCampaignType.type} value={producerCampaignType.type}>
-                    {producerCampaignType.label} ({producerCampaignType.type})
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Campagnes par style">
-                {STYLE_PRODUCER_CAMPAIGN_TYPES.map((producerCampaignType) => (
-                  <option key={producerCampaignType.type} value={producerCampaignType.type}>
-                    {producerCampaignType.label} ({producerCampaignType.type})
-                  </option>
-                ))}
-              </optgroup>
-            </select>
+            <div className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white">
+              <span>{displayedCampaign?.label ?? displayedCampaignType}</span>
+              <span className="ml-2 font-mono text-xs text-zinc-500">({displayedCampaignType})</span>
+            </div>
             <p className="mt-1 text-xs text-zinc-500">
-              La vignette publique lit les slots de cette campagne.
+              Se modifie avec le bouton Afficher cette campagne dans Campagne Producteurs.
             </p>
           </div>
         </div>
