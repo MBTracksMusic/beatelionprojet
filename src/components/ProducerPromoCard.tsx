@@ -27,6 +27,7 @@ interface ProducerPromoCardProps {
   isActiveProducer: boolean;
   userEmail?: string;
   variant?: 'vertical' | 'horizontal';
+  maxSlots?: number | null;
 }
 
 type SubmitState = 'idle' | 'loading' | 'done';
@@ -36,6 +37,7 @@ export function ProducerPromoCard({
   isActiveProducer,
   userEmail = '',
   variant = 'vertical',
+  maxSlots,
 }: ProducerPromoCardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [email, setEmail] = useState(userEmail);
@@ -46,6 +48,11 @@ export function ProducerPromoCard({
   if (isActiveProducer) return null;
 
   const isCaptchaConfigured = CAPTCHA_SITE_KEY.length > 0;
+  const slotsDisplay = typeof maxSlots === 'number' && Number.isFinite(maxSlots)
+    ? String(maxSlots)
+    : maxSlots === null
+      ? 'Illimité'
+      : '20';
 
   const handleOpen = () => {
     setEmail(userEmail);
@@ -117,7 +124,7 @@ export function ProducerPromoCard({
         return;
       }
       if (msg?.error === 'campaign_slots_exhausted') {
-        toast.error('Les 20 places fondateur sont déjà prises. Merci pour ton intérêt — reste à l’affût des prochaines vagues.');
+        toast.error(`Les ${slotsDisplay} places fondateur sont déjà prises. Merci pour ton intérêt — reste à l’affût des prochaines vagues.`);
         setSubmitState('idle');
         return;
       }
@@ -148,7 +155,7 @@ export function ProducerPromoCard({
       <p className="font-semibold text-zinc-200">Accès privé · Sélection manuelle</p>
       <p className="mt-1 flex items-center gap-2 text-sm text-zinc-400">
         <Sparkles className="h-4 w-4 flex-shrink-0 text-amber-400" />
-        20 places disponibles
+        {slotsDisplay} places disponibles
       </p>
       <div className="mt-4">
         <span className="text-3xl font-bold text-white">Gratuit</span>
@@ -220,7 +227,7 @@ export function ProducerPromoCard({
                 <Crown className="h-6 w-6 text-amber-400" />
               </div>
               <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-bold text-white">20</span>
+                <span className="text-3xl font-bold text-white">{slotsDisplay}</span>
                 <span className="text-sm text-zinc-400">places disponibles</span>
               </div>
               <div className="mt-3">

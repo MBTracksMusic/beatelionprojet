@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { RefreshCw, RotateCcw, ShieldCheck, UserPlus, Users } from 'lucide-react';
+import { RefreshCw, RotateCcw, Save, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Button } from '../ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
@@ -157,6 +157,21 @@ const getResetErrorMessage = (error: unknown) => {
   return message;
 };
 
+const getSlotsErrorMessage = (error: unknown) => {
+  const message = parseErrorMessage(error);
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes('campaign_slots_below_used') || normalized.includes('greater than or equal')) {
+    return 'Impossible de définir moins de slots que le nombre de participants déjà assignés.';
+  }
+
+  if (normalized.includes('invalid max_slots')) {
+    return 'Le nombre de slots doit être un entier positif.';
+  }
+
+  return message;
+};
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 interface ProducerCampaignManagerProps {
@@ -170,8 +185,10 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
   const [listError, setListError] = useState<string | null>(null);
 
   const [producerIdentifierInput, setProducerIdentifierInput] = useState('');
+  const [maxSlotsInput, setMaxSlotsInput] = useState('');
   const [isAssigning, setIsAssigning] = useState(false);
   const [isTogglingCampaign, setIsTogglingCampaign] = useState(false);
+  const [isUpdatingMaxSlots, setIsUpdatingMaxSlots] = useState(false);
   const [removingUserId, setRemovingUserId] = useState<string | null>(null);
   const [resettingUserId, setResettingUserId] = useState<string | null>(null);
 
@@ -191,7 +208,9 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
       });
 
       if (!isMountedRef.current) return;
-      setCampaign(data?.campaign ?? null);
+      const nextCampaign = data?.campaign ?? null;
+      setCampaign(nextCampaign);
+      setMaxSlotsInput(nextCampaign?.max_slots != null ? String(nextCampaign.max_slots) : '');
       setProducers(data?.producers ?? []);
     } catch (err) {
       if (!isMountedRef.current) return;
@@ -293,6 +312,53 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
     }
   };
 
+  const handleUpdateMaxSlots = async () => {
+    if (!campaign || isUpdatingMaxSlots) return;
+
+    const rawValue = maxSlotsInput.trim();
+    const nextMaxSlots = rawValue.length === 0 ? null : Number(rawValue);
+
+    if (
+      nextMaxSlots !== null
+      && (!Number.isInteger(nextMaxSlots) || nextMaxSlots <= 0)
+    ) {
+      toast.error('Le nombre de slots doit être un entier positif.');
+      return;
+    }
+
+    if (nextMaxSlots !== null && nextMaxSlots < campaign.slots_used) {
+      toast.error(`Impossible de descendre sous ${campaign.slots_used} slots déjà utilisés.`);
+      return;
+    }
+
+    if (nextMaxSlots === campaign.max_slots) {
+      return;
+    }
+
+    setIsUpdatingMaxSlots(true);
+
+    try {
+      await invokeProtectedEdgeFunction<ToggleCampaignResponse>('admin-toggle-campaign', {
+        body: {
+          campaign_type: campaign.type,
+          is_active: campaign.is_active,
+          max_slots: nextMaxSlots,
+        },
+      });
+
+      if (!isMountedRef.current) return;
+      toast.success(nextMaxSlots === null ? 'Slots passés en illimité.' : `Slots max mis à jour : ${nextMaxSlots}.`);
+      await loadCampaign();
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      toast.error(getSlotsErrorMessage(err));
+    } finally {
+      if (isMountedRef.current) {
+        setIsUpdatingMaxSlots(false);
+      }
+    }
+  };
+
   const handleRemove = async (producer: CampaignProducer) => {
     const producerIdentity =
       producer.username
@@ -386,6 +452,12 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
       ? `${campaign.slots_remaining} slot${campaign.slots_remaining > 1 ? 's' : ''} restant${campaign.slots_remaining > 1 ? 's' : ''}`
       : null;
 
+  const maxSlotsHasChanges =
+    campaign != null
+    && maxSlotsInput.trim() !== (campaign.max_slots != null ? String(campaign.max_slots) : '');
+
+  const minMaxSlots = Math.max(1, campaign?.slots_used ?? 0);
+
   return (
     <Card className="md:col-span-2 border-zinc-800">
       <CardHeader className="pb-2">
@@ -454,6 +526,41 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
                 <p className="mt-1 font-medium text-zinc-100">{campaign.max_slots ?? 'Illimité'}</p>
               </div>
             </div>
+            <form
+              className="mt-4 flex flex-col gap-3 rounded-md border border-white/10 bg-black/10 p-3 sm:flex-row sm:items-end"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleUpdateMaxSlots();
+              }}
+            >
+              <div className="flex-1">
+                <label className="mb-1.5 block text-xs font-medium text-zinc-400">
+                  Définir les slots max
+                </label>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={minMaxSlots}
+                  step={1}
+                  value={maxSlotsInput}
+                  onChange={(event) => setMaxSlotsInput(event.target.value)}
+                  placeholder="Illimité"
+                  disabled={isUpdatingMaxSlots}
+                  className="text-sm"
+                />
+              </div>
+              <Button
+                type="submit"
+                variant="secondary"
+                size="sm"
+                isLoading={isUpdatingMaxSlots}
+                disabled={isUpdatingMaxSlots || !maxSlotsHasChanges}
+                leftIcon={<Save className="h-3.5 w-3.5" />}
+                className="shrink-0"
+              >
+                Enregistrer
+              </Button>
+            </form>
           </div>
         )}
 
