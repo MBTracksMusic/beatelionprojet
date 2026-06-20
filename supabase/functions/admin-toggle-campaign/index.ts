@@ -13,10 +13,28 @@ type CampaignRow = {
   trial_duration: string | null;
 };
 
+type CampaignUpdate = {
+  is_active: boolean;
+  max_slots?: number | null;
+};
+
 const asNonEmptyString = (value: unknown) => {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+};
+
+const hasOwn = (value: Record<string, unknown>, key: string) =>
+  Object.prototype.hasOwnProperty.call(value, key);
+
+const asMaxSlots = (value: unknown) => {
+  if (value === null) return null;
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  }
+  return undefined;
 };
 
 serveWithErrorHandling("admin-toggle-campaign", async (req: Request): Promise<Response> => {
@@ -47,6 +65,8 @@ serveWithErrorHandling("admin-toggle-campaign", async (req: Request): Promise<Re
 
   const campaignType = asNonEmptyString(payload.campaign_type);
   const isActive = payload.is_active;
+  const shouldUpdateMaxSlots = hasOwn(payload, "max_slots");
+  const maxSlots = shouldUpdateMaxSlots ? asMaxSlots(payload.max_slots) : undefined;
 
   if (!campaignType || typeof isActive !== "boolean") {
     return new Response(JSON.stringify({ error: "Invalid campaign_type or is_active" }), {
@@ -55,9 +75,56 @@ serveWithErrorHandling("admin-toggle-campaign", async (req: Request): Promise<Re
     });
   }
 
+  if (shouldUpdateMaxSlots && maxSlots === undefined) {
+    return new Response(JSON.stringify({ error: "Invalid max_slots" }), {
+      status: 400,
+      headers: jsonHeaders,
+    });
+  }
+
+  if (typeof maxSlots === "number") {
+    const { count, error: countError } = await (authContext.supabaseAdmin as any)
+      .from("user_profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("producer_campaign_type", campaignType);
+
+    if (countError) {
+      console.error("[admin-toggle-campaign] slot count failed", {
+        functionVersion: FUNCTION_VERSION,
+        campaignType,
+        code: countError.code,
+        message: countError.message,
+      });
+      return new Response(JSON.stringify({ error: "campaign_slot_count_failed" }), {
+        status: 500,
+        headers: jsonHeaders,
+      });
+    }
+
+    const slotsUsed = typeof count === "number" ? count : 0;
+    if (maxSlots < slotsUsed) {
+      return new Response(
+        JSON.stringify({
+          error: "campaign_slots_below_used",
+          message: `max_slots must be greater than or equal to current slots used (${slotsUsed})`,
+          slots_used: slotsUsed,
+        }),
+        {
+          status: 409,
+          headers: jsonHeaders,
+        },
+      );
+    }
+  }
+
+  const update: CampaignUpdate = { is_active: isActive };
+  if (shouldUpdateMaxSlots) {
+    update.max_slots = maxSlots ?? null;
+  }
+
   const { data, error } = await (authContext.supabaseAdmin as any)
     .from("producer_campaigns")
-    .update({ is_active: isActive })
+    .update(update)
     .eq("type", campaignType)
     .select("type, label, max_slots, is_active, trial_duration")
     .maybeSingle();

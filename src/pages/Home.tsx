@@ -34,6 +34,7 @@ interface HomeStatsPayload {
 interface ProducerCampaignStatusPayload {
   exists?: boolean;
   is_active?: boolean;
+  max_slots?: number | null;
   reason?: string;
 }
 
@@ -62,6 +63,7 @@ export function HomePage() {
   });
   const [isHomeStatsLoading, setIsHomeStatsLoading] = useState(true);
   const [isProducerPromoCampaignActive, setIsProducerPromoCampaignActive] = useState(false);
+  const [producerPromoMaxSlots, setProducerPromoMaxSlots] = useState<number | null | undefined>(undefined);
   const showProducerPromoCard =
     isProducerPromoEnabled && isProducerPromoCampaignActive && !hasActiveProducerSubscription;
 
@@ -76,6 +78,7 @@ export function HomePage() {
   useEffect(() => {
     if (!isProducerPromoEnabled || promoCampaignType.length === 0) {
       setIsProducerPromoCampaignActive(false);
+      setProducerPromoMaxSlots(undefined);
       return;
     }
 
@@ -92,10 +95,16 @@ export function HomePage() {
       if (error) {
         console.error('Error fetching producer campaign status:', error);
         setIsProducerPromoCampaignActive(false);
+        setProducerPromoMaxSlots(undefined);
         return;
       }
 
       setIsProducerPromoCampaignActive(data?.is_active === true);
+      setProducerPromoMaxSlots(
+        typeof data?.max_slots === 'number' || data?.max_slots === null
+          ? data.max_slots
+          : undefined,
+      );
     }
 
     void fetchProducerCampaignStatus();
@@ -232,6 +241,7 @@ export function HomePage() {
                 isActiveProducer={hasActiveProducerSubscription}
                 userEmail={user?.email ?? ''}
                 variant="horizontal"
+                maxSlots={producerPromoMaxSlots}
               />
             </motion.div>
           )}
