@@ -223,6 +223,9 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
   };
 
   useEffect(() => {
+    setCampaign(null);
+    setProducers([]);
+    setMaxSlotsInput('');
     void loadCampaign();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignType]);
