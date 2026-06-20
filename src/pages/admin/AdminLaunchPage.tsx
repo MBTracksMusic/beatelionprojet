@@ -1796,7 +1796,7 @@ function ProducerCampaignAdminSection() {
         </div>
       </Card>
 
-      <ProducerCampaignManager campaignType={selectedCampaignType} />
+      <ProducerCampaignManager key={selectedCampaignType} campaignType={selectedCampaignType} />
     </div>
   );
 }

@@ -193,12 +193,15 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
   const [resettingUserId, setResettingUserId] = useState<string | null>(null);
 
   const isMountedRef = useRef(true);
+  const latestLoadIdRef = useRef(0);
   useEffect(() => {
     isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
   }, []);
 
   const loadCampaign = async () => {
+    const loadId = latestLoadIdRef.current + 1;
+    latestLoadIdRef.current = loadId;
     setIsLoadingList(true);
     setListError(null);
 
@@ -207,16 +210,16 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
         body: { campaign_type: campaignType },
       });
 
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || loadId !== latestLoadIdRef.current) return;
       const nextCampaign = data?.campaign ?? null;
       setCampaign(nextCampaign);
       setMaxSlotsInput(nextCampaign?.max_slots != null ? String(nextCampaign.max_slots) : '');
       setProducers(data?.producers ?? []);
     } catch (err) {
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || loadId !== latestLoadIdRef.current) return;
       setListError(parseErrorMessage(err));
     } finally {
-      if (isMountedRef.current) {
+      if (isMountedRef.current && loadId === latestLoadIdRef.current) {
         setIsLoadingList(false);
       }
     }
