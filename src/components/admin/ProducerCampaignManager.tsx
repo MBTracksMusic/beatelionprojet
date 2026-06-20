@@ -193,12 +193,15 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
   const [resettingUserId, setResettingUserId] = useState<string | null>(null);
 
   const isMountedRef = useRef(true);
+  const latestLoadIdRef = useRef(0);
   useEffect(() => {
     isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
   }, []);
 
   const loadCampaign = async () => {
+    const loadId = latestLoadIdRef.current + 1;
+    latestLoadIdRef.current = loadId;
     setIsLoadingList(true);
     setListError(null);
 
@@ -207,22 +210,25 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
         body: { campaign_type: campaignType },
       });
 
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || loadId !== latestLoadIdRef.current) return;
       const nextCampaign = data?.campaign ?? null;
       setCampaign(nextCampaign);
       setMaxSlotsInput(nextCampaign?.max_slots != null ? String(nextCampaign.max_slots) : '');
       setProducers(data?.producers ?? []);
     } catch (err) {
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || loadId !== latestLoadIdRef.current) return;
       setListError(parseErrorMessage(err));
     } finally {
-      if (isMountedRef.current) {
+      if (isMountedRef.current && loadId === latestLoadIdRef.current) {
         setIsLoadingList(false);
       }
     }
   };
 
   useEffect(() => {
+    setCampaign(null);
+    setProducers([]);
+    setMaxSlotsInput('');
     void loadCampaign();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignType]);
@@ -279,7 +285,7 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
     const confirmed = nextIsActive
       ? true
       : window.confirm(
-          'Fermer la campagne serveur ? Les nouvelles demandes founding seront bloquées, mais les waitlists et trials existants ne seront pas modifiés.',
+          'Fermer la campagne serveur ? Les nouvelles demandes avec ce type de campagne seront bloquées, mais les waitlists et trials existants ne seront pas modifiés.',
         );
 
     if (!confirmed) return;
@@ -613,7 +619,7 @@ export function ProducerCampaignManager({ campaignType = 'founding' }: ProducerC
             className="flex shrink-0 items-center gap-2 whitespace-nowrap"
           >
             <UserPlus className="h-4 w-4" />
-            {isAssigning ? 'Activation…' : 'Activer Founding'}
+            {isAssigning ? 'Activation…' : 'Activer dans la campagne'}
           </Button>
         </div>
         {campaign?.is_active === false && (

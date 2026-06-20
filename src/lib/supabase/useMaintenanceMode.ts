@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 import { supabase } from './client';
 import type { Database } from './database.types';
+import {
+  FOUNDING_PRODUCER_CAMPAIGN_TYPE,
+  getProducerCampaignTypeMeta,
+} from '../producerCampaignTypes';
 
 type SettingsUpdate = Database['public']['Tables']['settings']['Update'];
 
@@ -125,13 +129,17 @@ function parsePricingProducerPromo(raw: unknown): PricingProducerPromo | null {
     typeof rawFootnote === 'string' && rawFootnote.trim().length > 0
       ? rawFootnote.trim()
       : undefined;
+  const parsedCampaignType =
+    typeof obj.campaign_type === 'string' && getProducerCampaignTypeMeta(obj.campaign_type.trim())
+      ? obj.campaign_type.trim()
+      : FOUNDING_PRODUCER_CAMPAIGN_TYPE;
 
   return {
     enabled: obj.enabled === true,
     title: typeof obj.title === 'string' ? obj.title : '',
     message: typeof obj.message === 'string' ? obj.message : '',
     button_label: typeof obj.button_label === 'string' ? obj.button_label : 'M\'inscrire',
-    campaign_type: typeof obj.campaign_type === 'string' ? obj.campaign_type : '',
+    campaign_type: parsedCampaignType,
     benefits: parsedBenefits && parsedBenefits.length > 0 ? parsedBenefits : undefined,
     footnote: parsedFootnote,
   };
