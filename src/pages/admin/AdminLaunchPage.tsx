@@ -1553,6 +1553,7 @@ function WhitelistCard() {
 
 const DEFAULT_PROMO_BENEFITS_TEXT =
   "Demande d'accès producteur\nProfil étudié manuellement\nPhase privée limitée\nSélection progressive";
+const PRODUCER_PROMO_CAMPAIGN_TYPE = 'founding';
 
 function ProducerPromoCardSettings() {
   const { pricingProducerPromo, updateSettings, isLoading: isSettingsLoading } = useMaintenanceModeContext();
@@ -1561,7 +1562,6 @@ function ProducerPromoCardSettings() {
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [buttonLabel, setButtonLabel] = useState('');
-  const [campaignType, setCampaignType] = useState('');
   const [benefitsText, setBenefitsText] = useState(DEFAULT_PROMO_BENEFITS_TEXT);
   const [footnote, setFootnote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -1572,7 +1572,6 @@ function ProducerPromoCardSettings() {
       setTitle(pricingProducerPromo.title);
       setMessage(pricingProducerPromo.message);
       setButtonLabel(pricingProducerPromo.button_label);
-      setCampaignType(pricingProducerPromo.campaign_type);
       setBenefitsText(pricingProducerPromo.benefits?.join('\n') ?? DEFAULT_PROMO_BENEFITS_TEXT);
       setFootnote(pricingProducerPromo.footnote ?? '');
     }
@@ -1593,7 +1592,7 @@ function ProducerPromoCardSettings() {
           title: title.trim(),
           message: message.trim(),
           button_label: buttonLabel.trim(),
-          campaign_type: campaignType.trim(),
+          campaign_type: PRODUCER_PROMO_CAMPAIGN_TYPE,
           benefits,
           footnote: footnote.trim() || undefined,
         },
@@ -1689,16 +1688,15 @@ function ProducerPromoCardSettings() {
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-zinc-300">Type de campagne</label>
+            <label className="mb-1.5 block text-sm font-medium text-zinc-300">Campagne serveur</label>
             <Input
               type="text"
-              value={campaignType}
-              onChange={(e) => setCampaignType(e.target.value)}
-              placeholder="founding"
-              disabled={isSettingsLoading || isSaving}
+              value={PRODUCER_PROMO_CAMPAIGN_TYPE}
+              readOnly
+              disabled
             />
             <p className="mt-1 text-xs text-zinc-500">
-              Doit correspondre au type serveur dans producer_campaigns, par exemple founding.
+              Vignette publique verrouillée sur la campagne founding.
             </p>
           </div>
         </div>
