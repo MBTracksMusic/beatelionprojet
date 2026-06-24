@@ -9,7 +9,7 @@ import { Select } from '../components/ui/Select';
 import { trackJoinBattle } from '../lib/analytics';
 import { useAuth, usePermissions } from '../lib/auth/hooks';
 import { FoundingTrialExpiredPaywall } from '../components/producers/FoundingTrialExpiredPaywall';
-import { useTranslation, type TranslateFn, type TranslationKey } from '../lib/i18n';
+import { useTranslation, type TranslateFn } from '../lib/i18n';
 import { getLocalizedName } from '../lib/i18n/localized';
 import { supabase } from '@/lib/supabase/client';
 import type { BattleStatus, Genre } from '../lib/supabase/types';
@@ -152,6 +152,13 @@ function toRpcErrorMessage(error: {
     return t('producerBattles.sessionExpired', { technical });
   }
 
+  if (message.includes('BATTLE_PRODUCT2_REQUIRED')) return t('producerBattles.acceptBeatRequired');
+  if (message.includes('BATTLE_PRODUCT2_GENRE_MISMATCH')) return t('producerBattles.product2GenreMismatchError');
+  if (message.includes('BATTLE_PRODUCT2_INVALID')) return t('producerBattles.product2InvalidError');
+  if (message.includes('BATTLE_PRODUCT_ALREADY_OCCUPIED')) return t('producerBattles.productAlreadyOccupiedError');
+  if (message.includes('BATTLE_PRODUCT1_INVALID')) return t('producerBattles.product1InvalidError');
+  if (message.includes('BATTLE_PRODUCER1_NOT_ACTIVE')) return t('producerBattles.producer1NotActiveError');
+
   return t('producerBattles.actionUnavailable', { technical });
 }
 
@@ -237,15 +244,15 @@ function toBattleInsertErrorMessage(error: {
   }
 
   if (message.includes('BATTLE_PRODUCT1_REQUIRED')) {
-    return t('producerBattles.product1Required' as TranslationKey);
+    return t('producerBattles.product1Required');
   }
 
   if (message.includes('BATTLE_PRODUCT1_GENRE_MISMATCH')) {
-    return t('producerBattles.product1GenreMismatchError' as TranslationKey);
+    return t('producerBattles.product1GenreMismatchError');
   }
 
   if (message.includes('BATTLE_PRODUCT2_GENRE_MISMATCH')) {
-    return t('producerBattles.product2GenreMismatchError' as TranslationKey);
+    return t('producerBattles.product2GenreMismatchError');
   }
 
   if (message.includes('BATTLE_PRODUCER1_NOT_ACTIVE')) {
@@ -353,6 +360,7 @@ export function ProducerBattlesPage() {
   const [battles, setBattles] = useState<ManagedBattle[]>([]);
   const [incomingBattles, setIncomingBattles] = useState<IncomingBattle[]>([]);
   const [rejectReasons, setRejectReasons] = useState<Record<string, string>>({});
+  const [acceptBeatByBattle, setAcceptBeatByBattle] = useState<Record<string, string>>({});
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [quotaStatus, setQuotaStatus] = useState<BattleQuotaStatus | null>(null);
   const [quotaError, setQuotaError] = useState<string | null>(null);
@@ -429,6 +437,28 @@ export function ProducerBattlesPage() {
     ],
     [producer2Products, occupiedProductIds, t]
   );
+
+  const buildAcceptBeatOptions = (genreId: string | null) => [
+    { value: '', label: t('producerBattles.chooseProduct') },
+    ...myProducts
+      .filter(
+        (p) =>
+          p.product_type === 'beat' &&
+          p.is_published === true &&
+          p.status === 'active'
+      )
+      .filter((p) => !genreId || p.genre_id === genreId)
+      .map((p) => {
+        const occupied = occupiedProductIds.has(p.id);
+        return {
+          value: p.id,
+          label: occupied
+            ? `${p.title} ${t('producerBattles.productOccupiedOptionSuffix')}`
+            : p.title,
+          disabled: occupied,
+        };
+      }),
+  ];
 
   const genreOptions = useMemo(
     () => [
@@ -895,7 +925,7 @@ export function ProducerBattlesPage() {
     }
 
     if (!form.product1Id) {
-      setError(t('producerBattles.product1Required' as TranslationKey));
+      setError(t('producerBattles.product1Required'));
       return;
     }
 
@@ -954,21 +984,26 @@ export function ProducerBattlesPage() {
     await loadMatchmakingOpponents(nextQuota);
   };
 
-  const respondToBattle = async (battleId: string, accept: boolean) => {
+  const respondToBattle = async (battleId: string, accept: boolean, product2Id?: string) => {
     setError(null);
-    setRespondingId(battleId);
 
     const reason = (rejectReasons[battleId] || '').trim();
     if (!accept && !reason) {
-      setRespondingId(null);
       setError(t('producerBattles.rejectionReasonRequired'));
       return;
     }
+    if (accept && !product2Id) {
+      setError(t('producerBattles.acceptBeatRequired'));
+      return;
+    }
+
+    setRespondingId(battleId);
 
     const { error: rpcError } = await supabase.rpc('respond_to_battle', {
       p_battle_id: battleId,
       p_accept: accept,
       p_reason: accept ? undefined : reason,
+      p_product2_id: accept ? product2Id : undefined,
     });
 
     if (rpcError) {
@@ -985,6 +1020,7 @@ export function ProducerBattlesPage() {
     }
 
     setRejectReasons((prev) => ({ ...prev, [battleId]: '' }));
+    setAcceptBeatByBattle((prev) => ({ ...prev, [battleId]: '' }));
     if (accept) {
       trackJoinBattle(battleId);
     }
@@ -1419,39 +1455,83 @@ export function ProducerBattlesPage() {
                     <Badge variant={badgeByStatus[battle.status]}>{toStatusLabel(battle.status, t)}</Badge>
                   </div>
 
-                  <div className="space-y-2">
-                    <Input
-                      label={t('producerBattles.rejectionReasonLabel')}
-                      value={rejectReasons[battle.id] || ''}
-                      onChange={(event) =>
-                        setRejectReasons((prev) => ({
-                          ...prev,
-                          [battle.id]: event.target.value,
-                        }))
-                      }
-                      placeholder={t('producerBattles.rejectionReasonPlaceholder')}
-                    />
-                    <div className="flex flex-wrap gap-2 justify-end">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        isLoading={respondingId === battle.id}
-                        leftIcon={<CheckCircle2 className="w-4 h-4" />}
-                        onClick={() => respondToBattle(battle.id, true)}
-                      >
-                        {t('producerBattles.accept')}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        isLoading={respondingId === battle.id}
-                        leftIcon={<XCircle className="w-4 h-4" />}
-                        onClick={() => respondToBattle(battle.id, false)}
-                      >
-                        {t('producerBattles.reject')}
-                      </Button>
-                    </div>
-                  </div>
+                  {(() => {
+                    const beatOptions = buildAcceptBeatOptions(battle.genre_id);
+                    const hasEligibleBeat = beatOptions.length > 1;
+                    const genre = genres.find((g) => g.id === battle.genre_id);
+                    const genreName = genre ? getLocalizedName(genre, language) : null;
+                    const selectedBeat = acceptBeatByBattle[battle.id] || '';
+                    return (
+                      <div className="space-y-2">
+                        {genreName && (
+                          <p className="text-xs text-emerald-400">
+                            {t('producerBattles.battleGenreLabel', { genre: genreName })}
+                          </p>
+                        )}
+
+                        {hasEligibleBeat ? (
+                          <Select
+                            label={t('producerBattles.acceptBeatLabel')}
+                            value={selectedBeat}
+                            onChange={(event) =>
+                              setAcceptBeatByBattle((prev) => ({
+                                ...prev,
+                                [battle.id]: event.target.value,
+                              }))
+                            }
+                            options={beatOptions}
+                          />
+                        ) : (
+                          <div className="text-sm text-amber-400 space-y-2">
+                            <p>
+                              {t('producerBattles.noEligibleBeatForGenre', {
+                                genre: genreName || '',
+                              })}
+                            </p>
+                            <Link
+                              to="/producer/upload"
+                              className="inline-flex items-center gap-1 text-emerald-400 underline"
+                            >
+                              {t('producerBattles.uploadBeatCta')}
+                            </Link>
+                          </div>
+                        )}
+
+                        <Input
+                          label={t('producerBattles.rejectionReasonLabel')}
+                          value={rejectReasons[battle.id] || ''}
+                          onChange={(event) =>
+                            setRejectReasons((prev) => ({
+                              ...prev,
+                              [battle.id]: event.target.value,
+                            }))
+                          }
+                          placeholder={t('producerBattles.rejectionReasonPlaceholder')}
+                        />
+                        <div className="flex flex-wrap gap-2 justify-end">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            isLoading={respondingId === battle.id}
+                            disabled={!selectedBeat || respondingId === battle.id}
+                            leftIcon={<CheckCircle2 className="w-4 h-4" />}
+                            onClick={() => respondToBattle(battle.id, true, selectedBeat)}
+                          >
+                            {t('producerBattles.accept')}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            isLoading={respondingId === battle.id}
+                            leftIcon={<XCircle className="w-4 h-4" />}
+                            onClick={() => respondToBattle(battle.id, false)}
+                          >
+                            {t('producerBattles.reject')}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </li>
               ))}
             </ul>
