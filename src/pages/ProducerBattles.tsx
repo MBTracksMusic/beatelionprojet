@@ -202,6 +202,14 @@ function toBattleInsertErrorMessage(error: {
   const details = error.details ? ` (${error.details})` : '';
   const technical = `[${code}] ${message}${details}`;
 
+  if (message.includes('BATTLE_PRODUCT_ALREADY_OCCUPIED')) {
+    return t('producerBattles.productAlreadyOccupiedError');
+  }
+
+  if (message.includes('BATTLE_PRODUCT_DUPLICATE_IN_BATTLE')) {
+    return t('producerBattles.productDuplicateInBattleError');
+  }
+
   if (code === 'P0002' || message.includes('BATTLE_PAIR_ALREADY_ACTIVE')) {
     return t('producerBattles.pairAlreadyActiveError');
   }
@@ -317,6 +325,7 @@ export function ProducerBattlesPage() {
   const [genres, setGenres] = useState<Genre[]>([]);
   const [myProducts, setMyProducts] = useState<ProductOption[]>([]);
   const [producer2Products, setProducer2Products] = useState<ProductOption[]>([]);
+  const [occupiedProductIds, setOccupiedProductIds] = useState<Set<string>>(() => new Set());
   const [battles, setBattles] = useState<ManagedBattle[]>([]);
   const [incomingBattles, setIncomingBattles] = useState<IncomingBattle[]>([]);
   const [rejectReasons, setRejectReasons] = useState<Record<string, string>>({});
@@ -360,17 +369,35 @@ export function ProducerBattlesPage() {
       { value: '', label: t('producerBattles.chooseProduct') },
       ...myProducts
         .filter((p) => !form.genreId || p.genre_id === form.genreId)
-        .map((p) => ({ value: p.id, label: p.title })),
+        .map((p) => {
+          const occupied = occupiedProductIds.has(p.id);
+          return {
+            value: p.id,
+            label: occupied
+              ? `${p.title} ${t('producerBattles.productOccupiedOptionSuffix')}`
+              : p.title,
+            disabled: occupied,
+          };
+        }),
     ],
-    [form.genreId, myProducts, t]
+    [form.genreId, myProducts, occupiedProductIds, t]
   );
 
   const product2Options = useMemo(
     () => [
       { value: '', label: t('producerBattles.chooseProduct') },
-      ...producer2Products.map((p) => ({ value: p.id, label: p.title })),
+      ...producer2Products.map((p) => {
+        const occupied = occupiedProductIds.has(p.id);
+        return {
+          value: p.id,
+          label: occupied
+            ? `${p.title} ${t('producerBattles.productOccupiedOptionSuffix')}`
+            : p.title,
+          disabled: occupied,
+        };
+      }),
     ],
-    [producer2Products, t]
+    [producer2Products, occupiedProductIds, t]
   );
 
   const genreOptions = useMemo(
@@ -380,6 +407,45 @@ export function ProducerBattlesPage() {
     ],
     [genres, language, t]
   );
+
+  // Flag the beats already locked in an occupied battle so they render disabled
+  // in the product pickers. The server-side trigger is the real guard; this is
+  // a UX pre-check that confirms occupancy only for ids already listed here.
+  useEffect(() => {
+    const candidateIds = Array.from(
+      new Set([
+        ...myProducts.map((p) => p.id),
+        ...producer2Products.map((p) => p.id),
+      ])
+    );
+
+    if (candidateIds.length === 0) {
+      setOccupiedProductIds(new Set());
+      return;
+    }
+
+    let isCancelled = false;
+
+    void (async () => {
+      const { data, error: occupiedError } = await supabase.rpc('get_occupied_product_ids', {
+        p_product_ids: candidateIds,
+      });
+
+      if (isCancelled) return;
+
+      if (occupiedError) {
+        console.error('Error loading occupied product ids:', occupiedError);
+        setOccupiedProductIds(new Set());
+        return;
+      }
+
+      setOccupiedProductIds(new Set((data as string[] | null) ?? []));
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [myProducts, producer2Products]);
 
   const loadQuotaStatus = useCallback(async () => {
     if (!profile?.id) return null;

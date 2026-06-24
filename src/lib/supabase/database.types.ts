@@ -8409,6 +8409,10 @@ export type Database = {
         }[]
       }
       get_request_headers_jsonb: { Args: never; Returns: Json }
+      get_occupied_product_ids: {
+        Args: { p_product_ids: string[] }
+        Returns: string[]
+      }
       get_user_battle_quota: {
         Args: { p_user_id: string }
         Returns: {
