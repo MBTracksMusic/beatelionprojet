@@ -9,7 +9,7 @@ import { Select } from '../components/ui/Select';
 import { trackJoinBattle } from '../lib/analytics';
 import { useAuth, usePermissions } from '../lib/auth/hooks';
 import { FoundingTrialExpiredPaywall } from '../components/producers/FoundingTrialExpiredPaywall';
-import { useTranslation, type TranslateFn } from '../lib/i18n';
+import { useTranslation, type TranslateFn, type TranslationKey } from '../lib/i18n';
 import { getLocalizedName } from '../lib/i18n/localized';
 import { supabase } from '@/lib/supabase/client';
 import type { BattleStatus, Genre } from '../lib/supabase/types';
@@ -236,6 +236,18 @@ function toBattleInsertErrorMessage(error: {
     return t('producerBattles.genreInvalid');
   }
 
+  if (message.includes('BATTLE_PRODUCT1_REQUIRED')) {
+    return t('producerBattles.product1Required' as TranslationKey);
+  }
+
+  if (message.includes('BATTLE_PRODUCT1_GENRE_MISMATCH')) {
+    return t('producerBattles.product1GenreMismatchError' as TranslationKey);
+  }
+
+  if (message.includes('BATTLE_PRODUCT2_GENRE_MISMATCH')) {
+    return t('producerBattles.product2GenreMismatchError' as TranslationKey);
+  }
+
   if (message.includes('BATTLE_PRODUCER1_NOT_ACTIVE')) {
     return t('producerBattles.producer1NotActiveError');
   }
@@ -380,6 +392,12 @@ export function ProducerBattlesPage() {
     () => [
       { value: '', label: t('producerBattles.chooseProduct') },
       ...myProducts
+        .filter(
+          (p) =>
+            p.product_type === 'beat' &&
+            p.is_published === true &&
+            p.status === 'active'
+        )
         .filter((p) => !form.genreId || p.genre_id === form.genreId)
         .map((p) => {
           const occupied = occupiedProductIds.has(p.id);
@@ -876,6 +894,11 @@ export function ProducerBattlesPage() {
       return;
     }
 
+    if (!form.product1Id) {
+      setError(t('producerBattles.product1Required' as TranslationKey));
+      return;
+    }
+
     setError(null);
     setIsSaving(true);
 
@@ -1271,7 +1294,7 @@ export function ProducerBattlesPage() {
               <Button
                 onClick={createBattle}
                 isLoading={isSaving}
-                disabled={isQuotaLoading || !canCreateBattle}
+                disabled={isQuotaLoading || !canCreateBattle || !form.product1Id}
               >
                 {t('common.create')}
               </Button>
