@@ -24,6 +24,9 @@ interface ProductOption {
   id: string;
   title: string;
   genre_id: string | null;
+  is_published?: boolean | null;
+  status?: string | null;
+  product_type?: string | null;
 }
 
 interface ManagedBattle {
@@ -48,6 +51,7 @@ interface IncomingBattle {
   slug: string;
   status: BattleStatus;
   response_deadline: string | null;
+  genre_id: string | null;
   producer1?: { username: string | null };
   product1?: { title: string };
   product2?: { title: string };
@@ -521,6 +525,7 @@ export function ProducerBattlesPage() {
           slug,
           status,
           response_deadline,
+          genre_id,
           producer1:user_profiles!battles_producer1_id_fkey(username),
           product1:products!battles_product1_id_fkey(title),
           product2:products!battles_product2_id_fkey(title)
@@ -729,7 +734,7 @@ export function ProducerBattlesPage() {
           .order('username', { ascending: true }),
         supabase
           .from('products')
-          .select('id, title, genre_id')
+          .select('id, title, genre_id, is_published, status, product_type')
           .eq('producer_id', profile.id)
           .is('deleted_at', null)
           .order('created_at', { ascending: false }),
