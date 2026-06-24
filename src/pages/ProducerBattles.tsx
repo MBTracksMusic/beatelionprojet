@@ -156,6 +156,7 @@ function toRpcErrorMessage(error: {
   if (message.includes('BATTLE_PRODUCT2_GENRE_MISMATCH')) return t('producerBattles.product2GenreMismatchError');
   if (message.includes('BATTLE_PRODUCT2_INVALID')) return t('producerBattles.product2InvalidError');
   if (message.includes('BATTLE_PRODUCT_ALREADY_OCCUPIED')) return t('producerBattles.productAlreadyOccupiedError');
+  if (message.includes('BATTLE_PRODUCT1_REQUIRED')) return t('producerBattles.product1InvalidError');
   if (message.includes('BATTLE_PRODUCT1_INVALID')) return t('producerBattles.product1InvalidError');
   if (message.includes('BATTLE_PRODUCER1_NOT_ACTIVE')) return t('producerBattles.producer1NotActiveError');
 
