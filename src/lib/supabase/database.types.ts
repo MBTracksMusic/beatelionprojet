@@ -8732,7 +8732,7 @@ export type Database = {
       }
       reset_elo_for_new_season: { Args: never; Returns: number }
       respond_to_battle: {
-        Args: { p_accept: boolean; p_battle_id: string; p_reason?: string }
+        Args: { p_accept: boolean; p_battle_id: string; p_product2_id?: string; p_reason?: string }
         Returns: boolean
       }
       rpc_admin_get_beat_feedback_overview: {
