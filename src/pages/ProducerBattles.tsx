@@ -232,6 +232,14 @@ function toBattleInsertErrorMessage(error: {
     return t('producerBattles.genreInvalid');
   }
 
+  if (message.includes('BATTLE_PRODUCER1_NOT_ACTIVE')) {
+    return t('producerBattles.producer1NotActiveError');
+  }
+
+  if (message.includes('BATTLE_PRODUCER2_NOT_ACTIVE')) {
+    return t('producerBattles.producer2NotActiveError');
+  }
+
   const isRlsError =
     code === '42501'
     || message.includes('new row violates row-level security')

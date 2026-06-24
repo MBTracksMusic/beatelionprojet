@@ -784,6 +784,8 @@ export const fr = {
     genreInvalid: 'Genre musical invalide ou inactif.',
     productAlreadyOccupiedError: 'Ce beat est deja engage dans une autre battle (en attente d’acceptation ou en cours). Choisis un autre beat, ou attends que cette battle se termine ou soit refusee.',
     productDuplicateInBattleError: 'Tu ne peux pas opposer un beat a lui-meme : choisis deux beats differents.',
+    producer1NotActiveError: 'Ton acces producteur n’est pas actif (abonnement ou essai expire). Reactive ton abonnement pour creer une battle.',
+    producer2NotActiveError: 'Le producteur adverse n’est pas actif (abonnement ou essai expire). Choisis un autre adversaire actif.',
     productOccupiedOptionSuffix: '(deja en battle)',
     quotaSummary: 'Battles ce mois: {used}/{max}',
     quotaRemaining: '{remaining} creation(s) restante(s) ce mois-ci.',

@@ -785,6 +785,8 @@ export const de: TranslationSchema = {
     genreInvalid: 'Musikgenre ist ungultig oder inaktiv.',
     productAlreadyOccupiedError: 'Dieser Beat ist bereits in einer anderen Battle gebunden (ausstehende Annahme oder laufend). Wahle einen anderen Beat oder warte, bis diese Battle endet oder abgelehnt wird.',
     productDuplicateInBattleError: 'Du kannst einen Beat nicht gegen sich selbst antreten lassen: Wahle zwei verschiedene Beats.',
+    producer1NotActiveError: 'Dein Produzentenzugang ist nicht aktiv (Abo oder Testphase abgelaufen). Reaktiviere dein Abo, um eine Battle zu erstellen.',
+    producer2NotActiveError: 'Der gegnerische Produzent ist nicht aktiv (Abo oder Testphase abgelaufen). Wahle einen anderen aktiven Gegner.',
     productOccupiedOptionSuffix: '(bereits in einer Battle)',
     quotaSummary: 'Battles diesen Monat: {used}/{max}',
     quotaRemaining: '{remaining} Battle-Erstellung(en) in diesem Monat ubrig.',

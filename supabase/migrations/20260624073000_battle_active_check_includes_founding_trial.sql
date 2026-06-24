@@ -21,10 +21,12 @@
     in place of the raw column. Producers with neither an active Stripe
     subscription nor a valid trial stay blocked, as intended.
 
-  Note:
-  - private.is_active_battle_opponent() has the same raw-column check but is
-    dead code: its only caller was the battles INSERT RLS policy that the
-    battle create validation gate (20260530150000) closed. Left untouched.
+  Also realigned (defensive):
+  - private.is_active_battle_opponent() has the same raw-column check. It is
+    currently dead code (its only caller was the battles INSERT RLS policy that
+    the battle create validation gate, 20260530150000, closed). Realigned to the
+    canonical check anyway so the bug cannot silently return if an opponent
+    INSERT policy is ever reintroduced.
 */
 
 BEGIN;
@@ -266,6 +268,25 @@ BEGIN
   RETURN QUERY
   SELECT true, 'applied'::text, 'Application submitted.'::text, v_application_id;
 END;
+$$;
+
+-- Defensive realignment of currently-unused opponent check (see header note).
+CREATE OR REPLACE FUNCTION private.is_active_battle_opponent(p_user_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.user_profiles up
+    WHERE up.id = p_user_id
+      AND up.role = ANY (ARRAY['producer'::user_role, 'admin'::user_role])
+      AND public.is_active_producer(up.id) = true
+      AND COALESCE(up.is_deleted, false) = false
+      AND up.deleted_at IS NULL
+  );
 $$;
 
 COMMIT;

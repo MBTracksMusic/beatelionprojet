@@ -785,6 +785,8 @@ export const en: TranslationSchema = {
     genreInvalid: 'Music genre is invalid or inactive.',
     productAlreadyOccupiedError: 'This beat is already committed to another battle (pending acceptance or in progress). Pick a different beat, or wait until that battle ends or is declined.',
     productDuplicateInBattleError: 'You can’t pit a beat against itself: pick two different beats.',
+    producer1NotActiveError: 'Your producer access isn’t active (subscription or trial expired). Reactivate your subscription to create a battle.',
+    producer2NotActiveError: 'The opposing producer isn’t active (subscription or trial expired). Pick another active opponent.',
     productOccupiedOptionSuffix: '(already in a battle)',
     quotaSummary: 'Battles this month: {used}/{max}',
     quotaRemaining: '{remaining} battle creation(s) remaining this month.',
