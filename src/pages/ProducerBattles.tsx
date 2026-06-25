@@ -57,6 +57,13 @@ interface IncomingBattle {
   product2?: { title: string };
 }
 
+interface PenaltyEntry {
+  id: string;
+  title: string;
+  penalty_type: 'refusal' | 'expiry' | string | null;
+  penalty_points: number | null;
+}
+
 interface BattleQuotaStatus {
   tier: string;
   used_this_month: number;
@@ -360,6 +367,8 @@ export function ProducerBattlesPage() {
   const [occupiedProductIds, setOccupiedProductIds] = useState<Set<string>>(() => new Set());
   const [battles, setBattles] = useState<ManagedBattle[]>([]);
   const [incomingBattles, setIncomingBattles] = useState<IncomingBattle[]>([]);
+  const [penaltyHistory, setPenaltyHistory] = useState<PenaltyEntry[]>([]);
+  const [responseNotice, setResponseNotice] = useState<string | null>(null);
   const [rejectReasons, setRejectReasons] = useState<Record<string, string>>({});
   const [acceptBeatByBattle, setAcceptBeatByBattle] = useState<Record<string, string>>({});
   const [respondingId, setRespondingId] = useState<string | null>(null);
@@ -546,7 +555,7 @@ export function ProducerBattlesPage() {
   const loadBattles = useCallback(async () => {
     if (!profile?.id) return;
 
-    const [createdRes, incomingRes] = await Promise.all([
+    const [createdRes, incomingRes, penaltyRes] = await Promise.all([
       supabase
         .from('battles')
         .select(`
@@ -582,6 +591,13 @@ export function ProducerBattlesPage() {
         .eq('producer2_id', profile.id)
         .eq('status', 'pending_acceptance')
         .order('created_at', { ascending: false }),
+      supabase
+        .from('battles')
+        .select('id, title, penalty_type, penalty_points')
+        .eq('penalized_producer_id', profile.id)
+        .eq('penalty_applied', true)
+        .order('updated_at', { ascending: false })
+        .limit(20),
     ]);
 
     if (createdRes.error) {
@@ -600,6 +616,12 @@ export function ProducerBattlesPage() {
       }
     } else {
       setIncomingBattles((incomingRes.data as IncomingBattle[] | null) ?? []);
+    }
+
+    if (penaltyRes.error) {
+      console.error('Error fetching battle penalties:', penaltyRes.error);
+    } else {
+      setPenaltyHistory((penaltyRes.data as PenaltyEntry[] | null) ?? []);
     }
   }, [profile?.id, t]);
 
@@ -1024,6 +1046,9 @@ export function ProducerBattlesPage() {
     setAcceptBeatByBattle((prev) => ({ ...prev, [battleId]: '' }));
     if (accept) {
       trackJoinBattle(battleId);
+      setResponseNotice(null);
+    } else {
+      setResponseNotice(t('producerBattles.refusalPenaltyNotice', { points: 5 }));
     }
     setRespondingId(null);
     await loadBattles();
@@ -1081,6 +1106,13 @@ export function ProducerBattlesPage() {
           <Card className="bg-red-900/20 border border-red-800 text-red-300 inline-flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
             {error}
+          </Card>
+        )}
+
+        {responseNotice && (
+          <Card className="bg-amber-900/20 border border-amber-800 text-amber-200 inline-flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            {responseNotice}
           </Card>
         )}
 
@@ -1538,6 +1570,27 @@ export function ProducerBattlesPage() {
             </ul>
           )}
         </Card>
+
+        {penaltyHistory.length > 0 && (
+          <Card className="space-y-3">
+            <h2 className="text-lg font-semibold text-white">{t('producerBattles.penaltyHistoryTitle')}</h2>
+            <ul className="space-y-2">
+              {penaltyHistory.map((entry) => (
+                <li
+                  key={entry.id}
+                  className="flex items-center justify-between gap-3 border border-zinc-800 rounded-lg px-3 py-2 bg-zinc-900/50"
+                >
+                  <span className="text-zinc-300 text-sm">{entry.title}</span>
+                  <span className="text-red-300 text-sm font-medium">
+                    {entry.penalty_type === 'expiry'
+                      ? t('producerBattles.expiryPenaltyNotice', { points: entry.penalty_points ?? 8 })
+                      : t('producerBattles.refusalPenaltyNotice', { points: entry.penalty_points ?? 5 })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
 
         <Card className="space-y-4">
           <h2 className="text-lg font-semibold text-white">{t('producerBattles.createdTitle')}</h2>

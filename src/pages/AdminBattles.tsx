@@ -30,6 +30,9 @@ interface AdminBattleRow {
   status: BattleStatus;
   rejection_reason: string | null;
   rejected_at: string | null;
+  penalty_applied?: boolean | null;
+  penalty_type?: string | null;
+  penalty_points?: number | null;
   accepted_at: string | null;
   admin_validated_at: string | null;
   voting_ends_at: string | null;
@@ -494,6 +497,9 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
           slug,
           status,
           rejection_reason,
+          penalty_applied,
+          penalty_type,
+          penalty_points,
           rejected_at,
           accepted_at,
           admin_validated_at,
@@ -790,6 +796,9 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
         slug,
         status,
         rejection_reason,
+        penalty_applied,
+        penalty_type,
+        penalty_points,
         rejected_at,
         accepted_at,
         admin_validated_at,
@@ -2411,6 +2420,15 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
                   {battle.status === 'rejected' && battle.rejection_reason && (
                     <p className="text-sm text-red-300 bg-red-900/20 border border-red-800 rounded px-3 py-2">
                       {t('producerBattles.rejectionReasonPrefix', { reason: battle.rejection_reason })}
+                    </p>
+                  )}
+
+                  {battle.penalty_applied && (
+                    <p className="text-sm text-amber-300 bg-amber-900/20 border border-amber-800 rounded px-3 py-2">
+                      {t('admin.battles.penaltyLabel', {
+                        points: battle.penalty_points ?? 0,
+                        type: battle.penalty_type ?? '',
+                      })}
                     </p>
                   )}
                 </li>
