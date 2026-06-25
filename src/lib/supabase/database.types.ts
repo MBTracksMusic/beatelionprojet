@@ -1405,6 +1405,10 @@ export type Database = {
           producer2_id: string | null
           product1_id: string | null
           product2_id: string | null
+          penalized_producer_id: string | null
+          penalty_applied: boolean
+          penalty_points: number | null
+          penalty_type: string | null
           rejected_at: string | null
           rejection_reason: string | null
           response_deadline: string | null
@@ -1435,6 +1439,10 @@ export type Database = {
           producer2_id?: string | null
           product1_id?: string | null
           product2_id?: string | null
+          penalized_producer_id?: string | null
+          penalty_applied?: boolean
+          penalty_points?: number | null
+          penalty_type?: string | null
           rejected_at?: string | null
           rejection_reason?: string | null
           response_deadline?: string | null
@@ -1465,6 +1473,10 @@ export type Database = {
           producer2_id?: string | null
           product1_id?: string | null
           product2_id?: string | null
+          penalized_producer_id?: string | null
+          penalty_applied?: boolean
+          penalty_points?: number | null
+          penalty_type?: string | null
           rejected_at?: string | null
           rejection_reason?: string | null
           response_deadline?: string | null
