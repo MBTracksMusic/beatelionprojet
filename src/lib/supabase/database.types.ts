@@ -1412,6 +1412,7 @@ export type Database = {
           rejected_at: string | null
           rejection_reason: string | null
           response_deadline: string | null
+          response_reminder_sent_at: string | null
           slug: string
           starts_at: string | null
           status: Database["public"]["Enums"]["battle_status"]
@@ -1446,6 +1447,7 @@ export type Database = {
           rejected_at?: string | null
           rejection_reason?: string | null
           response_deadline?: string | null
+          response_reminder_sent_at?: string | null
           slug: string
           starts_at?: string | null
           status?: Database["public"]["Enums"]["battle_status"]
@@ -1480,6 +1482,7 @@ export type Database = {
           rejected_at?: string | null
           rejection_reason?: string | null
           response_deadline?: string | null
+          response_reminder_sent_at?: string | null
           slug?: string
           starts_at?: string | null
           status?: Database["public"]["Enums"]["battle_status"]
