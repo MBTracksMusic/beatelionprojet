@@ -548,6 +548,84 @@ const getTemplateContent = (params: {
     };
   }
 
+  if (template === "battle_auto_expired") {
+    const battleTitle = asNonEmptyString(payload?.battle_title);
+    const battleId = asNonEmptyString(payload?.battle_id) ?? "N/A";
+    const role = asNonEmptyString(payload?.recipient_role);
+    const otherName = asNonEmptyString(payload?.other_producer_name);
+    const isInvited = role === "invited";
+    const metaLines = [
+      battleTitle ? `Battle : ${battleTitle}` : null,
+      otherName
+        ? (isInvited ? `Demandeur : ${otherName}` : `Producteur invite : ${otherName}`)
+        : null,
+      `Reference : ${battleId}`,
+    ].filter((line): line is string => line !== null);
+
+    const bodyLines = isInvited
+      ? [
+          `La battle${battleTitle ? ` "${battleTitle}"` : ""} a ete annulee : tu n'as pas repondu dans le delai de 7 jours.`,
+          "Une penalite de 8 points de classement a ete appliquee a ton compte.",
+        ]
+      : [
+          `Ta battle${battleTitle ? ` "${battleTitle}"` : ""} a ete annulee.`,
+          otherName
+            ? `${otherName} n'a pas repondu dans le delai de 7 jours.`
+            : "Le producteur invite n'a pas repondu dans le delai de 7 jours.",
+        ];
+
+    return {
+      subject: battleTitle
+        ? (isInvited ? `Battle expiree: "${battleTitle}"` : `Battle annulee: "${battleTitle}"`)
+        : (isInvited ? "Ta battle a expire" : "Ta battle a ete annulee"),
+      ...buildBrandedEmailContent({
+        appUrl: safeAppUrl,
+        title: isInvited ? "Battle expiree" : "Battle annulee",
+        preheader: isInvited
+          ? "Tu n'as pas repondu dans le delai de 7 jours"
+          : "Le producteur invite n'a pas repondu a temps",
+        bodyLines,
+        ctaLabel: "Voir mes battles",
+        ctaUrl: `${safeAppUrl}/producer/battles`,
+        metaLines,
+      }),
+    };
+  }
+
+  if (template === "battle_response_reminder") {
+    const battleTitle = asNonEmptyString(payload?.battle_title);
+    const battleId = asNonEmptyString(payload?.battle_id) ?? "N/A";
+    const requesterName = asNonEmptyString(payload?.requester_name);
+    const deadline = asNonEmptyString(payload?.response_deadline);
+    const metaLines = [
+      battleTitle ? `Battle : ${battleTitle}` : null,
+      requesterName ? `Demandeur : ${requesterName}` : null,
+      deadline ? `Date limite : ${deadline}` : null,
+      `Reference : ${battleId}`,
+    ].filter((line): line is string => line !== null);
+
+    return {
+      subject: battleTitle
+        ? `Reponse attendue: "${battleTitle}" (moins de 24h)`
+        : "Une battle attend ta reponse (moins de 24h)",
+      ...buildBrandedEmailContent({
+        appUrl: safeAppUrl,
+        title: "Il te reste moins de 24h",
+        preheader: "Reponds avant l'expiration de la battle",
+        bodyLines: [
+          requesterName
+            ? `${requesterName} t'a propose une battle${battleTitle ? ` "${battleTitle}"` : ""}.`
+            : `Une battle${battleTitle ? ` "${battleTitle}"` : ""} attend ta reponse.`,
+          "Il te reste moins de 24h pour repondre.",
+          "Sans reponse, elle sera annulee automatiquement (-8 points de classement).",
+        ],
+        ctaLabel: "Repondre maintenant",
+        ctaUrl: `${safeAppUrl}/producer/battles`,
+        metaLines,
+      }),
+    };
+  }
+
   if (template === "comment_received") {
     const battleId = asNonEmptyString(payload?.battle_id);
     const metaLines = battleId ? [`Battle: ${battleId}`] : [];

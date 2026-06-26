@@ -11,6 +11,8 @@ export type EmailTemplate =
   | "battle_request_rejected"
   | "battle_admin_approved"
   | "battle_admin_rejected"
+  | "battle_auto_expired"
+  | "battle_response_reminder"
   | "comment_received"
   | "contact_reply"
   | "contact_admin_notification";
@@ -31,6 +33,8 @@ export const REPEATABLE_EMAIL_TEMPLATES = new Set<EmailTemplate>([
   "battle_request_rejected",
   "battle_admin_approved",
   "battle_admin_rejected",
+  "battle_auto_expired",
+  "battle_response_reminder",
   "comment_received",
   "contact_reply",
   "contact_admin_notification",
