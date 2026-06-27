@@ -581,6 +581,17 @@ export function BattleDetailPage() {
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:items-center">
             <div className="min-w-0 rounded-lg bg-zinc-800/50 p-4">
+              {battle.producer1?.avatar_url ? (
+                <img
+                  src={battle.producer1.avatar_url}
+                  alt={battle.producer1.username || ''}
+                  className="mb-3 h-16 w-16 shrink-0 rounded-full border-2 border-zinc-700 object-cover"
+                />
+              ) : (
+                <div className="mb-3 flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-2 border-zinc-700 bg-zinc-800">
+                  <Users className="h-7 w-7 text-zinc-600" />
+                </div>
+              )}
               <p className="mb-1 text-xs uppercase text-zinc-500">{t('battleDetail.producer1Label')}</p>
               <p className="break-words font-semibold leading-tight text-white">{battle.producer1?.username || t('battleDetail.producer1Fallback')}</p>
               {battle.producer1 && (
@@ -623,6 +634,19 @@ export function BattleDetailPage() {
             </div>
 
             <div className="min-w-0 rounded-lg bg-zinc-800/50 p-4 text-left md:text-right">
+              <div className="mb-3 flex justify-start md:justify-end">
+                {battle.producer2?.avatar_url ? (
+                  <img
+                    src={battle.producer2.avatar_url}
+                    alt={battle.producer2.username || ''}
+                    className="h-16 w-16 shrink-0 rounded-full border-2 border-zinc-700 object-cover"
+                  />
+                ) : (
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-2 border-zinc-700 bg-zinc-800">
+                    <Users className="h-7 w-7 text-zinc-600" />
+                  </div>
+                )}
+              </div>
               <p className="mb-1 text-xs uppercase text-zinc-500">{t('battleDetail.producer2Label')}</p>
               <p className="break-words font-semibold leading-tight text-white">{battle.producer2?.username || t('battleDetail.producer2Fallback')}</p>
               {battle.producer2 && (
