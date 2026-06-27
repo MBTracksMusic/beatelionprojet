@@ -12,6 +12,32 @@ export type Track = AudioSourceFields & {
   producerId?: string;
 };
 
+const VOLUME_STORAGE_KEY = 'beatelion:player-volume';
+const MUTED_STORAGE_KEY = 'beatelion:player-muted';
+
+const clampVolume = (value: number) => Math.max(0, Math.min(1, value));
+
+const readStoredVolume = (): number => {
+  if (typeof window === 'undefined') return 1;
+  try {
+    const raw = window.localStorage.getItem(VOLUME_STORAGE_KEY);
+    if (raw === null) return 1;
+    const parsed = Number.parseFloat(raw);
+    return Number.isFinite(parsed) ? clampVolume(parsed) : 1;
+  } catch {
+    return 1; // localStorage bloqué (private mode strict, etc.)
+  }
+};
+
+const readStoredMuted = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(MUTED_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+
 type AudioPlayerContextType = {
   currentTrack: Track | null;
   isPlaying: boolean;
@@ -22,12 +48,16 @@ type AudioPlayerContextType = {
   currentIndex: number;
   canPlayNext: boolean;
   canPlayPrevious: boolean;
+  volume: number;
+  isMuted: boolean;
   playTrack: (track: Track) => void;
   playQueue: (tracks: Track[], startIndex?: number) => void;
   togglePlay: () => void;
   seekTo: (time: number) => void;
   playNext: () => void;
   playPrevious: () => void;
+  setVolume: (next: number) => void;
+  toggleMute: () => void;
 };
 
 const AudioPlayerContext = createContext<AudioPlayerContextType | null>(null);
@@ -49,12 +79,40 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
   const [duration, setDuration] = useState(0);
   const [queue, setQueue] = useState<Track[]>([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
+  const [volume, setVolumeState] = useState<number>(() => readStoredVolume());
+  const [isMuted, setIsMutedState] = useState<boolean>(() => readStoredMuted());
   const queueRef = useRef<Track[]>([]);
   const currentIndexRef = useRef(-1);
+  const volumeRef = useRef(volume);
+  const isMutedRef = useRef(isMuted);
+
+  // Volume effectivement appliqué à l'élément <audio> : 0 si muet, sinon le volume choisi.
+  const getEffectiveVolume = () => (isMutedRef.current ? 0 : volumeRef.current);
 
   useEffect(() => {
     queueRef.current = queue;
   }, [queue]);
+
+  useEffect(() => {
+    volumeRef.current = volume;
+  }, [volume]);
+
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
+
+  // Applique le volume à l'audio en cours (sauf pendant un fondu) et le persiste.
+  useEffect(() => {
+    if (audioRef.current && fadeIntervalRef.current === null) {
+      audioRef.current.volume = isMuted ? 0 : volume;
+    }
+    try {
+      window.localStorage.setItem(VOLUME_STORAGE_KEY, String(volume));
+      window.localStorage.setItem(MUTED_STORAGE_KEY, isMuted ? '1' : '0');
+    } catch {
+      /* localStorage bloqué (private mode strict, etc.) */
+    }
+  }, [volume, isMuted]);
 
   useEffect(() => {
     currentIndexRef.current = currentIndex;
@@ -100,9 +158,23 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     setCurrentIndex(-1);
   };
 
+  const setVolume = (next: number) => {
+    const clamped = clampVolume(next);
+    setVolumeState(clamped);
+    // Remonter le curseur au-dessus de 0 rétablit automatiquement le son.
+    if (clamped > 0 && isMutedRef.current) {
+      setIsMutedState(false);
+    }
+  };
+
+  const toggleMute = () => {
+    setIsMutedState((prev) => !prev);
+  };
+
   const ensureAudio = () => {
     if (!audioRef.current) {
       audioRef.current = new Audio();
+      audioRef.current.volume = getEffectiveVolume();
       audioRef.current.ontimeupdate = () => {
         if (!audioRef.current) return;
         const current = audioRef.current.currentTime;
@@ -194,13 +266,19 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (audio.volume < 1) {
+    clearFadeInterval();
+
+    // Volume à restaurer après la pause (le volume choisi par l'utilisateur).
+    const targetVolume = getEffectiveVolume();
+    const startingVolume = audio.volume;
+
+    // Déjà silencieux : pause immédiate, sans fondu (sinon l'audio ne se mettrait jamais en pause).
+    if (startingVolume <= 0) {
+      audio.pause();
+      audio.volume = targetVolume;
       return;
     }
 
-    clearFadeInterval();
-
-    const startingVolume = audio.volume || 1;
     const steps = 5;
     const intervalTime = 20;
     const volumeStep = startingVolume / steps;
@@ -213,7 +291,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
       if (currentStep >= steps) {
         clearFadeInterval();
         audio.pause();
-        audio.volume = 1;
+        audio.volume = targetVolume;
       }
     }, intervalTime);
   };
@@ -274,7 +352,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     handledFailureKeyRef.current = null;
     clearFadeInterval();
     audio.pause();
-    audio.volume = 1;
+    audio.volume = getEffectiveVolume();
     audio.src = candidateUrl;
     audio.preload = 'auto';
     audio.currentTime = 0;
@@ -363,7 +441,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
         }
 
         clearFadeInterval();
-        audio.volume = 1;
+        audio.volume = getEffectiveVolume();
         void audio.play().then(() => {
           setIsPlaying(true);
           if (currentTrackRef.current) {
@@ -428,7 +506,7 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
       }
 
       clearFadeInterval();
-      audio.volume = 1;
+      audio.volume = getEffectiveVolume();
       void audio.play().then(() => {
         setIsPlaying(true);
         if (currentTrackRef.current) {
@@ -497,12 +575,16 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
         currentIndex,
         canPlayNext: currentIndex >= 0 && currentIndex < queue.length - 1,
         canPlayPrevious: currentIndex > 0 || (currentIndex === 0 && Boolean(currentTrack)),
+        volume,
+        isMuted,
         playTrack,
         playQueue,
         togglePlay,
         seekTo,
         playNext,
         playPrevious,
+        setVolume,
+        toggleMute,
       }}
     >
       {children}

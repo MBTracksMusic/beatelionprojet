@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pause, Play, RotateCcw, SkipBack, SkipForward } from 'lucide-react';
+import { Pause, Play, RotateCcw, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react';
 import { useAudioPlayer } from '../../context/AudioPlayerContext';
 
 function formatTime(time: number) {
@@ -17,11 +17,16 @@ export function GlobalAudioPlayer() {
     duration,
     canPlayNext,
     canPlayPrevious,
+    volume,
+    isMuted,
     togglePlay,
     playNext,
     playPrevious,
     seekTo,
+    setVolume,
+    toggleMute,
   } = useAudioPlayer();
+  const isSilent = isMuted || volume === 0;
   const [isChangingTrack, setIsChangingTrack] = useState(false);
   const isFinished = progress >= 100 && !isPlaying;
 
@@ -88,11 +93,40 @@ export function GlobalAudioPlayer() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleMute}
+              aria-label={isSilent ? 'Rétablir le son' : 'Couper le son'}
+              title={isSilent ? 'Rétablir le son' : 'Couper le son'}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-zinc-300 transition hover:text-white"
+            >
+              {isSilent ? (
+                <VolumeX className="h-4 w-4" />
+              ) : (
+                <Volume2 className="h-4 w-4" />
+              )}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={isMuted ? 0 : volume}
+              onChange={(e) => setVolume(Number.parseFloat(e.target.value))}
+              aria-label="Volume"
+              className="hidden h-1 w-20 cursor-pointer accent-rose-500 sm:block"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={playPrevious}
             disabled={!canPlayPrevious}
+            aria-label="Piste précédente"
+            title="Piste précédente"
             className="flex h-10 w-10 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 transition hover:border-zinc-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             <SkipBack className="h-4 w-4" />
@@ -105,6 +139,8 @@ export function GlobalAudioPlayer() {
               }
               togglePlay();
             }}
+            aria-label={isFinished ? 'Rejouer' : isPlaying ? 'Pause' : 'Lecture'}
+            title={isFinished ? 'Rejouer' : isPlaying ? 'Pause' : 'Lecture'}
             className="flex h-10 w-10 items-center justify-center rounded-full border border-rose-500/40 text-rose-400 transition hover:bg-rose-500 hover:text-black"
           >
             {isFinished ? (
@@ -119,10 +155,13 @@ export function GlobalAudioPlayer() {
             type="button"
             onClick={playNext}
             disabled={!canPlayNext}
+            aria-label="Piste suivante"
+            title="Piste suivante"
             className="flex h-10 w-10 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 transition hover:border-zinc-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             <SkipForward className="h-4 w-4" />
           </button>
+          </div>
         </div>
       </div>
     </div>
