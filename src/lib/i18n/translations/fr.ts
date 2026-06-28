@@ -1750,7 +1750,7 @@ export const fr = {
     battles: {
       awaitingAdminLabel: 'Battles en attente',
       unreadNotificationsLabel: 'Notifications IA non lues',
-      expired: 'Expiree',
+      expired: 'Expiré',
       rpcAdminRequired: 'Action reservee a un administrateur.',
       rpcRateLimit: 'Trop de requetes admin. Reessaye dans une minute.',
       rpcBattleNotFound: 'Battle introuvable.',
@@ -1796,6 +1796,8 @@ export const fr = {
       expiringSoon: 'Expiring Soon (24h)',
       noExpiringSoon: "Aucune battle proche de l'expiration.",
       voteEndLabel: 'Fin vote',
+      responseDeadlineLabel: 'Clôture auto',
+      responseDeadlineExpired: 'Expiré — clôture imminente',
       battlesTitle: 'Battles',
       noBattleForFilter: 'Aucune battle sur ce filtre.',
       customDuration: 'Duree custom: {days} jours',

@@ -1797,6 +1797,8 @@ export const en: TranslationSchema = {
       expiringSoon: 'Expiring soon (24h)',
       noExpiringSoon: 'No battle is close to expiration.',
       voteEndLabel: 'Voting end',
+      responseDeadlineLabel: 'Auto-close',
+      responseDeadlineExpired: 'Expired — closing soon',
       battlesTitle: 'Battles',
       noBattleForFilter: 'No battle for this filter.',
       customDuration: 'Custom duration: {days} days',
