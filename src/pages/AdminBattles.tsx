@@ -36,6 +36,7 @@ interface AdminBattleRow {
   accepted_at: string | null;
   admin_validated_at: string | null;
   voting_ends_at: string | null;
+  response_deadline: string | null;
   custom_duration_days: number | null;
   votes_producer1: number;
   votes_producer2: number;
@@ -351,6 +352,25 @@ function formatTimeRemaining(value: string | null, t: TranslateFn) {
   return `${minutes}${t('battles.minutesShort')}`;
 }
 
+// Pending-invitation variant of formatTimeRemaining: once the response deadline has
+// passed, the battle is closed shortly after — by the expiry cron (~15 min) or by an
+// admin clicking "Annuler" — so we surface "closing soon" instead of a bare "expired".
+function formatResponseDeadlineRemaining(value: string | null, t: TranslateFn) {
+  if (!value) return t('common.notAvailable');
+  const endMs = new Date(value).getTime();
+  if (!Number.isFinite(endMs)) return t('common.notAvailable');
+  if (endMs - Date.now() <= 0) return t('admin.battles.responseDeadlineExpired');
+  return formatTimeRemaining(value, t);
+}
+
+// Returns the deadline that matters for "expiring soon" surfacing, per battle status:
+// vote end for active/voting battles, response deadline for pending invitations.
+function relevantExpiryDeadline(battle: AdminBattleRow): string | null {
+  if (battle.status === 'active' || battle.status === 'voting') return battle.voting_ends_at;
+  if (battle.status === 'pending_acceptance') return battle.response_deadline;
+  return null;
+}
+
 function toCampaignStatusLabel(status: AdminBattleCampaignStatus) {
   if (status === 'applications_open') return 'Applications open';
   if (status === 'selection_locked') return 'Selection locked';
@@ -504,6 +524,7 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
           accepted_at,
           admin_validated_at,
           voting_ends_at,
+          response_deadline,
           custom_duration_days,
           votes_producer1,
           votes_producer2,
@@ -803,6 +824,7 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
         accepted_at,
         admin_validated_at,
         voting_ends_at,
+        response_deadline,
         custom_duration_days,
         votes_producer1,
         votes_producer2,
@@ -928,14 +950,16 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
 
     return battles
       .filter((battle) => {
-        if (battle.status !== 'active' && battle.status !== 'voting') return false;
-        if (!battle.voting_ends_at) return false;
-        const endsAtMs = new Date(battle.voting_ends_at).getTime();
+        const deadline = relevantExpiryDeadline(battle);
+        if (!deadline) return false;
+        const endsAtMs = new Date(deadline).getTime();
         return Number.isFinite(endsAtMs) && endsAtMs <= soonMs;
       })
       .sort((a, b) => {
-        const aMs = a.voting_ends_at ? new Date(a.voting_ends_at).getTime() : Number.MAX_SAFE_INTEGER;
-        const bMs = b.voting_ends_at ? new Date(b.voting_ends_at).getTime() : Number.MAX_SAFE_INTEGER;
+        const aDeadline = relevantExpiryDeadline(a);
+        const bDeadline = relevantExpiryDeadline(b);
+        const aMs = aDeadline ? new Date(aDeadline).getTime() : Number.MAX_SAFE_INTEGER;
+        const bMs = bDeadline ? new Date(bDeadline).getTime() : Number.MAX_SAFE_INTEGER;
         return aMs - bMs;
       });
   }, [battles]);
@@ -2085,47 +2109,55 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
             <p className="text-zinc-500 text-sm">{t('admin.battles.noExpiringSoon')}</p>
           ) : (
             <ul className="space-y-2">
-              {expiringSoonBattles.slice(0, 8).map((battle) => (
+              {expiringSoonBattles.slice(0, 8).map((battle) => {
+                const isPendingAcceptance = battle.status === 'pending_acceptance';
+                const expiryDeadline = relevantExpiryDeadline(battle);
+                return (
                 <li key={`expiring-${battle.id}`} className="border border-zinc-800 rounded bg-zinc-900/50 p-3">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div>
                       <p className="text-zinc-100 font-medium">{battle.title}</p>
-                      <p className="text-xs text-zinc-400">
-                        {t('admin.battles.voteEndLabel')}: {formatVotingEnd(battle.voting_ends_at, t)} • {formatTimeRemaining(battle.voting_ends_at, t)}
+                      <p className={`text-xs ${isPendingAcceptance ? 'text-amber-400' : 'text-zinc-400'}`}>
+                        {isPendingAcceptance ? t('admin.battles.responseDeadlineLabel') : t('admin.battles.voteEndLabel')}: {formatVotingEnd(expiryDeadline, t)}{expiryDeadline ? ` • ${isPendingAcceptance ? formatResponseDeadlineRemaining(expiryDeadline, t) : formatTimeRemaining(expiryDeadline, t)}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        isLoading={extendActionKey === `extend:${battle.id}:1`}
-                        onClick={() => extendBattleDuration(battle.id, 1, extensionReasonByBattleId[battle.id] ?? null)}
-                      >
-                        {t('admin.battles.extensionPreset', { days: 1, unit: t('battles.daysShort') })}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        isLoading={extendActionKey === `extend:${battle.id}:3`}
-                        onClick={() => extendBattleDuration(battle.id, 3, extensionReasonByBattleId[battle.id] ?? null)}
-                      >
-                        {t('admin.battles.extensionPreset', { days: 3, unit: t('battles.daysShort') })}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        isLoading={extendActionKey === `extend:${battle.id}:7`}
-                        onClick={() => extendBattleDuration(battle.id, 7, extensionReasonByBattleId[battle.id] ?? null)}
-                      >
-                        {t('admin.battles.extensionPreset', { days: 7, unit: t('battles.daysShort') })}
-                      </Button>
+                      {!isPendingAcceptance && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            isLoading={extendActionKey === `extend:${battle.id}:1`}
+                            onClick={() => extendBattleDuration(battle.id, 1, extensionReasonByBattleId[battle.id] ?? null)}
+                          >
+                            {t('admin.battles.extensionPreset', { days: 1, unit: t('battles.daysShort') })}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            isLoading={extendActionKey === `extend:${battle.id}:3`}
+                            onClick={() => extendBattleDuration(battle.id, 3, extensionReasonByBattleId[battle.id] ?? null)}
+                          >
+                            {t('admin.battles.extensionPreset', { days: 3, unit: t('battles.daysShort') })}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            isLoading={extendActionKey === `extend:${battle.id}:7`}
+                            onClick={() => extendBattleDuration(battle.id, 7, extensionReasonByBattleId[battle.id] ?? null)}
+                          >
+                            {t('admin.battles.extensionPreset', { days: 7, unit: t('battles.daysShort') })}
+                          </Button>
+                        </>
+                      )}
                       <Link to={`/battles/${battle.slug}`}>
                         <Button size="sm" variant="ghost">{t('common.open')}</Button>
                       </Link>
                     </div>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </Card>
@@ -2197,6 +2229,12 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
                         {t('admin.battles.voteEndLabel')}: {formatVotingEnd(battle.voting_ends_at, t)}
                         {battle.voting_ends_at ? ` • ${formatTimeRemaining(battle.voting_ends_at, t)}` : ''}
                       </p>
+                      {battle.status === 'pending_acceptance' && (
+                        <p className="text-xs text-amber-400">
+                          {t('admin.battles.responseDeadlineLabel')}: {formatVotingEnd(battle.response_deadline, t)}
+                          {battle.response_deadline ? ` • ${formatResponseDeadlineRemaining(battle.response_deadline, t)}` : ''}
+                        </p>
+                      )}
                       {battle.custom_duration_days !== null && (
                         <p className="text-xs text-zinc-500">
                           {t('admin.battles.customDuration', { days: battle.custom_duration_days })}
