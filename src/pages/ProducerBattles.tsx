@@ -52,6 +52,7 @@ interface IncomingBattle {
   status: BattleStatus;
   response_deadline: string | null;
   genre_id: string | null;
+  product2_id: string | null;
   producer1?: { username: string | null };
   product1?: { title: string };
   product2?: { title: string };
@@ -448,8 +449,11 @@ export function ProducerBattlesPage() {
     [producer2Products, occupiedProductIds, t]
   );
 
-  const buildAcceptBeatOptions = (genreId: string | null) => [
-    { value: '', label: t('producerBattles.chooseProduct') },
+  const buildAcceptBeatOptions = (
+    genreId: string | null,
+    preassignedProductId?: string | null
+  ) => [
+    { value: '', label: t('producerBattles.chooseProduct'), disabled: false },
     ...myProducts
       .filter(
         (p) =>
@@ -459,7 +463,12 @@ export function ProducerBattlesPage() {
       )
       .filter((p) => !genreId || p.genre_id === genreId)
       .map((p) => {
-        const occupied = occupiedProductIds.has(p.id);
+        // A beat that producer 1 pre-assigned to THIS battle is locked to this
+        // very battle, not engaged elsewhere. Accepting simply re-confirms it
+        // (the lock-sync trigger re-creates the lock for the same battle), so it
+        // must stay selectable instead of showing as "already in battle".
+        const occupied =
+          occupiedProductIds.has(p.id) && p.id !== preassignedProductId;
         return {
           value: p.id,
           label: occupied
@@ -584,6 +593,7 @@ export function ProducerBattlesPage() {
           status,
           response_deadline,
           genre_id,
+          product2_id,
           producer1:user_profiles!battles_producer1_id_fkey(username),
           product1:products!battles_product1_id_fkey(title),
           product2:products!battles_product2_id_fkey(title)
@@ -1489,11 +1499,18 @@ export function ProducerBattlesPage() {
                   </div>
 
                   {(() => {
-                    const beatOptions = buildAcceptBeatOptions(battle.genre_id);
-                    const hasEligibleBeat = beatOptions.length > 1;
+                    const beatOptions = buildAcceptBeatOptions(battle.genre_id, battle.product2_id);
+                    const hasEligibleBeat = beatOptions.some((option) => !option.disabled && option.value !== '');
                     const genre = genres.find((g) => g.id === battle.genre_id);
                     const genreName = genre ? getLocalizedName(genre, language) : null;
-                    const selectedBeat = acceptBeatByBattle[battle.id] || '';
+                    // If producer 1 pre-assigned a beat to this battle, offer it as the
+                    // default choice so the invited producer can accept in one click.
+                    const preassignedBeat =
+                      battle.product2_id &&
+                      beatOptions.some((option) => option.value === battle.product2_id && !option.disabled)
+                        ? battle.product2_id
+                        : '';
+                    const selectedBeat = acceptBeatByBattle[battle.id] || preassignedBeat;
                     return (
                       <div className="space-y-2">
                         {genreName && (
