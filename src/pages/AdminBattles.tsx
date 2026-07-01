@@ -90,9 +90,11 @@ interface AdminNotificationRow {
 
 type NotificationReviewState = 'pending' | 'executed' | 'rejected' | 'failed' | 'done';
 type NotificationFilter = 'pending' | 'done' | 'all';
+type NotificationKind = 'battle_validation' | 'ai_action' | 'forum' | 'generic';
 
 interface EnrichedNotification {
   notification: AdminNotificationRow;
+  kind: NotificationKind;
   action: AiActionRow | null;
   actionType: string | null;
   entityType: string | null;
@@ -103,6 +105,11 @@ interface EnrichedNotification {
   reviewState: NotificationReviewState;
   canApprove: boolean;
   canReject: boolean;
+  canValidateBattle: boolean;
+  battleId: string | null;
+  battleTitle: string | null;
+  producer1Name: string | null;
+  producer2Name: string | null;
   targetUrl: string | null;
 }
 
@@ -1428,8 +1435,34 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
       const classification = asString(aiDecision.classification);
       const suggestedAction = asString(aiDecision.suggested_action);
 
+      // Battle-awaiting-validation notifications carry their own rich payload
+      // (title / producers / slug) and are NOT AI actions.
+      const battleId = asString(notification.payload.battle_id) ?? (entityType === 'battle' ? entityId : null);
+      const battleTitle = asString(notification.payload.battle_title);
+      const producer1Name = asString(notification.payload.producer1_name);
+      const producer2Name = asString(notification.payload.producer2_name);
+      const battleSlug = asString(notification.payload.battle_slug);
+
+      let kind: NotificationKind;
+      if (notification.type === 'battle_awaiting_validation') {
+        kind = 'battle_validation';
+      } else if (action || actionType) {
+        kind = 'ai_action';
+      } else if (notification.type === 'forum_review_required') {
+        kind = 'forum';
+      } else {
+        kind = 'generic';
+      }
+
       let reviewState: NotificationReviewState;
-      if (action) {
+      if (kind === 'battle_validation') {
+        const linkedBattle = battleId ? battleById.get(battleId) : undefined;
+        if (linkedBattle) {
+          reviewState = linkedBattle.status === 'awaiting_admin' ? 'pending' : 'done';
+        } else {
+          reviewState = notification.is_read ? 'done' : 'pending';
+        }
+      } else if (action) {
         reviewState = action.status === 'proposed'
           ? 'pending'
           : action.status === 'executed'
@@ -1452,9 +1485,16 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
       );
       const canApprove = canApproveBattle || canApproveComment;
       const canReject = Boolean(action && isProposed);
+      const canValidateBattle = Boolean(kind === 'battle_validation' && reviewState === 'pending' && battleId);
+
+      let targetUrl = resolveTargetUrl(entityType, entityId);
+      if (!targetUrl && kind === 'battle_validation' && battleSlug) {
+        targetUrl = `/battles/${battleSlug}`;
+      }
 
       return {
         notification,
+        kind,
         action,
         actionType,
         entityType,
@@ -1465,10 +1505,15 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
         reviewState,
         canApprove,
         canReject,
-        targetUrl: resolveTargetUrl(entityType, entityId),
+        canValidateBattle,
+        battleId,
+        battleTitle,
+        producer1Name,
+        producer2Name,
+        targetUrl,
       };
     });
-  }, [notifications, aiActionById, commentById, battleSlugById, commentBattleSlugByCommentId]);
+  }, [notifications, aiActionById, commentById, battleById, battleSlugById, commentBattleSlugByCommentId]);
 
   const pendingNotificationsCount = useMemo(
     () => enrichedNotifications.filter((item) => item.reviewState === 'pending').length,
@@ -1512,6 +1557,22 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
     }
   };
 
+  const notificationHeadline = (item: EnrichedNotification): { lead: string; highlight: string; tone: string } => {
+    if (item.kind === 'battle_validation') {
+      return item.reviewState === 'pending'
+        ? { lead: '', highlight: t('admin.battles.battleAwaitingValidation'), tone: 'warning' }
+        : { lead: '', highlight: t('admin.battles.battleValidatedHeadline'), tone: 'positive' };
+    }
+    if (item.kind === 'forum') {
+      return { lead: '', highlight: t('admin.battles.forumReviewHeadline'), tone: 'warning' };
+    }
+    if (item.kind === 'generic') {
+      return { lead: '', highlight: t('admin.battles.genericNotificationHeadline'), tone: 'neutral' };
+    }
+    const phrase = notificationPhrase(item);
+    return { lead: t('admin.battles.aiProposeLead'), highlight: phrase.text, tone: phrase.tone };
+  };
+
   const toneClass = (tone: string) => {
     if (tone === 'positive') return 'text-emerald-300';
     if (tone === 'danger') return 'text-red-300';
@@ -1529,6 +1590,7 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
   };
 
   const classificationChip = (item: EnrichedNotification): { label: string; cls: string } | null => {
+    if (item.kind === 'battle_validation') return { label: t('admin.battles.entityBattle'), cls: 'bg-sky-500/15 text-sky-300 border-sky-500/30' };
     if (item.classification === 'toxic') return { label: t('admin.battles.classToxic'), cls: 'bg-red-500/15 text-red-300 border-red-500/30' };
     if (item.classification === 'spam') return { label: t('admin.battles.classSpam'), cls: 'bg-orange-500/15 text-orange-300 border-orange-500/30' };
     if (item.classification === 'borderline') return { label: t('admin.battles.classBorderline'), cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' };
@@ -2739,9 +2801,11 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
             <ul className="space-y-3">
               {filteredNotifications.slice(0, 12).map((item) => {
                 const { notification, action } = item;
-                const phrase = notificationPhrase(item);
+                const headline = notificationHeadline(item);
                 const chip = classificationChip(item);
-                const stateChip = reviewStateChip(item.reviewState);
+                const stateChip = item.kind === 'battle_validation' && item.reviewState !== 'pending'
+                  ? { label: t('admin.battles.reviewValidated'), cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' }
+                  : reviewStateChip(item.reviewState);
                 const conf = confidenceTone(item.confidence);
                 const reasonText = notificationReasonText(item);
                 const battle = item.entityType === 'battle' && item.entityId ? battleById.get(item.entityId) : undefined;
@@ -2760,8 +2824,8 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
                           {chip && <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${chip.cls}`}>{chip.label}</span>}
                         </div>
                         <p className="text-white font-medium">
-                          {t('admin.battles.aiProposeLead')}
-                          <span className={toneClass(phrase.tone)}>{phrase.text}</span>
+                          {headline.lead}
+                          <span className={toneClass(headline.tone)}>{headline.highlight}</span>
                         </p>
                       </div>
                       {item.confidence !== null && (
@@ -2779,8 +2843,19 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
                       )}
                     </div>
 
-                    {(battle || comment || reasonText) && (
+                    {(battle || comment || reasonText || (item.kind === 'battle_validation' && item.battleTitle)) && (
                       <div className="text-sm space-y-1.5 border-l-2 border-zinc-700 pl-3">
+                        {item.kind === 'battle_validation' && item.battleTitle && (
+                          <p className="text-zinc-400">
+                            {t('admin.battles.targetBattleLine', { title: item.battleTitle })}
+                            {(item.producer1Name || item.producer2Name) && (
+                              <span className="text-zinc-500"> · {t('admin.battles.targetVersus', {
+                                p1: item.producer1Name || t('nav.producers'),
+                                p2: item.producer2Name || t('nav.producers'),
+                              })}</span>
+                            )}
+                          </p>
+                        )}
                         {battle && (
                           <p className="text-zinc-400">
                             {t('admin.battles.targetBattleLine', { title: battle.title })}
@@ -2842,7 +2917,17 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
                             {approveLabel(item)}
                           </Button>
                         )}
-                        {isPending && !item.canApprove && !item.canReject && !notification.is_read && (
+                        {item.canValidateBattle && item.battleId && (
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            isLoading={actionKey === `admin_validate_battle:${item.battleId}`}
+                            onClick={() => item.battleId && runBattleRpc('admin_validate_battle', item.battleId)}
+                          >
+                            {t('admin.battles.validate')}
+                          </Button>
+                        )}
+                        {isPending && item.kind !== 'battle_validation' && !item.canApprove && !item.canReject && !notification.is_read && (
                           <Button
                             size="sm"
                             variant="outline"
