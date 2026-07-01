@@ -88,6 +88,24 @@ interface AdminNotificationRow {
   created_at: string;
 }
 
+type NotificationReviewState = 'pending' | 'executed' | 'rejected' | 'failed' | 'done';
+type NotificationFilter = 'pending' | 'done' | 'all';
+
+interface EnrichedNotification {
+  notification: AdminNotificationRow;
+  action: AiActionRow | null;
+  actionType: string | null;
+  entityType: string | null;
+  entityId: string | null;
+  confidence: number | null;
+  classification: string | null;
+  suggestedAction: string | null;
+  reviewState: NotificationReviewState;
+  canApprove: boolean;
+  canReject: boolean;
+  targetUrl: string | null;
+}
+
 type AdminBattleCampaignStatus = 'applications_open' | 'selection_locked' | 'launched' | 'cancelled';
 type AdminBattleApplicationStatus = 'pending' | 'selected' | 'rejected';
 
@@ -475,6 +493,7 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
   const [evaluatingBattleId, setEvaluatingBattleId] = useState<string | null>(null);
   const [evaluatingCommentId, setEvaluatingCommentId] = useState<string | null>(null);
   const [aiActionKey, setAiActionKey] = useState<string | null>(null);
+  const [notificationFilter, setNotificationFilter] = useState<NotificationFilter>('pending');
   const [campaigns, setCampaigns] = useState<AdminBattleCampaignRow[]>([]);
   const [campaignApplications, setCampaignApplications] = useState<AdminBattleApplicationRow[]>([]);
   const [campaignProducersById, setCampaignProducersById] = useState<Record<string, CampaignProducerRow>>({});
@@ -1053,6 +1072,30 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
     return map;
   }, [comments]);
 
+  const aiActionById = useMemo(() => {
+    const map = new Map<string, AiActionRow>();
+    for (const action of aiActions) {
+      map.set(action.id, action);
+    }
+    return map;
+  }, [aiActions]);
+
+  const battleById = useMemo(() => {
+    const map = new Map<string, AdminBattleRow>();
+    for (const battle of battles) {
+      map.set(battle.id, battle);
+    }
+    return map;
+  }, [battles]);
+
+  const commentById = useMemo(() => {
+    const map = new Map<string, AdminCommentRow>();
+    for (const comment of comments) {
+      map.set(comment.id, comment);
+    }
+    return map;
+  }, [comments]);
+
   const markNotificationsReadByActionId = async (actionId: string) => {
     await supabase
       .from('admin_notifications')
@@ -1358,32 +1401,195 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
     await loadData();
   };
 
-  const getNotificationActionId = (notification: AdminNotificationRow) =>
-    asString(notification.payload.action_id);
+  const enrichedNotifications = useMemo<EnrichedNotification[]>(() => {
+    const resolveTargetUrl = (entityType: string | null, entityId: string | null) => {
+      if (!entityType || !entityId) return null;
+      if (entityType === 'battle') {
+        const slug = battleSlugById.get(entityId);
+        return slug ? `/battles/${slug}` : null;
+      }
+      if (entityType === 'comment') {
+        const slug = commentBattleSlugByCommentId.get(entityId);
+        return slug ? `/battles/${slug}` : null;
+      }
+      return null;
+    };
 
-  const getNotificationTargetUrl = (notification: AdminNotificationRow) => {
-    const entityType = asString(notification.payload.entity_type);
-    const entityId = asString(notification.payload.entity_id);
-    if (!entityType || !entityId) return null;
+    return notifications.map((notification) => {
+      const actionId = asString(notification.payload.action_id);
+      const action = actionId ? aiActionById.get(actionId) ?? null : null;
+      const actionType = action?.action_type ?? asString(notification.payload.action_type);
+      const entityType = action?.entity_type ?? asString(notification.payload.entity_type);
+      const entityId = action?.entity_id ?? asString(notification.payload.entity_id);
+      const payloadConfidence = notification.payload.confidence_score;
+      const confidence = action?.confidence_score
+        ?? (typeof payloadConfidence === 'number' ? payloadConfidence : null);
+      const aiDecision = action ? asRecord(action.ai_decision) : {};
+      const classification = asString(aiDecision.classification);
+      const suggestedAction = asString(aiDecision.suggested_action);
 
-    if (entityType === 'battle') {
-      const slug = battleSlugById.get(entityId);
-      return slug ? `/battles/${slug}` : null;
+      let reviewState: NotificationReviewState;
+      if (action) {
+        reviewState = action.status === 'proposed'
+          ? 'pending'
+          : action.status === 'executed'
+          ? 'executed'
+          : action.status === 'overridden'
+          ? 'rejected'
+          : 'failed';
+      } else {
+        reviewState = notification.is_read ? 'done' : 'pending';
+      }
+
+      const isProposed = action?.status === 'proposed';
+      const canApproveBattle = Boolean(isProposed && (actionType === 'battle_validate' || actionType === 'battle_cancel'));
+      const canApproveComment = Boolean(
+        isProposed
+          && actionType === 'comment_moderation'
+          && suggestedAction === 'hide'
+          && entityId
+          && commentById.has(entityId)
+      );
+      const canApprove = canApproveBattle || canApproveComment;
+      const canReject = Boolean(action && isProposed);
+
+      return {
+        notification,
+        action,
+        actionType,
+        entityType,
+        entityId,
+        confidence,
+        classification,
+        suggestedAction,
+        reviewState,
+        canApprove,
+        canReject,
+        targetUrl: resolveTargetUrl(entityType, entityId),
+      };
+    });
+  }, [notifications, aiActionById, commentById, battleSlugById, commentBattleSlugByCommentId]);
+
+  const pendingNotificationsCount = useMemo(
+    () => enrichedNotifications.filter((item) => item.reviewState === 'pending').length,
+    [enrichedNotifications]
+  );
+
+  const filteredNotifications = useMemo(() => {
+    if (notificationFilter === 'pending') {
+      return enrichedNotifications.filter((item) => item.reviewState === 'pending');
     }
-
-    if (entityType === 'comment') {
-      const slug = commentBattleSlugByCommentId.get(entityId);
-      return slug ? `/battles/${slug}` : null;
+    if (notificationFilter === 'done') {
+      return enrichedNotifications.filter((item) => item.reviewState !== 'pending');
     }
+    return enrichedNotifications;
+  }, [enrichedNotifications, notificationFilter]);
 
+  const notificationPhrase = (item: EnrichedNotification): { text: string; tone: string } => {
+    const type = item.actionType ?? item.notification.type;
+    switch (type) {
+      case 'battle_validate':
+        return { text: t('admin.battles.phraseValidateBattle'), tone: 'positive' };
+      case 'battle_cancel':
+        return { text: t('admin.battles.phraseCancelBattle'), tone: 'danger' };
+      case 'battle_finalize':
+        return { text: t('admin.battles.phraseFinalizeBattle'), tone: 'info' };
+      case 'comment_moderation':
+        if (item.suggestedAction === 'hide') return { text: t('admin.battles.phraseHideComment'), tone: 'danger' };
+        if (item.suggestedAction === 'review') return { text: t('admin.battles.phraseFlagComment'), tone: 'warning' };
+        if (item.suggestedAction === 'allow') return { text: t('admin.battles.phraseAllowComment'), tone: 'positive' };
+        return { text: t('admin.battles.phraseModerateComment'), tone: 'danger' };
+      case 'match_recommendation':
+        return { text: t('admin.battles.phraseRecommendMatch'), tone: 'info' };
+      case 'battle_duration_set':
+        return { text: t('admin.battles.phraseSetDuration'), tone: 'info' };
+      case 'battle_duration_extended':
+        return { text: t('admin.battles.phraseExtendDuration'), tone: 'info' };
+      case 'forum_review_required':
+        return { text: t('admin.battles.phraseForumReview'), tone: 'warning' };
+      default:
+        return { text: t('admin.battles.phraseGenericAction'), tone: 'neutral' };
+    }
+  };
+
+  const toneClass = (tone: string) => {
+    if (tone === 'positive') return 'text-emerald-300';
+    if (tone === 'danger') return 'text-red-300';
+    if (tone === 'warning') return 'text-amber-300';
+    if (tone === 'info') return 'text-sky-300';
+    return 'text-zinc-200';
+  };
+
+  const confidenceTone = (score: number | null) => {
+    if (score === null) return { bar: 'bg-zinc-600', text: 'text-zinc-400', width: 0 };
+    const pct = Math.round(score * 100);
+    if (score >= 0.85) return { bar: 'bg-emerald-400', text: 'text-emerald-300', width: pct };
+    if (score >= 0.6) return { bar: 'bg-amber-400', text: 'text-amber-300', width: pct };
+    return { bar: 'bg-red-400', text: 'text-red-300', width: pct };
+  };
+
+  const classificationChip = (item: EnrichedNotification): { label: string; cls: string } | null => {
+    if (item.classification === 'toxic') return { label: t('admin.battles.classToxic'), cls: 'bg-red-500/15 text-red-300 border-red-500/30' };
+    if (item.classification === 'spam') return { label: t('admin.battles.classSpam'), cls: 'bg-orange-500/15 text-orange-300 border-orange-500/30' };
+    if (item.classification === 'borderline') return { label: t('admin.battles.classBorderline'), cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' };
+    if (item.classification === 'safe') return { label: t('admin.battles.classSafe'), cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' };
+    if (item.entityType === 'battle') return { label: t('admin.battles.entityBattle'), cls: 'bg-sky-500/15 text-sky-300 border-sky-500/30' };
+    if (item.entityType === 'comment') return { label: t('admin.battles.entityComment'), cls: 'bg-zinc-500/15 text-zinc-300 border-zinc-600/40' };
     return null;
   };
 
-  const getNotificationLabel = (notification: AdminNotificationRow) => {
-    const actionType = asString(notification.payload.action_type);
-    const confidence = notification.payload.confidence_score;
-    const confidenceLabel = typeof confidence === 'number' ? ` (${Math.round(confidence * 100)}%)` : '';
-    return `${toAiActionLabel(actionType, t)}${confidenceLabel}`;
+  const reviewStateChip = (state: NotificationReviewState): { label: string; cls: string } => {
+    if (state === 'pending') return { label: t('admin.battles.reviewPending'), cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' };
+    if (state === 'executed') return { label: t('admin.battles.reviewExecuted'), cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' };
+    if (state === 'rejected') return { label: t('admin.battles.reviewRejected'), cls: 'bg-red-500/10 text-red-300 border-red-500/30' };
+    if (state === 'failed') return { label: t('admin.battles.reviewFailed'), cls: 'bg-red-500/15 text-red-300 border-red-500/30' };
+    return { label: t('admin.battles.reviewDone'), cls: 'bg-zinc-700/40 text-zinc-300 border-zinc-600/40' };
+  };
+
+  const approveLabel = (item: EnrichedNotification) => {
+    if (item.actionType === 'battle_validate') return t('admin.battles.approveAndValidate');
+    if (item.actionType === 'battle_cancel') return t('admin.battles.approveAndCancel');
+    if (item.actionType === 'comment_moderation') return t('admin.battles.approveAndHide');
+    return t('admin.battles.approveGeneric');
+  };
+
+  const notificationReasonText = (item: EnrichedNotification): string | null => {
+    const action = item.action;
+    if (action?.reason && action.reason.trim().length > 0) return action.reason.trim();
+    const aiDecision = action ? asRecord(action.ai_decision) : {};
+    const code = asString(aiDecision.reason);
+    if (code === 'toxic_keyword_match') return t('admin.battles.reasonToxicKeyword');
+    if (code === 'spam_signal_match') return t('admin.battles.reasonSpamSignal');
+    if (code === 'borderline_toxicity_signal') return t('admin.battles.reasonBorderline');
+    if (code === 'no_signal') return t('admin.battles.reasonNoSignal');
+    if (code === 'empty_comment') return t('admin.battles.reasonEmptyComment');
+    return null;
+  };
+
+  const approveNotificationAction = async (item: EnrichedNotification) => {
+    const action = item.action;
+    if (!action) return;
+
+    if (action.action_type === 'battle_validate' || action.action_type === 'battle_cancel') {
+      await applyBattleRecommendation(action, 'manual');
+      return;
+    }
+
+    if (action.action_type === 'comment_moderation') {
+      const comment = item.entityId ? commentById.get(item.entityId) : undefined;
+      if (!comment) {
+        setError(t('admin.battles.commentNotFoundForAction'));
+        return;
+      }
+      if (comment.is_hidden) {
+        await markNotificationsReadByActionId(action.id);
+        await loadData();
+        return;
+      }
+      setAiActionKey(`manual:${action.id}`);
+      await toggleCommentModeration(comment);
+      setAiActionKey(null);
+    }
   };
 
   const onCampaignCoverImageChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -2496,48 +2702,159 @@ export function AdminBattlesPage({ onAwaitingAdminCountChange }: AdminBattlesPag
         <Card className="space-y-4">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <h2 className="text-lg font-semibold text-white">{t('admin.battles.aiNotifications')}</h2>
-            <Badge variant={unreadNotificationsCount > 0 ? 'warning' : 'default'}>
-              {t('admin.battles.unreadCount', { count: unreadNotificationsCount })}
+            <Badge variant={pendingNotificationsCount > 0 ? 'warning' : 'default'}>
+              {t('admin.battles.pendingCount', { count: pendingNotificationsCount })}
             </Badge>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-xs">
+            {([
+              { key: 'pending' as const, label: t('admin.battles.tabPending') },
+              { key: 'done' as const, label: t('admin.battles.tabDone') },
+              { key: 'all' as const, label: t('admin.battles.tabAll') },
+            ]).map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setNotificationFilter(tab.key)}
+                className={`px-3 py-1.5 rounded-full font-medium transition-colors ${
+                  notificationFilter === tab.key
+                    ? 'bg-rose-600 text-white'
+                    : 'bg-zinc-800/70 text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                {tab.label}
+                {tab.key === 'pending' && pendingNotificationsCount > 0 ? ` · ${pendingNotificationsCount}` : ''}
+              </button>
+            ))}
           </div>
 
           {isLoading ? (
             <p className="text-zinc-400 text-sm">{t('common.loading')}</p>
-          ) : notifications.length === 0 ? (
+          ) : enrichedNotifications.length === 0 ? (
             <p className="text-zinc-500 text-sm">{t('admin.battles.noNotifications')}</p>
+          ) : filteredNotifications.length === 0 ? (
+            <p className="text-zinc-500 text-sm">{t('admin.battles.noNotificationsForFilter')}</p>
           ) : (
-            <ul className="space-y-2">
-              {notifications.slice(0, 8).map((notification) => {
-                const targetUrl = getNotificationTargetUrl(notification);
-                const linkedActionId = getNotificationActionId(notification);
+            <ul className="space-y-3">
+              {filteredNotifications.slice(0, 12).map((item) => {
+                const { notification, action } = item;
+                const phrase = notificationPhrase(item);
+                const chip = classificationChip(item);
+                const stateChip = reviewStateChip(item.reviewState);
+                const conf = confidenceTone(item.confidence);
+                const reasonText = notificationReasonText(item);
+                const battle = item.entityType === 'battle' && item.entityId ? battleById.get(item.entityId) : undefined;
+                const comment = item.entityType === 'comment' && item.entityId ? commentById.get(item.entityId) : undefined;
+                const isPending = item.reviewState === 'pending';
+                const commentExcerpt = comment?.content
+                  ? (comment.content.length > 140 ? `${comment.content.slice(0, 140)}…` : comment.content)
+                  : null;
 
                 return (
-                  <li key={notification.id} className="border border-zinc-800 rounded bg-zinc-900/60 p-3 text-sm">
-                    <div className="flex items-center justify-between gap-3 flex-wrap">
-                      <div>
-                        <p className="text-zinc-200 font-medium">
-                          {getNotificationLabel(notification)}
-                          {!notification.is_read && <span className="text-amber-300"> • {t('admin.battles.newBadge')}</span>}
+                  <li key={notification.id} className="border border-zinc-800 rounded-lg bg-zinc-900/50 p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${stateChip.cls}`}>{stateChip.label}</span>
+                          {chip && <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${chip.cls}`}>{chip.label}</span>}
+                        </div>
+                        <p className="text-white font-medium">
+                          {t('admin.battles.aiProposeLead')}
+                          <span className={toneClass(phrase.tone)}>{phrase.text}</span>
                         </p>
-                        <p className="text-zinc-500 text-xs">{formatDateTime(notification.created_at)}</p>
-                        {targetUrl && (
-                          <Link to={targetUrl} className="text-xs text-sky-300 hover:text-sky-200 inline-block mt-1">
-                            {t('admin.battles.openTarget')}
-                          </Link>
+                      </div>
+                      {item.confidence !== null && (
+                        <div className="text-right shrink-0">
+                          <p className="text-[11px] text-zinc-500 mb-1">{t('admin.battles.confidenceLabel')}</p>
+                          <div className="flex items-center gap-2 justify-end">
+                            <div className="w-24 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                              <div className={`h-full ${conf.bar}`} style={{ width: `${conf.width}%` }} />
+                            </div>
+                            <span className={`text-sm font-semibold tabular-nums ${conf.text}`}>
+                              {t('admin.battles.confidenceShort', { value: conf.width })}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {(battle || comment || reasonText) && (
+                      <div className="text-sm space-y-1.5 border-l-2 border-zinc-700 pl-3">
+                        {battle && (
+                          <p className="text-zinc-400">
+                            {t('admin.battles.targetBattleLine', { title: battle.title })}
+                            {(battle.producer1?.username || battle.producer2?.username) && (
+                              <span className="text-zinc-500"> · {t('admin.battles.targetVersus', {
+                                p1: battle.producer1?.username || t('nav.producers'),
+                                p2: battle.producer2?.username || t('nav.producers'),
+                              })}</span>
+                            )}
+                          </p>
                         )}
-                        {linkedActionId && (
-                          <p className="text-zinc-500 text-xs mt-1">{t('common.action')}: {linkedActionId}</p>
+                        {comment && (
+                          <p className="text-zinc-400">
+                            {t('admin.battles.targetCommentLine', {
+                              user: comment.user?.username || t('user.profile'),
+                              title: comment.battle?.title || comment.battle_id,
+                            })}
+                          </p>
+                        )}
+                        {comment && commentExcerpt && !comment.is_hidden && (
+                          <p className="text-zinc-300 italic">« {commentExcerpt} »</p>
+                        )}
+                        {reasonText && (
+                          <p className="text-zinc-500 text-xs">
+                            <span className="text-zinc-400">{t('admin.battles.reasonLead')}</span> {reasonText}
+                            {action && (
+                              <span> · {action.reversible ? t('admin.battles.reversibleTag') : t('admin.battles.notReversibleTag')}</span>
+                            )}
+                          </p>
                         )}
                       </div>
-                      {!notification.is_read && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => markNotificationRead(notification.id)}
-                        >
-                          {t('admin.battles.markRead')}
-                        </Button>
-                      )}
+                    )}
+
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <p className="text-zinc-600 text-xs">{formatDateTime(notification.created_at)}</p>
+                      <div className="flex items-center gap-2">
+                        {item.targetUrl && (
+                          <Link to={item.targetUrl} className="text-xs text-sky-300 hover:text-sky-200 px-2 py-1.5">
+                            {t('admin.battles.openShort')}
+                          </Link>
+                        )}
+                        {isPending && item.canReject && action && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            isLoading={aiActionKey === `reject:${action.id}`}
+                            onClick={() => rejectBattleRecommendation(action)}
+                          >
+                            {t('admin.battles.rejectAction')}
+                          </Button>
+                        )}
+                        {isPending && item.canApprove && action && (
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            isLoading={aiActionKey === `manual:${action.id}`}
+                            onClick={() => approveNotificationAction(item)}
+                          >
+                            {approveLabel(item)}
+                          </Button>
+                        )}
+                        {isPending && !item.canApprove && !item.canReject && !notification.is_read && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => markNotificationRead(notification.id)}
+                          >
+                            {t('admin.battles.markRead')}
+                          </Button>
+                        )}
+                        {item.reviewState === 'executed' && (
+                          <span className="text-zinc-600 text-xs">{t('admin.battles.executedByYou')}</span>
+                        )}
+                      </div>
                     </div>
                   </li>
                 );
